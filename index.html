@@ -663,11 +663,15 @@
     return {x,y};
   }
   function hexCorner(cx, cy, i){
+    // cx,cy приходят из pixelForHex() и уже наклонены (TILT_FACTOR применён к центру).
+    // Наклонять нужно только вертикальное смещение угла от центра, а не сам центр —
+    // иначе TILT_FACTOR применяется дважды и полигон гекса "уезжает" вниз относительно
+    // юнитов/столиц, которые рисуются прямо в pixelForHex-точке.
     const angle = Math.PI/180 * (60*i - 30);
     const rEff = hexSize * 1.02;
     return { 
       x: cx + rEff * Math.cos(angle), 
-      y: (cy + rEff * Math.sin(angle)) * TILT_FACTOR // Сжимаем по вертикали
+      y: cy + rEff * Math.sin(angle) * TILT_FACTOR // Сжимаем только смещение, не центр
     };
   }
 
@@ -1671,7 +1675,10 @@
     const minY = Math.min(...pts.map(p=>p.y)) - hexSize * 1.6;
     const maxY = Math.max(...pts.map(p=>p.y)) + hexSize * 1.6;
     canvas.width = maxX-minX;
-    canvas.height = maxY-minY;
+    // Контент по вертикали сжимается на TILT_FACTOR внутри pixelForHex
+    // ((axialY + offY) * TILT_FACTOR), поэтому высоту канваса тоже уменьшаем —
+    // иначе снизу остаётся пустая полоса ровно в (1 - TILT_FACTOR) высоты карты.
+    canvas.height = (maxY-minY) * TILT_FACTOR;
     canvas.dataset.offx = -minX;
     canvas.dataset.offy = -minY;
     isStaticLayerDirty = true;
@@ -1698,8 +1705,11 @@
     const rect = canvas.getBoundingClientRect();
     const offX = canvas.dataset.offx ? parseFloat(canvas.dataset.offx) : 0;
     const offY = canvas.dataset.offy ? parseFloat(canvas.dataset.offy) : 0;
+    // pixelForHex делает: screenX = axialX + offX; screenY = (axialY + offY) * TILT_FACTOR.
+    // Здесь нужно применить обратное преобразование в том же порядке, иначе курсор
+    // "уезжает" по вертикали относительно наклонённой сетки.
     const mx = evt.clientX - rect.left - offX;
-    const my = evt.clientY - rect.top - offY;
+    const my = (evt.clientY - rect.top) / TILT_FACTOR - offY;
 
     const qf = (Math.sqrt(3)/3 * mx - 1/3 * my) / hexSize;
     const rf = (2/3 * my) / hexSize;
@@ -1993,8 +2003,10 @@
       const offX = canvas.dataset.offx ? parseFloat(canvas.dataset.offx) : 0;
       const offY = canvas.dataset.offy ? parseFloat(canvas.dataset.offy) : 0;
       
-      const currX = (fromP.x + (toP.x - fromP.x) * fu.progress) + offX;
-      const currY = (fromP.y + (toP.y - fromP.y) * fu.progress) + offY;
+      const rawX = fromP.x + (toP.x - fromP.x) * fu.progress;
+      const rawY = fromP.y + (toP.y - fromP.y) * fu.progress;
+      const currX = rawX + offX;
+      const currY = (rawY + offY) * TILT_FACTOR; // тот же порядок преобразования, что и в pixelForHex
 
       ctx.beginPath();
       ctx.arc(currX, currY, hexSize * 0.38, 0, Math.PI * 2);
@@ -2037,6 +2049,17 @@
     isStaticLayerDirty = false;
   }
 
+  // game.hexes — это Map, обходится в порядке вставки (создаётся по q, затем r —
+  // см. newGame), а не в порядке "глубины" сцены. Пока тилта не было, порядок
+  // отрисовки был не важен: гексы не перекрывали друг друга. С наклоном же юниты,
+  // столицы и т.п. могут визуально выходить за пределы своего гекса и должны
+  // рисоваться по правилу художника — сначала дальние (меньший r), затем ближние
+  // (больший r), чтобы близкие перекрывали дальние, а не наоборот.
+  // y в axialToPixel зависит только от r, так что сортировки по r достаточно.
+  function hexesByDepth(){
+    return Array.from(game.hexes.values()).sort((a,b)=> a.r - b.r);
+  }
+
   function render(){
     if(!ctx || !canvas) return;
     renderVersion++;
@@ -2046,8 +2069,10 @@
     if (isStaticLayerDirty) updateStaticLayer();
     ctx.drawImage(staticMapCanvas, 0, 0);
 
+    const depthOrder = hexesByDepth();
+
     //Layer 0
-    game.hexes.forEach(h=>{
+    depthOrder.forEach(h=>{
       if(h.owner !== null) drawFactionBorders(h) 
       if (activeRegionId !== null) drawActiveRegion(h);
       if (h.occupiedBy !== null) drawSiegeHatch(h);
@@ -2067,7 +2092,7 @@
       if(sh.unit && sh.unit.owner===0 && !game.over) drawPlayerReachable(sh)
     }
     //Layer 2
-    game.hexes.forEach(h => {
+    depthOrder.forEach(h => {
       if (h.unit) drawUnit(h);
       if(h.capital) drawCapital(h);
     });
