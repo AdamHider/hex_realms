@@ -1,0 +1,2397 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hex Realms Deluxe — sandbox territory strategy</title>
+<style>
+  :root{
+    --bg-deep:#101712;
+    --bg-panel:#1b241d;
+    --panel-line:#37402f;
+    --map-table:#1f2b21;
+    --gold:#d4a24c;
+    --gold-dim:#a4813e;
+    --text-primary:#e9e3cf;
+    --text-muted:#8b9686;
+    --danger:#b23b3b;
+    --success:#45a862;
+    --font-ui:'Trebuchet MS', system-ui, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0;padding:0;
+    background:var(--bg-deep);
+    color:var(--text-primary);
+    font-family:Georgia, 'Times New Roman', serif;
+    height:100%;
+  }
+  .eyebrow{
+    font-family:var(--font-ui);
+    text-transform:uppercase;
+    letter-spacing:.14em;
+    font-size:11px;
+    color:var(--text-muted);
+  }
+  #app{
+    display:flex;
+    flex-wrap:wrap;
+    min-height:100vh;
+    align-items:flex-start;
+    justify-content:center;
+    gap:18px;
+    padding:20px;
+  }
+  #boardWrap{
+    background:
+      radial-gradient(ellipse at 50% 0%, rgba(212,162,76,0.06), transparent 60%),
+      var(--map-table);
+    border:1px solid var(--panel-line);
+    border-radius:6px;
+    padding:14px;
+    position:relative;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.45);
+    max-width: calc(100vw - 380px);
+    overflow: auto;
+    display:flex;
+    flex-direction:column;
+  }
+  #titleRow{
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    margin-bottom:8px;
+    padding:0 4px;
+  }
+  #titleRow h1{
+    font-size:20px;
+    letter-spacing:.04em;
+    margin:0;
+    color:var(--gold);
+    font-weight:normal;
+  }
+  #roundLabel{
+    font-family:var(--font-ui);
+    font-size:12px;
+    letter-spacing:.1em;
+    text-transform:uppercase;
+    color:var(--text-muted);
+  }
+  canvas{
+    display:block;
+    border-radius:3px;
+    cursor:pointer;
+  }
+  #fixedTooltip{
+    margin-top:10px;
+    background:rgba(15,20,14,0.95);
+    border:1px solid var(--panel-line);
+    padding:10px 14px;
+    font-size:12px;
+    border-radius:4px;
+    color:var(--text-primary);
+    font-family:var(--font-ui);
+    min-height:54px;
+    box-shadow:0 4px 12px rgba(0,0,0,0.5);
+    line-height:1.4;
+  }
+  #panel{
+    width:328px;
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+  }
+  .card{
+    background:var(--bg-panel);
+    border:1px solid var(--panel-line);
+    border-radius:8px;
+    padding:14px;
+    box-shadow:0 6px 16px rgba(0,0,0,0.22);
+  }
+  .card h2{
+    display:flex;
+    align-items:center;
+    gap:7px;
+    font-size:12px;
+    margin:0 0 10px 0;
+    font-family:var(--font-ui);
+    text-transform:uppercase;
+    letter-spacing:.12em;
+    color:var(--text-muted);
+    border-bottom:1px solid var(--panel-line);
+    padding-bottom:8px;
+  }
+  .card h2 .icon{
+    font-size:13px;
+    filter:saturate(0.9);
+    line-height:1;
+  }
+  .card h2 .hint{
+    margin-left:auto;
+    text-transform:none;
+    letter-spacing:0;
+    font-size:11px;
+    color:var(--panel-line);
+  }
+
+  /* --- Faction roster --- */
+  .playerRow{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    padding:6px 4px;
+    font-size:14px;
+    border-radius:5px;
+    transition:background .12s;
+  }
+  .playerRow:not(.dead):hover{background:rgba(212,162,76,0.06);}
+  .swatch{
+    width:11px;height:11px;border-radius:50%;
+    flex-shrink:0;
+    box-shadow: 0 0 0 2px rgba(0,0,0,0.3) inset;
+  }
+  .playerName{flex:1;}
+  .playerGold{
+    color:var(--gold);
+    font-variant-numeric:tabular-nums;
+    font-size:13px;
+  }
+  .playerHexes{
+    color:var(--text-muted);
+    font-size:11px;
+    width:44px;
+    text-align:right;
+    font-family:var(--font-ui);
+  }
+  .dead{opacity:.35;text-decoration:line-through;}
+  .activePlayer{
+    font-weight:bold;
+    color:var(--gold);
+    background:rgba(212,162,76,0.07);
+  }
+
+  /* --- Selection / orders card --- */
+  #selectedInfo{
+    font-size:13px;
+    line-height:1.6;
+    min-height:52px;
+    padding:8px 10px;
+    background:var(--bg-deep);
+    border:1px solid var(--panel-line);
+    border-radius:5px;
+  }
+  #selectedInfo .placeholder{color:var(--text-muted);font-style:italic;}
+  .infoRow{display:flex;justify-content:space-between;}
+  .infoRow .k{color:var(--text-muted);}
+
+  /* --- Buttons --- */
+  button{
+    font-family:var(--font-ui);
+    text-transform:uppercase;
+    letter-spacing:.06em;
+    font-size:12px;
+    font-weight:600;
+    border:1px solid var(--gold-dim);
+    background:transparent;
+    color:var(--gold);
+    padding:9px 10px;
+    border-radius:5px;
+    cursor:pointer;
+    width:100%;
+    margin-top:8px;
+    transition:background .15s, color .15s, transform .08s, box-shadow .15s;
+  }
+  button:hover:not(:disabled){
+    background:var(--gold);
+    color:#1b1305;
+    box-shadow:0 2px 10px rgba(212,162,76,0.25);
+  }
+  button:active:not(:disabled){transform:translateY(1px);}
+  button:focus-visible{outline:2px solid var(--gold);outline-offset:2px;}
+  button:disabled{
+    opacity:.3;
+    cursor:not-allowed;
+  }
+  #endTurnBtn{
+    background:var(--gold);
+    color:#1b1305;
+    font-size:13px;
+    letter-spacing:.1em;
+    padding:13px;
+    margin-top:0;
+    box-shadow:0 4px 14px rgba(212,162,76,0.18);
+  }
+  #endTurnBtn:hover:not(:disabled){background:#e6b464;}
+
+  /* --- Campaign log --- */
+  #log{
+    font-size:12px;
+    color:var(--text-muted);
+    max-height:130px;
+    overflow-y:auto;
+    display:flex;
+    flex-direction:column-reverse;
+    gap:4px;
+    font-family:var(--font-ui);
+    line-height:1.45;
+  }
+  #log div{border-bottom:1px dotted var(--panel-line);padding-bottom:4px;}
+  #log::-webkit-scrollbar{width:6px;}
+  #log::-webkit-scrollbar-thumb{background:var(--panel-line);border-radius:3px;}
+
+  /* --- Rules legend --- */
+  .legendGrid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:7px 10px;
+    font-size:12px;
+  }
+  .legendItem{display:flex;align-items:center;gap:6px;}
+  .legendSwatch{width:14px;height:14px;border-radius:4px;flex-shrink:0;box-shadow:0 0 0 1px rgba(0,0,0,0.25) inset;}
+
+  /* --- Settings --- */
+  .settingsGroup{margin-bottom:4px;}
+  .settingsGroup summary{
+    cursor:pointer;
+    list-style:none;
+    display:flex;
+    align-items:center;
+    gap:6px;
+    font-family:var(--font-ui);
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:.1em;
+    color:var(--text-muted);
+    padding:6px 2px;
+    border-radius:4px;
+    transition:color .12s;
+  }
+  .settingsGroup summary:hover{color:var(--gold);}
+  .settingsGroup summary::-webkit-details-marker{display:none;}
+  .settingsGroup summary::before{
+    content:'▸';
+    display:inline-block;
+    transition:transform .15s;
+    color:var(--gold-dim);
+  }
+  .settingsGroup[open] summary::before{transform:rotate(90deg);}
+  .settingsGroup .settingsGrid{padding-top:8px;}
+  .settingsGrid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:9px;
+    font-size:12px;
+    font-family:var(--font-ui);
+  }
+  .settingsGrid label{display:flex;flex-direction:column;gap:3px;color:var(--text-muted);}
+  .settingsGrid select, .settingsGrid input[type=range]{
+    background:var(--bg-deep);
+    border:1px solid var(--panel-line);
+    color:var(--text-primary);
+    padding:5px 6px;
+    border-radius:5px;
+    font-family:inherit;
+    font-size:12px;
+    transition:border-color .12s;
+  }
+  .settingsGrid select:hover, .settingsGrid select:focus{border-color:var(--gold-dim);}
+  .checkboxLabel{
+    flex-direction:row !important;
+    align-items:center;
+    gap:7px !important;
+    cursor:pointer;
+    padding:3px 0;
+  }
+  .checkboxLabel input{cursor:pointer;accent-color:var(--gold);width:14px;height:14px;}
+
+  /* --- End-game overlay --- */
+  #overlay{
+    position:fixed;inset:0;
+    background:rgba(10,13,9,0.88);
+    backdrop-filter:blur(2px);
+    display:none;
+    align-items:center;
+    justify-content:center;
+    z-index:50;
+    flex-direction:column;
+    gap:14px;
+    text-align:center;
+  }
+  #overlay h2{color:var(--gold);font-size:30px;margin:0;letter-spacing:.05em;}
+  #overlay p{color:var(--text-muted);margin:0;max-width:380px;}
+  #overlay button{width:auto;padding:12px 26px;}
+
+  /* --- Board top controls --- */
+  .top-controls{display:flex;gap:8px;margin-bottom:8px;}
+  .top-controls button{
+    margin-top:0;
+    padding:7px 12px;
+    font-size:11px;
+    width:auto;
+  }
+  .top-controls button:first-child{flex:1;}
+
+  @media (max-width:760px){
+    #panel{width:100%;max-width:520px;}
+  }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <div id="boardWrap">
+    <div id="titleRow">
+      <h1>Hex Realms</h1>
+      <div id="roundLabel">Ход 1</div>
+    </div>
+    <div class="top-controls">
+      <button id="newGameBtn">Новая карта</button>
+      <button id="audioToggleBtn">🔊 Звук</button>
+    </div>
+    <canvas id="board"></canvas>
+    <div id="fixedTooltip"><span style="color:var(--text-muted)">Наведите или выберите гекс для информации...</span></div>
+  </div>
+
+  <div id="panel">
+    <div class="card">
+      <h2><span class="icon">⚙️</span> Настройки партии</h2>
+
+      <details class="settingsGroup" open>
+        <summary>Генерация карты</summary>
+        <div class="settingsGrid">
+          <label>Радиус карты:
+            <select id="mapSizeSelect">
+              <option value="5">Малая (радиус 5)</option>
+              <option value="6" selected>Средняя (радиус 6)</option>
+              <option value="8">Большая (радиус 8)</option>
+              <option value="10">Обширная (радиус 10)</option>
+              <option value="12">Громадная (радиус 12)</option>
+            </select>
+          </label>
+          <label>Размер областей:
+            <select id="regionSizeSelect">
+              <option value="compact">Компактные (до 6 гексов)</option>
+              <option value="balanced" selected>Сбалансированные (~7-9 гексов)</option>
+              <option value="large">Обширные (~11 гексов)</option>
+            </select>
+          </label>
+          <label style="grid-column: span 2;">Количество фракций:
+            <select id="factionsCountSelect">
+              <option value="2">2 фракции (Вы + 1)</option>
+              <option value="3">3 фракции (Вы + 2)</option>
+              <option value="4" selected>4 фракции (Вы + 3)</option>
+              <option value="5">5 фракций (Вы + 4)</option>
+              <option value="6">6 фракций (Вы + 5)</option>
+            </select>
+          </label>
+        </div>
+      </details>
+
+      <details class="settingsGroup">
+        <summary>Правила боя и хода</summary>
+        <div class="settingsGrid">
+          <label>Базовый ход:
+            <select id="moveRangeSelect">
+              <option value="1">1 гекс</option>
+              <option value="2" selected>2 гекса</option>
+              <option value="3">3 гекса</option>
+              <option value="100">100 гексов</option>
+            </select>
+          </label>
+          <label>Зона Контроля:
+            <select id="zocSelect">
+              <option value="on">Вкл. (1 гекс)</option>
+              <option value="off">Выключена</option>
+            </select>
+          </label>
+        </div>
+      </details>
+
+      <details class="settingsGroup">
+        <summary>Вид и оформление</summary>
+        <div class="settingsGrid">
+          <label style="grid-column: span 2;">Палитра оформления:
+            <select id="themeSelect">
+              <option value="classic">Классическая</option>
+              <option value="autumn">Осенняя</option>
+              <option value="midnight">Ночная</option>
+              <option value="parchment">Пергамент</option>
+            </select>
+          </label>
+          <label style="grid-column: span 2;">Масштаб гексов: <input type="range" id="hexSizeRange" min="16" max="32" value="22"></label>
+          <label class="checkboxLabel" style="grid-column: span 2;">
+            <input type="checkbox" id="gridToggleCheck" checked> Показать сетку
+          </label>
+          <label class="checkboxLabel" style="grid-column: span 2;">
+            <input type="checkbox" id="territoryFillCheck"> Полная окраска владений
+          </label>
+        </div>
+      </details>
+    </div>
+
+    <div class="card">
+      <h2><span class="icon">⚔️</span> Владения фракций</h2>
+      <div id="playerList"></div>
+    </div>
+
+    <div class="card">
+      <h2><span class="icon">🎯</span> Управление и Разведка</h2>
+      <div id="selectedInfo"><span class="placeholder">Выберите гекс для отдачи приказов</span></div>
+      <div id="actionButtons"></div>
+    </div>
+
+    <div class="card" style="padding:10px;">
+      <button id="endTurnBtn">Закончить ход</button>
+    </div>
+
+    <div class="card">
+      <h2><span class="icon">📜</span> Журнал кампании</h2>
+      <div id="log"></div>
+    </div>
+
+    <div class="card">
+      <h2><span class="icon">📖</span> Правила и Механики</h2>
+      <div class="legendGrid" id="legendGridContainer"></div>
+      <div class="eyebrow" style="margin-top:10px;line-height:1.5;">
+        • <b>Оккупация области</b>: Занимая вражескую или нейтральную столицу, вы оккупируете всю область целиком (все клетки блокируются). В период оккупации области найм и усиление войск заблокированы.<br>
+        • <b>Досягаемость врага</b>: При наведении на вражеский отряд подсвечивается зона его перемещения.<br>
+        • <b>Активная область</b>: При клике на столицу подсветка выделяет всю область.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="overlay">
+  <h2 id="overlayTitle">Победа</h2>
+  <p id="overlayText"></p>
+  <button id="restartBtn">Новая кампания</button>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ==========================================================================
+  // Game — root namespace. Sub-modules are attached below as the original
+  // engine (map generation, combat, AI, rendering) is intentionally left
+  // untouched: only the audio/UI layers are wrapped into real objects here.
+  // ==========================================================================
+  const Game = {};
+
+  // ---------------------------------------------------------------------
+  // Game.Audio — tiny WebAudio SFX engine (mute toggle + oscillator blips)
+  // ---------------------------------------------------------------------
+  Game.Audio = {
+    enabled: true,
+    _ctx: null,
+
+    _ensureContext(){
+      if(!this._ctx){
+        this._ctx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      return this._ctx;
+    },
+
+    toggle(){
+      this.enabled = !this.enabled;
+      return this.enabled;
+    },
+
+    play(type){
+      if(!this.enabled) return;
+      try {
+        const audioCtx = this._ensureContext();
+        if(!audioCtx) return;
+        if(audioCtx.state === 'suspended') audioCtx.resume();
+
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        const now = audioCtx.currentTime;
+
+        if(type === 'click'){
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(320, now);
+          osc.frequency.exponentialRampToValueAtTime(120, now + 0.05);
+          gain.gain.setValueAtTime(0.08, now);
+          gain.gain.linearRampToValueAtTime(0.01, now + 0.05);
+          osc.start(now);
+          osc.stop(now + 0.05);
+        } else if(type === 'recruit'){
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(220, now);
+          osc.frequency.exponentialRampToValueAtTime(440, now + 0.15);
+          gain.gain.setValueAtTime(0.1, now);
+          gain.gain.linearRampToValueAtTime(0.01, now + 0.15);
+          osc.start(now);
+          osc.stop(now + 0.15);
+        } else if(type === 'move'){
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(180, now);
+          osc.frequency.linearRampToValueAtTime(260, now + 0.1);
+          gain.gain.setValueAtTime(0.06, now);
+          gain.gain.linearRampToValueAtTime(0.01, now + 0.1);
+          osc.start(now);
+          osc.stop(now + 0.1);
+        } else if(type === 'combat'){
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(140, now);
+          osc.frequency.exponentialRampToValueAtTime(45, now + 0.22);
+          gain.gain.setValueAtTime(0.14, now);
+          gain.gain.linearRampToValueAtTime(0.01, now + 0.22);
+          osc.start(now);
+          osc.stop(now + 0.22);
+        } else if(type === 'occupy'){
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(260, now);
+          osc.frequency.exponentialRampToValueAtTime(180, now + 0.2);
+          gain.gain.setValueAtTime(0.09, now);
+          gain.gain.linearRampToValueAtTime(0.01, now + 0.2);
+          osc.start(now);
+          osc.stop(now + 0.2);
+        } else if(type === 'victory'){
+          const notes = [261.63, 329.63, 392.00, 523.25];
+          notes.forEach((freq, i) => {
+            const o = audioCtx.createOscillator();
+            const g = audioCtx.createGain();
+            o.connect(g); g.connect(audioCtx.destination);
+            o.frequency.setValueAtTime(freq, now + i * 0.12);
+            g.gain.setValueAtTime(0.12, now + i * 0.12);
+            g.gain.linearRampToValueAtTime(0.01, now + i * 0.12 + 0.2);
+            o.start(now + i * 0.12);
+            o.stop(now + i * 0.12 + 0.2);
+          });
+        }
+      } catch(e){}
+    }
+  };
+
+  // Back-compat shim so the untouched game-logic code below (map/combat/AI/
+  // render) can keep calling playSound(...) exactly as before.
+  function playSound(type){ Game.Audio.play(type); }
+
+  // ---------------------------------------------------------------------
+  // Game.Config — mutable settings (bound to the settings panel controls)
+  // and static rule constants/theme palettes. Exposed as Game.Config below.
+  // ---------------------------------------------------------------------
+  let hexSize = 22;
+  let showGrid = true;
+  let territoryFillMode = false;
+  let currentTheme = 'classic';
+  let zocEnabled = true;
+  let mapRadius = 6;
+  let maxMovementPoints = 2;
+  let regionSizeMode = 'balanced';
+  let factionsCount = 4;
+
+  
+
+  const THEMES = {
+    classic: {
+      plains: '#687b47', forest: '#4b633b', hills: '#736b53', goldmine: '#8a7945', mountains: '#595450', water: '#26434f',
+      table: '#1f2b21', textPrimary: '#e9e3cf', bgPanel: '#1b241d'
+    },
+    autumn: {
+      plains: '#917245', forest: '#7a5a3a', hills: '#85704c', goldmine: '#998042', mountains: '#544c49', water: '#2b3f4f',
+      table: '#241e17', textPrimary: '#f2ebd9', bgPanel: '#211a14'
+    },
+    midnight: {
+      plains: '#314747', forest: '#273c3d', hills: '#374747', goldmine: '#565e47', mountains: '#363842', water: '#122330',
+      table: '#121820', textPrimary: '#d8e2ec', bgPanel: '#151d26'
+    },
+    parchment: {
+      plains: '#b0a382', forest: '#8f886f', hills: '#a39880', goldmine: '#a6965d', mountains: '#706b61', water: '#5a7885',
+      table: '#d1c5a2', textPrimary: '#2b261e', bgPanel: '#e3d8b5'
+    }
+  };
+
+  function mulberry32(seed){
+    return function(){
+      seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function createNoise2D(rand) {
+    const permutation = new Uint8Array(256);
+    for(let i=0; i<256; i++) permutation[i] = i;
+    for(let i=255; i>0; i--){
+      const j = Math.floor(rand() * (i + 1));
+      const tmp = permutation[i]; permutation[i] = permutation[j]; permutation[j] = tmp;
+    }
+    const p = new Uint8Array(512);
+    for(let i=0; i<512; i++) p[i] = permutation[i & 255];
+
+    function fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
+    function lerp(t, a, b) { return a + t * (b - a); }
+    function grad(hash, x, y) {
+      const h = hash & 7;
+      const u = h<4 ? x : y;
+      const v = h<4 ? y : x;
+      return ((h&1)===0 ? u : -u) + ((h&2)===0 ? v : -v);
+    }
+
+    return function noise2D(x, y) {
+      const X = Math.floor(x) & 255;
+      const Y = Math.floor(y) & 255;
+      const xf = x - Math.floor(x);
+      const yf = y - Math.floor(y);
+      const u = fade(xf);
+      const v = fade(yf);
+      const g00 = grad(p[p[X] + Y], xf, yf);
+      const g10 = grad(p[p[X+1] + Y], xf - 1, yf);
+      const g01 = grad(p[p[X] + Y+1], xf, yf - 1);
+      const g11 = grad(p[p[X+1] + Y+1], xf - 1, yf - 1);
+      return lerp(v, lerp(u, g00, g10), lerp(u, g01, g11));
+    };
+  }
+
+  const DIRS = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+  const EDGE_DIRS = [[1,0],[0,1],[-1,1],[-1,0],[0,-1],[1,-1]];
+
+  function key(q,r){ return q+","+r; }
+  function hexDist(a,b){
+    return (Math.abs(a.q-b.q)+Math.abs(a.q+a.r-b.q-b.r)+Math.abs(a.r-b.r))/2;
+  }
+  function axialToPixel(q,r){
+    const x = hexSize * Math.sqrt(3) * (q + r/2);
+    const y = hexSize * 1.5 * r;
+    return {x,y};
+  }
+  function hexCorner(cx, cy, i){
+    const angle = Math.PI/180 * (60*i - 30);
+    const rEff = hexSize * 1.02;
+    return { 
+      x: cx + rEff * Math.cos(angle), 
+      y: (cy + rEff * Math.sin(angle)) * TILT_FACTOR // Сжимаем по вертикали
+    };
+  }
+
+  let _terrainDefsCache = null;
+  let _terrainDefsCacheTheme = null;
+  let _terrainImages = {};
+  function getTerrainDefs(){
+    if(_terrainDefsCache && _terrainDefsCacheTheme === currentTheme) return _terrainDefsCache;
+    const th = THEMES[currentTheme];
+    _terrainDefsCache = {
+      plains:    { color:th.plains, yield:2, defense:0, moveCost:1.0, label:'Равнина', imageSrc: 'assets/terrain_plain.jpg' },
+      forest:    { color:th.forest, yield:1, defense:1, moveCost:2.0, label:'Густой Лес', imageSrc: 'assets/terrain_forest.jpg' },
+      hills:     { color:th.hills, yield:1, defense:1, moveCost:2.0, label:'Холмы', imageSrc: 'assets/terrain_hills.jpg' },
+      goldmine:  { color:th.goldmine, yield:4, defense:0, moveCost:1.0, label:'Золотой рудник', imageSrc: 'assets/terrain_mines.jpg' },
+      mountains: { color:th.mountains, yield:0, defense:0, moveCost:99, label:'Горный хребет', impassable:true, imageSrc: 'assets/terrain_mountains.jpg' },
+      water:     { color:th.water, yield:0, defense:0, moveCost:99, label:'Море / Озеро', impassable:true, imageSrc: 'assets/terrain_water.jpg' },
+    };
+    _terrainDefsCacheTheme = currentTheme;
+    return _terrainDefsCache;
+  }
+
+  function loadTerrainAssets(callback) {
+    const TERRAIN = getTerrainDefs();
+    let loadedCount = 0;
+    let totalTerrainTypes = Object.keys(TERRAIN).length;
+    for (const key in TERRAIN) {
+      const terrain = TERRAIN[key];
+      if (terrain.imageSrc) { 
+        const img = new Image();
+        img.src = terrain.imageSrc;
+        img.onload = () => {
+          console.log(img)
+          _terrainImages[key] = img;
+          loadedCount++;
+      
+          if (loadedCount === totalTerrainTypes) callback();
+        };
+      } else {
+        loadedCount++;
+      }
+    }
+  }
+  // Balance constants — kept exactly as designed, exposed via Game.Config.
+  const RECRUIT_COST = 4;
+  const REINFORCE_COST = 4;
+  const INITIAL_STRENGTH = 1;
+  const CAPITAL_BONUS_GOLD = 5;
+  const CAPITAL_BONUS_DEFENSE = 2;
+
+  // ---------------------------------------------------------------------
+  // Game.State — the live world state (hex grid, players, round, camera/
+  // selection). Left exactly as-is; exposed read-only via Game.State.
+  // ---------------------------------------------------------------------
+  let game = null;
+  let canvas = null;
+  let ctx = null;
+  let hoveredHex = null;
+  let activeRegionId = null;
+  let flyingUnits = [];
+  let destroyingUnits = [];
+  let isAiRunning = false;
+  let staticMapCanvas = null;
+  let staticCtx = null;
+  let isStaticLayerDirty = true;
+  
+  const TILT_FACTOR = 0.9;
+
+  // ---------------------------------------------------------------------
+  // Game.Map / Game.Movement / Game.Combat — world queries, map generation,
+  // pathfinding and battle math. This is the core simulation and is left
+  // untouched by design (per request: gameplay/map logic is not to change).
+  // ---------------------------------------------------------------------
+  function neighbors(h){
+    if(!game || !game.hexes) return [];
+    return DIRS.map(([dq,dr])=>game.hexes.get(key(h.q+dq,h.r+dr))).filter(Boolean);
+  }
+
+  function inEnemyZoC(hex, pid){
+    if(!zocEnabled) return false;
+    return neighbors(hex).some(nb => nb.unit && nb.unit.owner !== pid);
+  }
+
+  function getAdjacentSupport(hex, owner, combatTargetHex = null){
+    let support = 0;
+    neighbors(hex).forEach(nb => {
+      if (nb === combatTargetHex) return;
+      if (nb.unit && nb.unit.owner === owner) {
+        support += nb.unit.strength;
+      }
+    });
+    return support;
+  }
+
+  function getAttackerCombatData(fromHex, toHex, attackerPid){
+    if(!fromHex || !fromHex.unit) return { base: 0, support: 0, total: 0 };
+    const base = fromHex.unit.strength;
+    const support = getAdjacentSupport(toHex, attackerPid, fromHex);
+    return { base, support, total: base + support };
+  }
+
+  function getDefenderCombatData(toHex, fromHex, defenderPid){
+    const base = toHex.unit ? toHex.unit.strength : 0;
+    const TERRAIN = getTerrainDefs();
+    const defBonus = TERRAIN[toHex.terrain].defense + (toHex.capital ? CAPITAL_BONUS_DEFENSE : 0);
+    const support = (defenderPid !== null && toHex.unit) ? getAdjacentSupport(toHex, defenderPid, fromHex) : 0;
+    return { base, defBonus, support, total: base + defBonus + support };
+  }
+
+  function getPlayerIncomeAndUpkeep(pid) {
+    let income = 0;
+    let upkeep = 0;
+    const TERRAIN = getTerrainDefs();
+
+    game.hexes.forEach(h => {
+      if(h.owner === pid){
+        if(h.occupiedBy === null){
+          income += TERRAIN[h.terrain].yield + (h.capital ? CAPITAL_BONUS_GOLD : 0);
+        }
+      }
+      if(h.unit && h.unit.owner === pid){
+        upkeep += h.unit.strength * 2; // 2 gold upkeep per strength point per turn
+      }
+    });
+
+    return { income, upkeep, net: income - upkeep };
+  }
+
+  function newGame(seed){
+    const rand = mulberry32(seed);
+    const noiseElev = createNoise2D(rand);
+    const noiseMoist = createNoise2D(rand);
+    const hexes = new Map();
+
+    for(let q=-mapRadius; q<=mapRadius; q++){
+      const r1 = Math.max(-mapRadius, -q-mapRadius);
+      const r2 = Math.min(mapRadius, -q+mapRadius);
+      for(let r=r1; r<=r2; r++){
+        const normQ = q / (mapRadius + 0.5);
+        const normR = r / (mapRadius + 0.5);
+        const distFromCenter = Math.sqrt(normQ*normQ + normR*normR + normQ*normR);
+        
+        const n1 = noiseElev(q * 0.32 + 15, r * 0.32 + 15);
+        let elevation = n1 - (Math.pow(distFromCenter, 1.6) * 0.65);
+
+        let terrain = 'plains';
+        if(elevation < -0.38){
+          terrain = 'water';
+        } else if(elevation > 0.46){
+          terrain = 'mountains';
+        }
+
+        hexes.set(key(q,r), {
+          q, r, terrain,
+          owner: null,
+          occupiedBy: null,
+          capital: false,
+          regionId: null,
+          unit: null
+        });
+      }
+    }
+
+    const all = Array.from(hexes.values());
+
+    all.forEach(h => {
+      if(h.terrain === 'water' || h.terrain === 'mountains'){
+        const landNbs = neighbors(h).filter(nb => nb.terrain !== 'water' && nb.terrain !== 'mountains');
+        if(landNbs.length >= 4 && rand() < 0.55){
+          h.terrain = 'hills';
+        }
+      }
+    });
+
+    all.forEach(h => {
+      if(h.terrain === 'plains'){
+        const moisture = noiseMoist(h.q * 0.4 + 200, h.r * 0.4 + 200);
+        if(moisture > 0.15 && rand() < 0.8){
+          h.terrain = 'forest';
+        }
+      }
+    });
+
+    game = {
+      hexes, players: [],
+      selected: null,
+      round: 1,
+      over: false,
+      log: [],
+    };
+
+    const landHexes = all.filter(h => h.terrain !== 'mountains' && h.terrain !== 'water');
+    
+    let targetAvgSize = 7;
+    let maxAllowedSize = 8;
+    if(regionSizeMode === 'compact'){
+      targetAvgSize = 4;
+      maxAllowedSize = 6;
+    } else if(regionSizeMode === 'large'){
+      targetAvgSize = 11;
+      maxAllowedSize = 14;
+    }
+
+    const numRegions = Math.max(2, Math.floor(landHexes.length / targetAvgSize));
+
+    const seeds = [];
+    if(landHexes.length > 0){
+      seeds.push(landHexes[Math.floor(rand() * landHexes.length)]);
+      while(seeds.length < numRegions && seeds.length < landHexes.length){
+        let bestCandidate = null;
+        let maxMinDist = -1;
+        landHexes.forEach(h => {
+          if(seeds.includes(h)) return;
+          const minDist = Math.min(...seeds.map(s => hexDist(h, s)));
+          if(minDist > maxMinDist){
+            maxMinDist = minDist;
+            bestCandidate = h;
+          }
+        });
+        if(bestCandidate) seeds.push(bestCandidate); else break;
+      }
+    }
+
+    seeds.forEach((s, idx) => {
+      s.regionId = idx + 1;
+    });
+
+    let unassigned = landHexes.filter(h => h.regionId === null);
+    while(unassigned.length > 0){
+      let assignedInThisLoop = 0;
+      unassigned.forEach(h => {
+        const assignedNbs = neighbors(h).filter(nb => nb.regionId !== null);
+        if(assignedNbs.length > 0){
+          const regionCountsCurrent = {};
+          assignedNbs.forEach(nb => {
+            regionCountsCurrent[nb.regionId] = (regionCountsCurrent[nb.regionId] || 0) + 1;
+          });
+          let bestRegion = null;
+          let maxCount = -1;
+          Object.keys(regionCountsCurrent).forEach(rIdStr => {
+            const rId = parseInt(rIdStr);
+            const size = landHexes.filter(x => x.regionId === rId).length;
+            if(size < maxAllowedSize && regionCountsCurrent[rId] > maxCount){
+              maxCount = regionCountsCurrent[rId];
+              bestRegion = rId;
+            }
+          });
+          if(bestRegion !== null){
+            h.regionId = bestRegion;
+            assignedInThisLoop++;
+          }
+        }
+      });
+      unassigned = landHexes.filter(h => h.regionId === null);
+      if(assignedInThisLoop === 0 && unassigned.length > 0){
+        unassigned.forEach(uh => {
+          const validNbs = neighbors(uh).filter(nb => nb.regionId !== null);
+          if(validNbs.length > 0){
+            uh.regionId = validNbs[0].regionId;
+          } else {
+            uh.regionId = 1;
+          }
+        });
+        unassigned = landHexes.filter(h => h.regionId === null);
+      }
+    }
+
+    const uniqueRegionIds = Array.from(new Set(landHexes.map(h => h.regionId))).filter(Boolean);
+    uniqueRegionIds.forEach(rId => {
+      const rHexes = landHexes.filter(h => h.regionId === rId);
+      if(rHexes.length === 0) return;
+
+      const avgQ = rHexes.reduce((sum, h) => sum + h.q, 0) / rHexes.length;
+      const avgR = rHexes.reduce((sum, h) => sum + h.r, 0) / rHexes.length;
+
+      rHexes.sort((a,b) => {
+        const distA = Math.abs(a.q - avgQ) + Math.abs(a.r - avgR);
+        const distB = Math.abs(b.q - avgQ) + Math.abs(b.r - avgR);
+        return distA - distB;
+      });
+
+      rHexes[0].capital = true;
+    });
+
+    const players = [
+      { id:0, name:'Ваше Королевство', color:'#e2b753', gold:40, ai:false, alive:true },
+      { id:1, name:'Дом Кармин', color:'#c74444', gold:35, ai:true, alive:true },
+      { id:2, name:'Дом Лазурь', color:'#3d7ea6', gold:35, ai:true, alive:true },
+      { id:3, name:'Дом Вердан', color:'#45a862', gold:35, ai:true, alive:true },
+      { id:4, name:'Дом Золото', color:'#e58e26', gold:35, ai:true, alive:true },
+      { id:5, name:'Дом Умбра', color:'#8854d0', gold:35, ai:true, alive:true },
+    ].slice(0, factionsCount);
+    game.players = players;
+
+    const allCapitals = landHexes.filter(h => h.capital);
+    const offsetVal = Math.max(3, mapRadius - 2);
+    const targets = [
+      {q:0, r:-offsetVal},
+      {q:-offsetVal, r:Math.floor(offsetVal/2)},
+      {q:offsetVal, r:Math.floor(offsetVal/2)},
+      {q:Math.floor(offsetVal/2), r:-Math.floor(offsetVal/2)},
+      {q:-Math.floor(offsetVal/2), r:-Math.floor(offsetVal/2)},
+      {q:Math.floor(offsetVal/2), r:Math.floor(offsetVal/2)}
+    ].slice(0, factionsCount);
+    const usedCapitals = [];
+
+    targets.forEach((t, i) => {
+      let best = null, bestScore = Infinity;
+      allCapitals.forEach(c => {
+        if(c.owner !== null) return;
+        const minDist = usedCapitals.length ? Math.min(...usedCapitals.map(uc => hexDist(c, uc))) : 99;
+        if(minDist < 3) return;
+        const score = hexDist(c, t);
+        if(score < bestScore){ bestScore = score; best = c; }
+      });
+      if(best){
+        claimRegionAllHexes(best.regionId, i);
+        best.owner = i;
+        usedCapitals.push(best);
+        best.unit = { owner: i, strength: 2, hasMoved: false };
+        const regHexes = landHexes.filter(h => h.regionId === best.regionId && h !== best && !h.unit);
+        if(regHexes.length > 0){
+          regHexes[0].unit = { owner: i, strength: 1, hasMoved: false };
+        }
+      }
+    });
+
+    game.round = 1;
+    game.over = false;
+    game.selected = null;
+    activeRegionId = null;
+    game.log = [];
+    flyingUnits = [];
+    destroyingUnits = [];
+    isAiRunning = false;
+
+    logMsg(`Новая кампания создана. Материк сформирован (регионов: ${uniqueRegionIds.length}).`);
+    updateLegendDOM();
+  }
+
+  function claimRegionAllHexes(regionId, pid){
+    if(regionId === null) return;
+    game.hexes.forEach(h => {
+      if(h.regionId === regionId){
+        h.owner = pid;
+      }
+    });
+  }
+
+  function applyRaidLoot(hex, pid){
+    const TERRAIN = getTerrainDefs();
+    const loot = Math.max(4, (TERRAIN[hex.terrain].yield || 2) * 3);
+    game.players[pid].gold += loot;
+    logMsg(`⚔️ Рейд на (${hex.q}, ${hex.r}): захвачено ${loot}💰 добычи.`);
+  }
+
+  function isRegionOccupiedBy(regionId, pid){
+    if(regionId === null) return false;
+    let occupied = false;
+    game.hexes.forEach(h => {
+      if(h.regionId === regionId && h.capital && h.occupiedBy === pid){
+        occupied = true;
+      }
+    });
+    return occupied;
+  }
+
+  function updateLegendDOM(){
+    const TERRAIN = getTerrainDefs();
+    const grid = document.getElementById('legendGridContainer');
+    if(!grid) return;
+    grid.innerHTML = `
+      <div class="legendItem"><div class="legendSwatch" style="background:${TERRAIN.plains.color}"></div>Равнина (2💰)</div>
+      <div class="legendItem"><div class="legendSwatch" style="background:${TERRAIN.forest.color}"></div>Лес (1💰, +1д)</div>
+      <div class="legendItem"><div class="legendSwatch" style="background:${TERRAIN.hills.color}"></div>Холмы (1💰, +1д)</div>
+      <div class="legendItem"><div class="legendSwatch" style="background:${TERRAIN.goldmine.color}"></div>Рудник (4💰)</div>
+      <div class="legendItem"><div class="legendSwatch" style="background:${TERRAIN.mountains.color}"></div>Хребет</div>
+      <div class="legendItem"><div class="legendSwatch" style="background:${TERRAIN.water.color}"></div>Вода</div>
+    `;
+  }
+
+  function logMsg(text){
+    if(!game) return;
+    game.log.push(text);
+    if(game.log.length>60) game.log.shift();
+    const el = document.getElementById('log');
+    if(el) {
+      el.innerHTML = game.log.slice().reverse().map(m=>`<div>${m}</div>`).join('');
+    }
+  }
+
+  function getReachableHexes(startHex, actingPlayer){
+    const TERRAIN = getTerrainDefs();
+    const distances = new Map();
+    const queue = [{ hex: startHex, cost: 0 }];
+    distances.set(key(startHex.q, startHex.r), 0);
+
+    const startingInZoC = inEnemyZoC(startHex, actingPlayer);
+    const allowedMaxRange = startingInZoC ? 1 : maxMovementPoints;
+
+    while(queue.length > 0){
+      queue.sort((a,b)=>a.cost - b.cost);
+      const current = queue.shift();
+
+      for(const nb of neighbors(current.hex)){
+        if(TERRAIN[nb.terrain].impassable) continue;
+
+        const isEnemyCombatTarget = (nb.unit && nb.unit.owner !== actingPlayer);
+        const isDirectNeighbor = (hexDist(startHex, nb) === 1);
+
+        let moveCost = TERRAIN[nb.terrain].moveCost;
+        if(nb.owner === actingPlayer || nb.occupiedBy === actingPlayer){
+          moveCost *= 0.75;
+        } else if(nb.owner !== null){
+          moveCost *= 1.25;
+        }
+        moveCost = Math.max(1, moveCost);
+
+        if (startingInZoC && isDirectNeighbor) {
+          moveCost = 1;
+        }
+
+        const newCost = current.cost + moveCost;
+        const canReach = isDirectNeighbor || (newCost <= allowedMaxRange + 0.1) || isEnemyCombatTarget;
+
+        if(canReach){
+          const nbKey = key(nb.q, nb.r);
+          if(!distances.has(nbKey) || newCost < distances.get(nbKey)){
+            distances.set(nbKey, newCost);
+            if(isEnemyCombatTarget) continue;
+            if(newCost <= allowedMaxRange || isDirectNeighbor){
+              queue.push({ hex: nb, cost: newCost });
+            }
+          }
+        }
+      }
+    }
+    return distances;
+  }
+
+  let _reachableCache = { cacheKey: null, data: null };
+  function getReachableCached(startHex, actingPlayer){
+    if(!startHex) return new Map();
+    const cacheKey = key(startHex.q, startHex.r) + '|' + actingPlayer + '|' + zocEnabled + '|' + maxMovementPoints;
+    if(_reachableCache.cacheKey === cacheKey) return _reachableCache.data;
+    const data = getReachableHexes(startHex, actingPlayer);
+    _reachableCache = { cacheKey, data };
+    return data;
+  }
+
+  function calcIncomeForPlayer(pid){
+    const stats = getPlayerIncomeAndUpkeep(pid);
+    return stats.net;
+  }
+
+  function ownedHexCount(pid){
+    let n=0;
+    game.hexes.forEach(h=>{ if(h.owner===pid) n++; });
+    return n;
+  }
+
+  function triggerMoveAnimation(from, to, unitData, callback){
+    flyingUnits.push({
+      fromQ: from.q, fromR: from.r,
+      toQ: to.q, toR: to.r,
+      owner: unitData.owner,
+      strength: unitData.strength,
+      progress: 0,
+    });
+    
+    const startTime = performance.now();
+    const duration = 280;
+
+    function animateStep(currentTime){
+      const elapsed = currentTime - startTime;
+      const p = Math.min(1, elapsed / duration);
+      const eased = 1 - Math.pow(1 - p, 3);
+      
+      if(flyingUnits.length > 0) flyingUnits[flyingUnits.length - 1].progress = eased;
+      render();
+
+      if(p < 1){
+        requestAnimationFrame(animateStep);
+      } else {
+        flyingUnits.pop();
+        if(callback) callback();
+      }
+    }
+    requestAnimationFrame(animateStep);
+  }
+
+  function triggerDestructionAnimation(hex, unitData, callback){
+    destroyingUnits.push({
+      q: hex.q, r: hex.r,
+      owner: unitData.owner,
+      strength: unitData.strength,
+      progress: 0
+    });
+
+    const startTime = performance.now();
+    const duration = 380;
+
+    function animateStep(currentTime){
+      const elapsed = currentTime - startTime;
+      const p = Math.min(1, elapsed / duration);
+      
+      if(destroyingUnits.length > 0) destroyingUnits[destroyingUnits.length - 1].progress = p;
+      render();
+
+      if(p < 1){
+        requestAnimationFrame(animateStep);
+      } else {
+        destroyingUnits.pop();
+        if(callback) callback();
+      }
+    }
+    requestAnimationFrame(animateStep);
+  }
+
+  // Combat/movement resolution — exposed as Game.Combat.moveOrAttack.
+  function moveOrAttack(from, to, actingPlayer, skipAnim = false, cb){
+    const TERRAIN = getTerrainDefs();
+    if(TERRAIN[to.terrain].impassable) return false;
+    if(!from.unit || from.unit.owner!==actingPlayer || from.unit.hasMoved) return false;
+
+    const unitCopy = { ...from.unit };
+    from.unit = null;
+
+    if(from.occupiedBy === actingPlayer){
+      from.occupiedBy = null;
+      logMsg(`Оккупация с клетки (${from.q}, ${from.r}) снята ввиду отступления.`);
+    }
+
+    if(to.owner === actingPlayer && to.unit !== null && to.unit.owner === actingPlayer){
+      if(!skipAnim){
+        triggerMoveAnimation(from, to, unitCopy, ()=>{
+          to.unit.strength += unitCopy.strength;
+          to.unit.hasMoved = true;
+          if(to.occupiedBy !== null) to.occupiedBy = null;
+          playSound('recruit');
+          if(cb) cb('merged');
+        });
+      } else {
+        to.unit.strength += unitCopy.strength;
+        to.unit.hasMoved = true;
+        if(to.occupiedBy !== null) to.occupiedBy = null;
+        if(cb) cb('merged');
+      }
+      return 'merged';
+    }
+
+    if(to.unit !== null && to.unit.owner !== actingPlayer){
+      const mockAttackerHex = { q: from.q, r: from.r, unit: unitCopy };
+      const attData = getAttackerCombatData(mockAttackerHex, to, actingPlayer);
+      const def = getDefenderCombatData(to, mockAttackerHex, to.unit.owner);
+      const winner = attData.total > def.total;
+
+      playSound('combat');
+
+      const resolveCaptureOutcome = ()=>{
+        to.unit = unitCopy;
+        to.unit.hasMoved = true;
+        let outcome = 'captured';
+        if(to.owner === null){
+          to.occupiedBy = actingPlayer;
+          outcome = 'neutral_siege';
+        } else if(to.owner === actingPlayer){
+          to.occupiedBy = null;
+        } else if(to.capital){
+          to.occupiedBy = actingPlayer;
+        } else {
+          to.occupiedBy = actingPlayer;
+          applyRaidLoot(to, actingPlayer);
+          outcome = 'raided';
+        }
+        return outcome;
+      };
+
+      if(!skipAnim){
+        triggerMoveAnimation(from, to, unitCopy, ()=>{
+          if(winner){
+            const outcome = resolveCaptureOutcome();
+            if(cb) cb(outcome);
+          } else {
+            triggerDestructionAnimation(to, unitCopy, ()=>{
+              if(cb) cb('lost');
+            });
+          }
+        });
+      } else {
+        if(winner){
+          return resolveCaptureOutcome();
+        } else {
+          return 'lost';
+        }
+      }
+      return 'animating';
+    }
+
+    if(to.unit === null){
+      const resolveMoveOutcome = ()=>{
+        to.unit = unitCopy;
+        to.unit.hasMoved = true;
+        let outcome;
+        if(to.owner === null){
+          to.occupiedBy = actingPlayer;
+          to.siegeTurnCount = 0;
+          outcome = 'neutral_siege';
+        } else if(to.owner === actingPlayer){
+          to.occupiedBy = null;
+          to.siegeTurnCount = 0;
+          outcome = 'friendly';
+        } else if(to.capital){
+          to.occupiedBy = actingPlayer;
+          to.siegeTurnCount = 0;
+          outcome = 'occupied';
+        } else {
+          to.occupiedBy = actingPlayer;
+          applyRaidLoot(to, actingPlayer);
+          outcome = 'raided';
+        }
+        return outcome;
+      };
+
+      if(!skipAnim){
+        triggerMoveAnimation(from, to, unitCopy, ()=>{
+          const outcome = resolveMoveOutcome();
+          playSound(outcome === 'occupied' || outcome === 'neutral_siege' ? 'occupy' : (outcome === 'raided' ? 'occupy' : 'move'));
+          if(cb) cb(outcome);
+        });
+      } else {
+        return resolveMoveOutcome();
+      }
+      return 'animating';
+    }
+
+    return false;
+  }
+
+  // ---------------------------------------------------------------------
+  // Game.Input — translates clicks/hover into selection & orders.
+  // ---------------------------------------------------------------------
+  function selectHex(h){
+    if(game.over) return;
+    playSound('click');
+    const prevSelected = game.selected;
+
+    if(prevSelected === h && h && h.capital && h.unit && h.unit.owner === 0){
+      h.unitHasFocus = !h.unitHasFocus;
+      activeRegionId = h.unitHasFocus ? null : h.regionId;
+      render(); updatePanel();
+      return;
+    }
+
+    if(prevSelected && prevSelected.unit && prevSelected.unit.owner === 0 && !prevSelected.unit.hasMoved && prevSelected !== h){
+      const isArmyFocused = !prevSelected.capital || prevSelected.unitHasFocus;
+      if (isArmyFocused) {
+        const reachable = getReachableHexes(prevSelected, 0);
+        if(reachable.has(key(h.q, h.r))){
+          moveOrAttack(prevSelected, h, 0, false, (result)=>{
+            if(result === 'captured'){
+              logMsg(`Победа в бою на (${h.q}, ${h.r})! Враг разбит.`);
+            } else if(result === 'raided'){
+              logMsg(`Рейд на (${h.q}, ${h.r}) удался — враг разбит.`);
+            } else if(result === 'lost'){
+              logMsg(`Атака на (${h.q}, ${h.r}) провалилась. Наш отряд уничтожен.`);
+            } else if(result === 'merged'){
+              logMsg(`Отряды объединены на (${h.q}, ${h.r}).`);
+            } else if(result === 'neutral_siege'){
+              logMsg(`Отряд вошел в нейтральную область (${h.q}, ${h.r}). Захват завершится на следующий ход.`);
+            } else if(result === 'occupied'){
+              logMsg(`Отряд начал ОСАДУ вражеской СТОЛИЦЫ (${h.q}, ${h.r}).`);
+            }
+            game.selected = null;
+            activeRegionId = null;
+            render(); updatePanel(); checkGameOver();
+          });
+          game.selected = null;
+          activeRegionId = null;
+          render(); updatePanel();
+          return;
+        }
+      }
+    }
+
+    if(h && h.capital && h.unit && h.unit.owner === 0){
+      game.selected = h;
+      h.unitHasFocus = false;
+      activeRegionId = h.regionId;
+      render(); updatePanel();
+      return;
+    }
+
+    if(h && h.unit && h.unit.owner === 0){
+      game.selected = h;
+      h.unitHasFocus = true;
+      activeRegionId = null;
+      render(); updatePanel();
+      return;
+    }
+
+    if(h && h.capital && h.owner === 0){
+      if(prevSelected === h){
+        game.selected = null;
+        activeRegionId = null;
+      } else {
+        game.selected = h;
+        activeRegionId = h.regionId;
+      }
+      render(); updatePanel();
+      return;
+    }
+
+    if(prevSelected === h){
+      game.selected = null;
+      activeRegionId = null;
+    } else {
+      game.selected = h;
+      activeRegionId = h ? h.regionId : null;
+    }
+    render(); updatePanel();
+  }
+
+  // ---------------------------------------------------------------------
+  // Game.Turns / Game.AI — turn flow (upkeep, income, siege resolution)
+  // and the opponent AI. Untouched simulation logic, exposed as facades.
+  // ---------------------------------------------------------------------
+  function startPlayerTurn(pid){
+    game.hexes.forEach(h => {
+      if(!h.capital || h.occupiedBy === null) return;
+      
+      const isOccupiedByPid = (h.occupiedBy === pid);
+      const isNeutralCapital = (h.owner === null);
+
+      if(isOccupiedByPid) {
+        const occupierPid = h.occupiedBy;
+        const hasFriendlyUnit = (h.unit && h.unit.owner === occupierPid);
+
+        if(hasFriendlyUnit){
+          if(h.siegeTurnCount === undefined) h.siegeTurnCount = 0;
+          h.siegeTurnCount++;
+          
+          if(h.siegeTurnCount >= 1){
+            h.owner = occupierPid;
+            h.occupiedBy = null;
+            h.siegeTurnCount = 0;
+            if(isNeutralCapital){
+              logMsg(`🏳️ Нейтральная область #${h.regionId} полностью покорена фракцией «${game.players[occupierPid].name}»!`);
+            } else {
+              logMsg(`👑 Фракция «${game.players[occupierPid].name}» ЗАХВАТИЛА СТОЛИЦУ (${h.q}, ${h.r})! Вся область переходит под контроль.`);
+            }
+            claimRegionAllHexes(h.regionId, occupierPid);
+          }
+        } else {
+          if(!isNeutralCapital){
+            h.occupiedBy = null;
+            h.siegeTurnCount = 0;
+            logMsg(`Осада столицы (${h.q}, ${h.r}) снята в начале хода.`);
+          } else if(h.unit && h.unit.owner !== occupierPid){
+            h.occupiedBy = null;
+            h.siegeTurnCount = 0;
+          }
+        }
+      }
+    });
+
+    game.hexes.forEach(h => {
+      if(h.occupiedBy !== null && h.owner !== null && h.capital && h.owner !== h.occupiedBy){
+        if(!(h.unit && h.unit.owner === h.occupiedBy)){
+          h.occupiedBy = null;
+          h.siegeTurnCount = 0;
+        }
+      }
+    });
+
+    game.hexes.forEach(h => {
+      if(h.unit && h.unit.owner === pid){
+        h.unit.hasMoved = false;
+      }
+    });
+
+    const p = game.players[pid];
+    if(p.alive){
+      const stats = getPlayerIncomeAndUpkeep(pid);
+      p.gold += stats.net;
+      if(p.gold < 0) {
+        p.gold = 0;
+        logMsg(`⚠️ У фракции «${p.name}» финансовый кризис! Доходы (${stats.income}💰) не покрывают содержание войск (-${stats.upkeep}💰).`);
+      } else {
+        logMsg(`📊 Фракция «${p.name}»: доход ${stats.income}💰, содержание войск -${stats.upkeep}💰 (итого: ${stats.net >= 0 ? '+' : ''}${stats.net}💰).`);
+      }
+    }
+  }
+
+  function startAiTurnSequence(){
+    if(game.over || isAiRunning) return;
+    isAiRunning = true;
+    game.selected = null;
+    activeRegionId = null;
+    updatePanel();
+    logMsg(`Ход противников... ИИ совершает манёвры.`);
+
+    let aiFactions = [];
+    for(let pid=1; pid<game.players.length; pid++){
+      if(game.players[pid].alive) aiFactions.push(pid);
+    }
+
+    function runNextAi(index){
+      if(index >= aiFactions.length){
+        finalizeTurnCycle();
+        return;
+      }
+      const pid = aiFactions[index];
+      startPlayerTurn(pid);
+      runSingleAiFaction(pid, ()=>{
+        setTimeout(()=>{
+          runNextAi(index + 1);
+        }, 120);
+      });
+    }
+
+    setTimeout(()=>{
+      runNextAi(0);
+    }, 200);
+  }
+
+  function runSingleAiFaction(pid, onDone){
+    const p = game.players[pid];
+    if(!p.alive || !p.gold){
+      if(onDone) onDone();
+      return;
+    }
+    const all = Array.from(game.hexes.values());
+
+    const emptyOwnedCapitals = all.filter(h => h.owner === pid && h.capital && !h.unit && h.occupiedBy === null && !isRegionOccupiedBy(h.regionId, pid));
+    let recruits = 0;
+    for(let i=0; i<emptyOwnedCapitals.length && recruits < 2 && p.gold >= RECRUIT_COST; i++){
+      const h = emptyOwnedCapitals[i];
+      p.gold -= RECRUIT_COST;
+      h.unit = { owner: pid, strength: INITIAL_STRENGTH, hasMoved: true };
+      recruits++;
+    }
+
+    const aiUnits = all.filter(h => h.unit && h.unit.owner === pid && !h.unit.hasMoved);
+    if(aiUnits.length === 0){
+      if(onDone) onDone();
+      return;
+    }
+
+    let unitIdx = 0;
+    const maxIterationsPerFaction = 40;
+    let iterations = 0;
+    let consecutiveIdle = 0;
+    
+    const aiTimeoutGuard = setTimeout(() => {
+      if(onDone) onDone();
+    }, 2500);
+
+    function processNextUnit(){
+      if(unitIdx >= aiUnits.length || iterations >= maxIterationsPerFaction || consecutiveIdle > 10){
+        clearTimeout(aiTimeoutGuard);
+        if(onDone) onDone();
+        return;
+      }
+      iterations++;
+      const h = aiUnits[unitIdx++];
+      if(!h || !h.unit || h.unit.hasMoved){
+        consecutiveIdle++;
+        processNextUnit();
+        return;
+      }
+      consecutiveIdle = 0;
+
+      const reachable = getReachableHexes(h, pid); 
+      let bestTarget = null;
+      let bestScore = -999;
+
+      reachable.forEach((cost, kStr)=>{
+        const targetHex = game.hexes.get(kStr);
+        if(!targetHex || targetHex === h) return;
+
+        let score = 0;
+        if(targetHex.unit && targetHex.unit.owner !== pid){
+          const mockAttackerHex = { q: h.q, r: h.r, unit: h.unit };
+          const att = getAttackerCombatData(mockAttackerHex, targetHex, pid);
+          const def = getDefenderCombatData(targetHex, mockAttackerHex, targetHex.unit.owner);
+          if(att.total > def.total){
+            score += targetHex.capital ? 250 : 50;
+          } else {
+            return;
+          }
+        } else if(targetHex.owner === null){
+          score += targetHex.capital ? 120 : 35;
+        } else if(targetHex.owner !== pid){
+          score += targetHex.capital ? 200 : 30;
+        } else {
+          score += 5;
+        }
+
+        if(score > bestScore){
+          bestScore = score;
+          bestTarget = targetHex;
+        }
+      });
+
+      if(bestTarget){
+        moveOrAttack(h, bestTarget, pid, false, (res)=>{
+          if(bestTarget.capital && bestTarget.occupiedBy !== null){
+            bestTarget.siegeTurnCount = 0;
+          }
+          setTimeout(processNextUnit, 35);
+        });
+      } else {
+        h.unit.hasMoved = true;
+        processNextUnit();
+      }
+    }
+    processNextUnit();
+  }
+
+  function finalizeTurnCycle(){
+    game.round++;
+    startPlayerTurn(0);
+
+    const roundLabel = document.getElementById('roundLabel');
+    if(roundLabel) roundLabel.textContent = 'Ход ' + game.round;
+
+    checkGameOver();
+    isAiRunning = false;
+    render(); updatePanel();
+    logMsg(`Раунд ${game.round} начался. Ваши войска готовы к приказам.`);
+  }
+
+  function checkGameOver(){
+    game.players.forEach(p=>{
+      if(p.alive && ownedHexCount(p.id)===0) {
+        p.alive = false;
+        game.hexes.forEach(h => {
+          if(h.unit && h.unit.owner === p.id){
+            h.unit = null;
+          }
+          if(h.occupiedBy === p.id){
+            h.occupiedBy = null;
+          }
+        });
+        logMsg(`Фракция «${p.name}» выбыла из войны. Ее оставшиеся войска рассеялись.`);
+      }
+    });
+    const alive = game.players.filter(p=>p.alive);
+    if(!game.players[0].alive){
+      endGame(false, 'Ваши владения захвачены. Королевство пало.');
+    } else if(alive.length===1 && alive[0].id===0){
+      playSound('victory');
+      endGame(true, 'Все соперники разгромлены. Вы истинный правитель континента!');
+    }
+  }
+
+  function endGame(won, text){
+    game.over = true;
+    const overlay = document.getElementById('overlay');
+    if(overlay){
+      overlay.style.display='flex';
+      const titleEl = document.getElementById('overlayTitle');
+      if(titleEl){
+        titleEl.textContent = won ? 'Великая Победа' : 'Поражение';
+        titleEl.style.color = won ? 'var(--gold)' : 'var(--danger)';
+      }
+      document.getElementById('overlayText').textContent = text;
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Game.Render — canvas setup, hex<->pixel math and the draw loop.
+  // Untouched (per request: the map's visual rendering is not to change).
+  // ---------------------------------------------------------------------
+  function setupCanvas(){
+    canvas = document.getElementById('board');
+
+    if(!canvas) return;
+    ctx = canvas.getContext('2d');
+    resizeCanvas();
+
+    staticMapCanvas = document.createElement('canvas');
+    
+    staticCtx = staticMapCanvas.getContext('2d');
+
+
+    canvas.addEventListener('click', onCanvasClick);
+    canvas.addEventListener('mousemove', onCanvasHover);
+    canvas.addEventListener('mouseleave', ()=>{
+      hoveredHex = null;
+      updateTooltipHTML(null);
+      render();
+    });
+  }
+
+  function resizeCanvas(){
+    if(!canvas || !game) return;
+    const pts = Array.from(game.hexes.values()).map(h=>axialToPixel(h.q,h.r));
+    const minX = Math.min(...pts.map(p=>p.x)) - hexSize * 1.6;
+    const maxX = Math.max(...pts.map(p=>p.x)) + hexSize * 1.6;
+    const minY = Math.min(...pts.map(p=>p.y)) - hexSize * 1.6;
+    const maxY = Math.max(...pts.map(p=>p.y)) + hexSize * 1.6;
+    canvas.width = maxX-minX;
+    canvas.height = maxY-minY;
+    canvas.dataset.offx = -minX;
+    canvas.dataset.offy = -minY;
+    isStaticLayerDirty = true;
+  }
+  function pixelForHex(h){
+    const p = axialToPixel(h.q,h.r);
+    const offX = canvas && canvas.dataset && canvas.dataset.offx ? parseFloat(canvas.dataset.offx) : 0;
+    const offY = canvas && canvas.dataset && canvas.dataset.offy ? parseFloat(canvas.dataset.offy) : 0;
+    return { x: p.x + offX, y: (p.y + offY) * TILT_FACTOR };
+  }
+
+  function cubeRound(qf, rf){
+    let xf = qf, zf = rf, yf = -xf - zf;
+    let rx = Math.round(xf), ry = Math.round(yf), rz = Math.round(zf);
+    const xDiff = Math.abs(rx-xf), yDiff = Math.abs(ry-yf), zDiff = Math.abs(rz-zf);
+    if(xDiff > yDiff && xDiff > zDiff) rx = -ry-rz;
+    else if(yDiff > zDiff) ry = -rx-rz;
+    else rz = -rx-ry;
+    return { q: rx, r: rz };
+  }
+
+  function hexAtEvent(evt){
+    if(!canvas || !game) return null;
+    const rect = canvas.getBoundingClientRect();
+    const offX = canvas.dataset.offx ? parseFloat(canvas.dataset.offx) : 0;
+    const offY = canvas.dataset.offy ? parseFloat(canvas.dataset.offy) : 0;
+    const mx = evt.clientX - rect.left - offX;
+    const my = evt.clientY - rect.top - offY;
+
+    const qf = (Math.sqrt(3)/3 * mx - 1/3 * my) / hexSize;
+    const rf = (2/3 * my) / hexSize;
+    const { q, r } = cubeRound(qf, rf);
+
+    let best = game.hexes.get(key(q,r)) || null;
+    let bestD = best ? distSq(best, mx, my) : Infinity;
+    for(const [dq,dr] of DIRS){
+      const cand = game.hexes.get(key(q+dq, r+dr));
+      if(!cand) continue;
+      const d = distSq(cand, mx, my);
+      if(d < bestD){ bestD = d; best = cand; }
+    }
+    if(!best || bestD > hexSize*hexSize*1.3) return null;
+    return best;
+
+    function distSq(h, x, y){
+      const p = axialToPixel(h.q, h.r);
+      return (p.x-x)*(p.x-x) + (p.y-y)*(p.y-y);
+    }
+  }
+
+  function onCanvasClick(evt){
+    const h = hexAtEvent(evt);
+    if(h) selectHex(h);
+  }
+
+  function updateTooltipHTML(h){
+    const tip = document.getElementById('fixedTooltip');
+    if(!tip) return;
+    if(!h){
+      tip.innerHTML = '<span style="color:var(--text-muted)">Наведите или выберите гекс для информации...</span>';
+      return;
+    }
+
+    const TERRAIN = getTerrainDefs();
+    const t = TERRAIN[h.terrain];
+    let txt = t.impassable ? `<b>${t.label}</b>` : `<b>${t.label}</b> · Доход: ${h.occupiedBy!==null?0:t.yield}💰`;
+    if(h.owner!==null) txt += ` · Владелец: ${game.players[h.owner].name}`;
+    if(h.occupiedBy!==null) txt += h.capital
+      ? ` <br><span style="color:#e2b753;">👑 ОСАДА СТОЛИЦЫ: ${game.players[h.occupiedBy].name}</span>`
+      : ` <br><span style="color:#e2b753;">⚔️ РЕЙД: ${game.players[h.occupiedBy].name}</span>`;
+    if(h.capital) txt += ' <br>👑 СТОЛИЦА ОБЛАСТИ';
+    
+    if(h.unit){
+      const supp = getAdjacentSupport(h, h.unit.owner);
+      txt += ` <br>🛡️ Отряд: сила ${h.unit.strength}${supp>0?` (+${supp} поддержка = ${h.unit.strength+supp})`:''}`;
+      if(h.unit.hasMoved) txt += ' [ход завершён]';
+    }
+
+    const sel = game.selected;
+    if(sel && sel.unit && sel.unit.owner===0 && !sel.unit.hasMoved && sel!==h && !t.impassable){
+      const reachable = getReachableCached(sel, 0);
+      if(reachable.has(key(h.q, h.r))){
+        const attData = getAttackerCombatData(sel, h, 0);
+        const defData = getDefenderCombatData(h, sel, h.unit ? h.unit.owner : (h.owner !== null ? h.owner : null));
+        const win = attData.total > defData.total;
+        
+        txt += ` | <b style="color:${win?'#86efac':'#fca5a5'};">Атака: ${win?'ПОБЕДА':'ПОРАЖЕНИЕ'}</b><br>`;
+        txt += `<span style="font-size:11px; color:var(--text-muted);">⚔️ Атк: ${attData.base} база`;
+        if(attData.support > 0) txt += ` + ${attData.support} поддержка`;
+        txt += ` = <b>${attData.total}</b> | 🛡️ Защ: ${defData.base} база`;
+        if(defData.defBonus > 0) txt += ` + ${defData.defBonus} местность/столица`;
+        if(defData.support > 0) txt += ` + ${defData.support} поддержка`;
+        txt += ` = <b>${defData.total}</b></span>`;
+      }
+    }
+    tip.innerHTML = txt;
+  }
+
+  let _lastHoverHex = undefined;
+  let _lastHoverRenderVersion = -1;
+
+  function onCanvasHover(evt){
+    const h = hexAtEvent(evt);
+    if(h === _lastHoverHex && renderVersion === _lastHoverRenderVersion) return;
+
+    hoveredHex = h;
+    updateTooltipHTML(h);
+    render();
+    _lastHoverHex = h; _lastHoverRenderVersion = renderVersion;
+  }
+
+  function hexPath(p, targetCtx){
+    targetCtx.beginPath();
+    for(let i=0;i<6;i++){
+      const c = hexCorner(p.x,p.y,i);
+      if(i===0) targetCtx.moveTo(c.x,c.y); else targetCtx.lineTo(c.x,c.y);
+    }
+    targetCtx.closePath();
+  }
+
+  function drawOccupiedHatch(p, colorStr){
+    ctx.save();
+    hexPath(p, ctx);
+    ctx.clip();
+    ctx.strokeStyle = colorStr;
+    ctx.lineWidth = 2;
+    ctx.globalAlpha = 0.45;
+    const sz = hexSize * 1.5;
+    for(let x = p.x - sz; x <= p.x + sz; x += 6){
+      ctx.beginPath();
+      ctx.moveTo(x, p.y - sz);
+      ctx.lineTo(x + sz, p.y + sz);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  let renderVersion = 0;
+
+  function drawHexTerrain(h){
+    const TERRAIN = getTerrainDefs();
+    const p = pixelForHex(h);
+    const terrainType = h.terrain;
+    
+    // Если для этого террейна загружена картинка — рисуем её
+    if (!_terrainImages[terrainType]) {
+      staticCtx.save();
+      hexPath(p, staticCtx); // Создаем контур гекса
+      staticCtx.clip();      // Обрезаем всё, что за его пределами
+      
+      // Рассчитываем размеры и позицию картинки под размер гекса
+      const img = _terrainImages[terrainType];
+      const size = hexSize * 2;
+      staticCtx.drawImage(img, p.x - hexSize, p.y - hexSize, size, size);
+      
+      staticCtx.restore();
+    } else {
+      // Запасной вариант со сплошным цветом, если картинки нет
+      hexPath(p, staticCtx);
+      staticCtx.fillStyle = territoryFillMode ? getTerritoryColor(h) : TERRAIN[terrainType].color;
+      staticCtx.fill();
+    }
+  }
+  function drawRegionHighlight(h) {
+    const p = pixelForHex(h);
+    for(let i=0; i<6; i++){
+      const [dq, dr] = EDGE_DIRS[i];
+      const nb = game.hexes.get(key(h.q + dq, h.r + dr));
+      if(!nb || nb.regionId !== h.regionId){
+        const c1 = hexCorner(p.x, p.y, i);
+        const c2 = hexCorner(p.x, p.y, (i+1)%6);
+        staticCtx.beginPath();
+        staticCtx.moveTo(c1.x, c1.y);
+        staticCtx.lineTo(c2.x, c2.y);
+        staticCtx.lineWidth = 0.9;
+        staticCtx.strokeStyle = 'rgba(8, 14, 9, 0.35)';
+        staticCtx.stroke();
+      }
+    }
+  }
+  function drawActiveRegion (h) {
+    if(h.regionId === activeRegionId){
+      const p = pixelForHex(h);
+      hexPath(p, ctx);
+      ctx.fillStyle = 'rgba(212, 162, 76, 0.22)';
+      ctx.fill();
+    }
+  }
+  function drawSiegeHatch (h) {
+    const p = pixelForHex(h);
+    if(h.capital){
+      const regHexes = Array.from(game.hexes.values()).filter(x => x.regionId === h.regionId);
+      regHexes.forEach(rh => {
+        const rp = pixelForHex(rh);
+        drawOccupiedHatch(rp, game.players[h.occupiedBy].color);
+      });
+    }
+  }
+  function drawReachable (h) {
+    const enemyReachable = getReachableCached(h, h.unit.owner);
+    enemyReachable.forEach((cost, kStr)=>{
+      const n = game.hexes.get(kStr);
+      if(!n) return;
+      const p = pixelForHex(n);
+      hexPath(p, ctx);
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.22)';
+      ctx.fill();
+    });
+  }
+
+  function drawPlayerReachable (h) {
+    if(h.unit.hasMoved || !h.unitHasFocus) return;
+    const reachable = getReachableCached(h, 0);
+    reachable.forEach((cost, kStr)=>{
+      if(kStr === key(h.q, h.r)) return;
+      const n = game.hexes.get(kStr);
+      if(!n) return;
+      let fillStyle = 'rgba(59, 130, 246, 0.32)';
+      let win = true;
+      if(n.unit && n.unit.owner !== 0){
+        const att = getAttackerCombatData(h, n, 0);
+        const def = getDefenderCombatData(n, h, n.unit.owner);
+        win = att.total > def.total;
+        fillStyle = win ? 'rgba(74, 222, 128, 0.4)' : 'rgba(239, 68, 68, 0.4)';
+      }
+      const p = pixelForHex(n);
+      hexPath(p, ctx);
+      ctx.fillStyle = fillStyle;
+      ctx.fill();
+    });
+  }
+  
+  function drawZoc (h) {
+    const TERRAIN = getTerrainDefs();
+    neighbors(h).forEach(nb => {
+      if(!TERRAIN[nb.terrain].impassable){
+        const p = pixelForHex(nb);
+        hexPath(p, ctx);
+        ctx.fillStyle = 'rgba(212,162,76,0.18)';
+        ctx.fill();
+      }
+    });
+  }
+  function drawUnit (h) {
+    const p = pixelForHex(h);
+    const uColor = game.players[h.unit.owner].color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y + hexSize * 0.2, hexSize * 0.36, 0, Math.PI * 2);
+    ctx.fillStyle = uColor;
+    ctx.fill();
+    ctx.lineWidth = 1.8;
+    ctx.strokeStyle = '#101712';
+    ctx.stroke();
+
+    if(h.unit.hasMoved){
+      ctx.beginPath();
+      ctx.arc(p.x + hexSize * 0.22, p.y, 3, 0, Math.PI * 2);
+      ctx.fillStyle = '#94a3b8';
+      ctx.fill();
+    }
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 11px ' + getComputedStyle(document.body).fontFamily;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(h.unit.strength, p.x, p.y + hexSize * 0.2);
+  }
+  function drawHexBorder(h){
+    const p = pixelForHex(h);
+    hexPath(p, staticCtx);
+    staticCtx.lineWidth = 0.9;
+    staticCtx.strokeStyle = 'rgba(0,0,0,0.12)';
+    staticCtx.stroke();
+  }
+  function drawFactionBorders(h){
+    const p = pixelForHex(h);
+    for(let i=0; i<6; i++){
+      const [dq, dr] = EDGE_DIRS[i];
+      const nb = game.hexes.get(key(h.q + dq, h.r + dr));
+      if(!nb || nb.owner !== h.owner){
+        const c1 = hexCorner(p.x, p.y, i);
+        const c2 = hexCorner(p.x, p.y, (i+1)%6);
+        ctx.beginPath();
+        ctx.moveTo(c1.x, c1.y);
+        ctx.lineTo(c2.x, c2.y);
+        ctx.lineWidth = 2.6;
+        ctx.strokeStyle = game.players[h.owner].color;
+        ctx.stroke();ctx.save();
+      }
+    }
+  }
+  function drawCapital(h){
+    const p = pixelForHex(h);
+    staticCtx.beginPath();
+    staticCtx.arc(p.x, p.y - hexSize * 0.38, 3.5, 0, Math.PI * 2);
+    staticCtx.fillStyle = h.owner !== null ? game.players[h.owner].color : '#d4a24c';
+    staticCtx.fill();
+    staticCtx.lineWidth = 1.5;
+    staticCtx.strokeStyle = '#101712';
+    staticCtx.stroke();
+  }
+  function drawSelected(h){
+    const p = pixelForHex(h);
+    hexPath(p, ctx);
+    ctx.lineWidth = 1.8;
+    ctx.strokeStyle = '#f4eedb';
+    ctx.stroke();
+  }
+  function drawHovered(h){
+    const p = pixelForHex(h);
+    hexPath(p, ctx);
+    ctx.fillStyle = 'rgba(255,255,255,0.32)';
+    ctx.fill();
+  }
+
+  function drawFlyingUnits(){
+    flyingUnits.forEach(fu => {
+      const fromP = axialToPixel(fu.fromQ, fu.fromR);
+      const toP = axialToPixel(fu.toQ, fu.toR);
+      const offX = canvas.dataset.offx ? parseFloat(canvas.dataset.offx) : 0;
+      const offY = canvas.dataset.offy ? parseFloat(canvas.dataset.offy) : 0;
+      
+      const currX = (fromP.x + (toP.x - fromP.x) * fu.progress) + offX;
+      const currY = (fromP.y + (toP.y - fromP.y) * fu.progress) + offY;
+
+      ctx.beginPath();
+      ctx.arc(currX, currY, hexSize * 0.38, 0, Math.PI * 2);
+      ctx.fillStyle = game.players[fu.owner].color;
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#ffffff';
+      ctx.stroke();
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 11px ' + getComputedStyle(document.body).fontFamily;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(fu.strength, currX, currY);
+    });
+  }
+  function drawDestroyingUnits(){
+    destroyingUnits.forEach(du => {
+      const p = pixelForHex(du);
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, 1 - du.progress);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y + hexSize * 0.2, hexSize * (0.36 + du.progress * 0.4), 0, Math.PI * 2);
+      ctx.fillStyle = '#ef4444';
+      ctx.fill();
+      ctx.restore();
+    });
+  }
+
+  function updateStaticLayer() {
+    staticMapCanvas.width = canvas.width;
+    staticMapCanvas.height = canvas.height;
+    console.log("⚠️ Статический слой перерисовывается!");
+    staticCtx.clearRect(0, 0, staticMapCanvas.width, staticMapCanvas.height);
+    game.hexes.forEach(h => {
+      drawHexTerrain(h);
+      if(h.regionId !== null) drawRegionHighlight(h);
+      if (showGrid) drawHexBorder(h);
+    });
+    isStaticLayerDirty = false;
+  }
+
+  function render(){
+    if(!ctx || !canvas) return;
+    renderVersion++;
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    //Layer static
+    if (isStaticLayerDirty) updateStaticLayer();
+    ctx.drawImage(staticMapCanvas, 0, 0);
+
+    //Layer 0
+    game.hexes.forEach(h=>{
+      if(h.owner !== null) drawFactionBorders(h) 
+      if (activeRegionId !== null) drawActiveRegion(h);
+      if (h.occupiedBy !== null) drawSiegeHatch(h);
+    });
+
+    //Layer 1
+    const hh = hoveredHex;
+    const sh = game.selected;
+
+    if(hh){
+      drawHovered(hh)
+      if(hh.unit && hh.unit.owner !== 0) drawReachable(hh)
+      //if(hh.unit && zocEnabled) drawZoc(hh)
+    }
+    if(sh){
+      drawSelected(sh)
+      if(sh.unit && sh.unit.owner===0 && !game.over) drawPlayerReachable(sh)
+    }
+    //Layer 2
+    game.hexes.forEach(h => {
+      if (h.unit) drawUnit(h);
+      if(h.capital) drawCapital(h);
+    });
+
+    drawFlyingUnits();
+    drawDestroyingUnits();
+  }
+
+  // ---------------------------------------------------------------------
+  // Game.UI — side panel rendering (player list, selection card, action
+  // buttons) and top-level DOM event wiring. This is the layer this pass
+  // focuses on improving visually; exposed as Game.UI below.
+  // ---------------------------------------------------------------------
+  function updatePanel(){
+    const pList = document.getElementById('playerList');
+    if(pList){
+      pList.innerHTML = game.players.map(p => {
+        const stats = getPlayerIncomeAndUpkeep(p.id);
+        return `
+        <div class="playerRow ${!p.alive ? 'dead' : ''} ${p.id===0 ? 'activePlayer' : ''}">
+          <div class="swatch" style="background:${p.color}"></div>
+          <div class="playerName">${p.name} <span style="font-size:10px; color:var(--text-muted); display:block;">Доход: +${stats.income} | Расх: -${stats.upkeep}</span></div>
+          <div class="playerGold">${p.gold}💰 (${(stats.income - stats.upkeep)})</div>
+          <div class="playerHexes">${ownedHexCount(p.id)} г.</div>
+        </div>
+      `;
+      }).join('');
+    }
+
+    const info = document.getElementById('selectedInfo');
+    const acts = document.getElementById('actionButtons');
+    if(!info || !acts) return;
+
+    const sel = game.selected;
+    if(!sel){
+      info.innerHTML = '<span class="placeholder">Выберите гекс для отдачи приказов</span>';
+      acts.innerHTML = '';
+      return;
+    }
+
+    const TERRAIN = getTerrainDefs();
+    const t = TERRAIN[sel.terrain];
+    let html = `<b>${t.label}</b> (q:${sel.q}, r:${sel.r})`;
+    if(sel.owner!==null) html += `<br>Владелец: ${game.players[sel.owner].name}`;
+    if(sel.capital) html += `<br><span style="color:var(--gold);">👑 Столица области #${sel.regionId}</span>`;
+    
+    let actHtml = '';
+    if(sel.unit){
+      html += `<br><span style="color:#60a5fa;">🛡️ Отряд фракции ${game.players[sel.unit.owner].name} (сила: ${sel.unit.strength})</span>`;
+    }
+    info.innerHTML = html;
+
+    const regionIsOccupied = isRegionOccupiedBy(sel.regionId, 0);
+
+    if(sel.capital && sel.unit && sel.unit.owner === 0){
+      actHtml += `<div style="background:rgba(212,162,76,0.08); border:1px solid var(--gold-dim); padding:8px; border-radius:4px; margin-bottom:8px;">
+        <div style="font-size:11px; color:var(--gold); margin-bottom:6px; font-weight:bold; text-transform:uppercase;">Выбрать объект на гексе:</div>
+        <div style="display:flex; gap:6px;">
+          <button id="selectCapitalBtn" type="button" style="margin-top:0; flex:1; font-size:11px; background:${!sel.unitHasFocus ? 'var(--gold)' : 'transparent'}; color:${!sel.unitHasFocus ? '#1b1305' : 'var(--gold)'};">Столица</button>
+          <button id="selectArmyBtn" type="button" style="margin-top:0; flex:1; font-size:11px; background:${sel.unitHasFocus ? 'var(--gold)' : 'transparent'}; color:${sel.unitHasFocus ? '#1b1305' : 'var(--gold)'};">Войска</button>
+        </div>
+      </div>`;
+    } else if(sel.capital && sel.unit && sel.unit.owner !== 0){
+      actHtml += `<div style="font-size:11px; color:var(--text-muted); margin-bottom:6px;">Столица занята вражеским отрядом.</div>`;
+    }
+
+    const isCapitalFocused = sel.capital && sel.owner === 0 && (!sel.unit || !sel.unitHasFocus);
+    if(isCapitalFocused && !game.over && sel.occupiedBy === null && !sel.unit){
+      if(regionIsOccupied){
+        actHtml += `<div style="font-size:11px; color:var(--danger); margin-top:6px; margin-bottom:6px;">⚠️ Область оккупирована! Найм войск заблокирован.</div>`;
+      } else {
+        actHtml += `<button id="recruitBtn" type="button">Найнять отряд (${RECRUIT_COST}💰)</button>`;
+      }
+    }
+    
+    const isUnitInCapital = sel.capital && sel.unit && sel.unit.owner === 0 && sel.owner === 0;
+    if(isUnitInCapital && !game.over && game.players[0].gold >= REINFORCE_COST){
+      if(regionIsOccupied){
+        actHtml += `<div style="font-size:11px; color:var(--danger); margin-top:6px; margin-bottom:6px;">⚠️ Текущая область оккупирована! Усиление войск заблокировано.</div>`;
+      } else {
+        actHtml += `<button id="reinforceBtn" type="button">Усилить отряд (${REINFORCE_COST}💰)</button>`;
+      }
+    }
+    acts.innerHTML = actHtml;
+
+    const selCapBtn = document.getElementById('selectCapitalBtn');
+    if(selCapBtn){
+      selCapBtn.onclick = (e) => {
+        e.stopPropagation();
+        sel.unitHasFocus = false;
+        activeRegionId = sel.regionId;
+        render(); updatePanel();
+      };
+    }
+
+    const selArmyBtn = document.getElementById('selectArmyBtn');
+    if(selArmyBtn){
+      selArmyBtn.onclick = (e) => {
+        e.stopPropagation();
+        sel.unitHasFocus = true;
+        activeRegionId = null;
+        render(); updatePanel();
+      };
+    }
+
+    const recBtn = document.getElementById('recruitBtn');
+    if(recBtn){
+      recBtn.onclick = (e)=>{
+        e.stopPropagation();
+        if(game.players[0].gold >= RECRUIT_COST && !sel.unit && !isRegionOccupiedBy(sel.regionId, 0)){
+          game.players[0].gold -= RECRUIT_COST;
+          sel.unit = { owner: 0, strength: 1, hasMoved: true };
+          playSound('recruit');
+          logMsg(`Найман новый отряд на (${sel.q}, ${sel.r}) [ожидает следующего хода для движения].`);
+          render(); updatePanel();
+        }
+      };
+    }
+
+    const reinBtn = document.getElementById('reinforceBtn');
+    if(reinBtn){
+      reinBtn.onclick = (e)=>{
+        e.stopPropagation();
+        if(game.players[0].gold >= REINFORCE_COST && sel.unit && sel.unit.owner===0 && !isRegionOccupiedBy(sel.regionId, 0)){
+          game.players[0].gold -= REINFORCE_COST;
+          sel.unit.strength += 1;
+          playSound('recruit');
+          logMsg(`Отряд на (${sel.q}, ${sel.r}) усилен.`);
+          render(); updatePanel();
+        }
+      };
+    }
+  }
+
+  function initUIEvents(){
+    document.getElementById('newGameBtn').onclick = () => {
+      newGame(Date.now());
+      resizeCanvas();
+      render();
+      updatePanel();
+    };
+
+    document.getElementById('restartBtn').onclick = () => {
+      document.getElementById('overlay').style.display='none';
+      newGame(Date.now());
+      resizeCanvas();
+      render();
+      updatePanel();
+    };
+
+    document.getElementById('audioToggleBtn').onclick = () => {
+      const enabled = Game.Audio.toggle();
+      document.getElementById('audioToggleBtn').textContent = enabled ? '🔊 Звук' : '🔇 Звук выкл';
+    };
+
+    document.getElementById('endTurnBtn').onclick = () => {
+      if(game.over || isAiRunning) return;
+      game.selected = null;
+      activeRegionId = null;
+      startAiTurnSequence();
+    };
+
+    document.getElementById('mapSizeSelect').onchange = (e) => {
+      mapRadius = parseInt(e.target.value);
+      newGame(Date.now());
+      resizeCanvas();
+      render();
+      updatePanel();
+    };
+
+    document.getElementById('regionSizeSelect').onchange = (e) => {
+      regionSizeMode = e.target.value;
+      newGame(Date.now());
+      resizeCanvas();
+      render();
+      updatePanel();
+    };
+
+    document.getElementById('moveRangeSelect').onchange = (e) => {
+      maxMovementPoints = parseInt(e.target.value);
+      render();
+    };
+
+    document.getElementById('hexSizeRange').oninput = (e) => {
+      hexSize = parseInt(e.target.value);
+      resizeCanvas();
+      render();
+    };
+
+    document.getElementById('gridToggleCheck').onchange = (e) => {
+      showGrid = e.target.checked;
+      isStaticLayerDirty = true;
+      render();
+    };
+
+    document.getElementById('territoryFillCheck').onchange = (e) => {
+      territoryFillMode = e.target.checked;
+      isStaticLayerDirty = true;
+      render();
+    };
+
+    document.getElementById('factionsCountSelect').onchange = (e) => {
+      factionsCount = parseInt(e.target.value);
+      newGame(Date.now());
+      resizeCanvas();
+      render();
+      updatePanel();
+    };
+
+    document.getElementById('themeSelect').onchange = (e) => {
+      currentTheme = e.target.value;
+      render();
+    }; 
+
+    document.getElementById('zocSelect').onchange = (e) => {
+      zocEnabled = (e.target.value === 'on');
+      render();
+    };
+
+    window.addEventListener('resize', () => {
+      resizeCanvas();
+      render();
+    });
+  }
+
+  // ==========================================================================
+  // Public Game namespace — a professional, discoverable facade over the
+  // engine above. Nothing here changes behaviour: every entry is a direct
+  // reference to the exact same function/state that already existed, just
+  // grouped by responsibility (map generation, combat math, AI, rendering,
+  // turn flow, UI) instead of being one flat list of globals. This keeps the
+  // battle-tested map/gameplay code completely untouched while giving the
+  // codebase real structure, e.g. Game.Map.create(), Game.AI.runFaction(),
+  // Game.Turns.checkGameOver(), Game.UI.updatePanel().
+  // ==========================================================================
+  Game.Config = {
+    get hexSize(){ return hexSize; },
+    get showGrid(){ return showGrid; },
+    get territoryFillMode(){ return territoryFillMode; },
+    get currentTheme(){ return currentTheme; },
+    get zocEnabled(){ return zocEnabled; },
+    get mapRadius(){ return mapRadius; },
+    get maxMovementPoints(){ return maxMovementPoints; },
+    get regionSizeMode(){ return regionSizeMode; },
+    get factionsCount(){ return factionsCount; },
+    THEMES, RECRUIT_COST, REINFORCE_COST, INITIAL_STRENGTH,
+    CAPITAL_BONUS_GOLD, CAPITAL_BONUS_DEFENSE,
+    terrainDefs: getTerrainDefs
+  };
+
+  Game.State = {
+    get current(){ return game; },
+    get selected(){ return game ? game.selected : null; },
+    get isAiRunning(){ return isAiRunning; }
+  };
+
+  Game.Map = {
+    create: newGame,
+    neighbors,
+    claimRegion: claimRegionAllHexes,
+    ownedHexCount,
+    incomeAndUpkeep: getPlayerIncomeAndUpkeep,
+    isRegionOccupiedBy,
+    applyRaidLoot
+  };
+
+  Game.Movement = {
+    inEnemyZoC,
+    reachable: getReachableHexes,
+    reachableCached: getReachableCached
+  };
+
+  Game.Combat = {
+    adjacentSupport: getAdjacentSupport,
+    attackerData: getAttackerCombatData,
+    defenderData: getDefenderCombatData,
+    moveOrAttack
+  };
+
+  Game.Turns = {
+    startPlayerTurn,
+    finalizeTurnCycle,
+    checkGameOver,
+    endGame
+  };
+
+  Game.AI = {
+    runTurnSequence: startAiTurnSequence,
+    runFaction: runSingleAiFaction
+  };
+
+  Game.Render = {
+    setup: setupCanvas,
+    resize: resizeCanvas,
+    draw: render,
+    pixelForHex,
+    hexAtEvent
+  };
+
+  Game.Input = {
+    selectHex,
+    onCanvasClick,
+    onCanvasHover
+  };
+
+  Game.UI = {
+    updatePanel,
+    updateTooltip: updateTooltipHTML,
+    updateLegend: updateLegendDOM,
+    log: logMsg,
+    initEvents: initUIEvents
+  };
+
+  window.onload = function(){
+    loadTerrainAssets(() => {
+      initUIEvents();
+      newGame(12345);
+      setupCanvas();
+      render();
+      updatePanel();
+    });
+  };
+
+})();
+</script>
+</body>
+</html>
