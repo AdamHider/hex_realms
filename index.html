@@ -17,6 +17,7 @@
     --danger:#b23b3b;
     --success:#45a862;
     --font-ui:'Trebuchet MS', system-ui, sans-serif;
+    --hud-bg:rgba(17,22,15,0.82);
   }
   *{box-sizing:border-box;}
   html,body{
@@ -25,88 +26,168 @@
     color:var(--text-primary);
     font-family:Georgia, 'Times New Roman', serif;
     height:100%;
+    overflow:hidden; /* карта — полноэкранный холст, страница сама не скроллится */
   }
-  .eyebrow{
-    font-family:var(--font-ui);
-    text-transform:uppercase;
-    letter-spacing:.14em;
-    font-size:11px;
-    color:var(--text-muted);
-  }
+
+  /* ==========================================================================
+     Полноэкранная карта: канвас — фон на весь вьюпорт, всё остальное —
+     плавающие HUD-слои поверх него (как в большинстве стратегий).
+     ========================================================================== */
   #app{
-    display:flex;
-    flex-wrap:wrap;
-    min-height:100vh;
-    align-items:flex-start;
-    justify-content:center;
-    gap:18px;
-    padding:20px;
+    position:fixed;
+    inset:0;
+    overflow:hidden;
   }
   #boardWrap{
-    background:
-      radial-gradient(ellipse at 50% 0%, rgba(212,162,76,0.06), transparent 60%),
-      var(--map-table);
+    position:absolute;
+    inset:0;
+  }
+  canvas#board{
+    position:absolute;
+    inset:0;
+    display:block;
+    width:100%;
+    height:100%;
+    touch-action:none; /* сами обрабатываем pan/zoom/тап */
+    cursor:grab;
+  }
+  canvas#board.dragging{cursor:grabbing;}
+
+  /* HUD-контейнер лежит НАД канвасом на весь экран, но сам прозрачен для
+     кликов (pointer-events:none) — клики "проваливаются" на карту везде,
+     кроме реальных виджетов (которым события возвращены отдельно). */
+  #hud{
+    position:absolute;
+    inset:0;
+    z-index:10;
+    pointer-events:none;
+  }
+  #hud > *{ pointer-events:auto; }
+
+  /* --- Верхняя панель: заголовок + быстрые действия --- */
+  #topBar{
+    position:absolute;
+    top:10px; left:10px; right:10px;
+    display:flex;
+    align-items:center;
+    gap:12px;
+    background:var(--hud-bg);
     border:1px solid var(--panel-line);
-    border-radius:6px;
-    padding:14px;
-    position:relative;
-    box-shadow: 0 20px 50px rgba(0,0,0,0.45);
-    max-width: calc(100vw - 380px);
-    overflow: auto;
-    display:flex;
-    flex-direction:column;
+    border-radius:8px;
+    padding:8px 12px;
+    backdrop-filter:blur(3px);
+    box-shadow:0 6px 16px rgba(0,0,0,0.35);
   }
-  #titleRow{
-    display:flex;
-    align-items:baseline;
-    justify-content:space-between;
-    margin-bottom:8px;
-    padding:0 4px;
-  }
-  #titleRow h1{
-    font-size:20px;
+  #topBar h1{
+    font-size:18px;
     letter-spacing:.04em;
     margin:0;
     color:var(--gold);
     font-weight:normal;
+    white-space:nowrap;
   }
   #roundLabel{
     font-family:var(--font-ui);
-    font-size:12px;
+    font-size:11px;
     letter-spacing:.1em;
     text-transform:uppercase;
     color:var(--text-muted);
+    white-space:nowrap;
   }
-  canvas{
-    display:block;
-    border-radius:3px;
-    cursor:pointer;
+  #topBarSpacer{flex:1;}
+  .iconBtn{
+    width:auto;
+    margin-top:0;
+    padding:8px 10px;
+    font-size:14px;
+    line-height:1;
   }
+
+  /* --- Плавающая подсказка по гексу --- */
   #fixedTooltip{
-    margin-top:10px;
-    background:rgba(15,20,14,0.95);
+    position:absolute;
+    left:10px;
+    bottom:14px;
+    max-width:min(440px, calc(100vw - 240px));
+    background:var(--hud-bg);
     border:1px solid var(--panel-line);
     padding:10px 14px;
     font-size:12px;
-    border-radius:4px;
+    border-radius:6px;
     color:var(--text-primary);
     font-family:var(--font-ui);
-    min-height:54px;
+    min-height:20px;
+    backdrop-filter:blur(3px);
     box-shadow:0 4px 12px rgba(0,0,0,0.5);
     line-height:1.4;
   }
+
+  /* --- Кнопка "Закончить ход" — всегда на виду, отдельно от сворачиваемой
+     панели, зафиксирована в углу поверх карты. --- */
+  #endTurnBtn{
+    position:absolute;
+    right:14px;
+    bottom:14px;
+    width:auto;
+    min-width:190px;
+    background:var(--gold);
+    color:#1b1305;
+    font-size:13px;
+    letter-spacing:.1em;
+    padding:15px 20px;
+    margin-top:0;
+    box-shadow:0 6px 20px rgba(212,162,76,0.35);
+    z-index:20;
+  }
+  #endTurnBtn:hover:not(:disabled){background:#e6b464;}
+
+  /* --- Камера: зум/центрирование, вертикальный кластер справа --- */
+  #camControls{
+    position:absolute;
+    right:14px;
+    top:64px;
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+  }
+  #camControls button{
+    width:38px;
+    height:38px;
+    margin-top:0;
+    padding:0;
+    font-size:16px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    background:var(--hud-bg);
+    backdrop-filter:blur(3px);
+  }
+
+  /* --- Сворачиваемая панель настроек/фракций/приказов/журнала --- */
   #panel{
     width:328px;
     display:flex;
     flex-direction:column;
     gap:12px;
+    position:absolute;
+    right:14px;
+    top:118px;
+    max-height:calc(100vh - 190px);
+    overflow-y:auto;
+    transform:translateX(calc(100% + 24px));
+    transition:transform .35s ease;
   }
+  #panel.visible{
+    transform:translateX(0);
+  }
+
   .card{
-    background:var(--bg-panel);
+    background:var(--hud-bg);
     border:1px solid var(--panel-line);
     border-radius:8px;
     padding:14px;
-    box-shadow:0 6px 16px rgba(0,0,0,0.22);
+    backdrop-filter:blur(3px);
+    box-shadow:0 6px 16px rgba(0,0,0,0.32);
   }
   .card h2{
     display:flex;
@@ -212,16 +293,6 @@
     opacity:.3;
     cursor:not-allowed;
   }
-  #endTurnBtn{
-    background:var(--gold);
-    color:#1b1305;
-    font-size:13px;
-    letter-spacing:.1em;
-    padding:13px;
-    margin-top:0;
-    box-shadow:0 4px 14px rgba(212,162,76,0.18);
-  }
-  #endTurnBtn:hover:not(:disabled){background:#e6b464;}
 
   /* --- Campaign log --- */
   #log{
@@ -321,18 +392,11 @@
   #overlay p{color:var(--text-muted);margin:0;max-width:380px;}
   #overlay button{width:auto;padding:12px 26px;}
 
-  /* --- Board top controls --- */
-  .top-controls{display:flex;gap:8px;margin-bottom:8px;}
-  .top-controls button{
-    margin-top:0;
-    padding:7px 12px;
-    font-size:11px;
-    width:auto;
-  }
-  .top-controls button:first-child{flex:1;}
-
   @media (max-width:760px){
-    #panel{width:100%;max-width:520px;}
+    #panel{width:calc(100vw - 28px);max-width:420px;top:110px;}
+    #topBar h1{font-size:15px;}
+    #endTurnBtn{min-width:0;padding:14px 16px;}
+    #fixedTooltip{max-width:calc(100vw - 28px);right:10px;}
   }
 </style>
 </head>
@@ -340,122 +404,125 @@
 
 <div id="app">
   <div id="boardWrap">
-    <div id="titleRow">
-      <h1>Hex Realms</h1>
-      <div id="roundLabel">Ход 1</div>
-    </div>
-    <div class="top-controls">
-      <button id="newGameBtn">Новая карта</button>
-      <button id="audioToggleBtn">🔊 Звук</button>
-    </div>
     <canvas id="board"></canvas>
-    <div id="fixedTooltip"><span style="color:var(--text-muted)">Наведите или выберите гекс для информации...</span></div>
   </div>
 
-  <div id="panel">
-    <div class="card">
-      <h2><span class="icon">⚙️</span> Настройки партии</h2>
-
-      <details class="settingsGroup" open>
-        <summary>Генерация карты</summary>
-        <div class="settingsGrid">
-          <label>Радиус карты:
-            <select id="mapSizeSelect">
-              <option value="5">Малая (радиус 5)</option>
-              <option value="6" selected>Средняя (радиус 6)</option>
-              <option value="8">Большая (радиус 8)</option>
-              <option value="10">Обширная (радиус 10)</option>
-              <option value="12">Громадная (радиус 12)</option>
-            </select>
-          </label>
-          <label>Размер областей:
-            <select id="regionSizeSelect">
-              <option value="compact">Компактные (до 6 гексов)</option>
-              <option value="balanced" selected>Сбалансированные (~7-9 гексов)</option>
-              <option value="large">Обширные (~11 гексов)</option>
-            </select>
-          </label>
-          <label style="grid-column: span 2;">Количество фракций:
-            <select id="factionsCountSelect">
-              <option value="2">2 фракции (Вы + 1)</option>
-              <option value="3">3 фракции (Вы + 2)</option>
-              <option value="4" selected>4 фракции (Вы + 3)</option>
-              <option value="5">5 фракций (Вы + 4)</option>
-              <option value="6">6 фракций (Вы + 5)</option>
-            </select>
-          </label>
-        </div>
-      </details>
-
-      <details class="settingsGroup">
-        <summary>Правила боя и хода</summary>
-        <div class="settingsGrid">
-          <label>Базовый ход:
-            <select id="moveRangeSelect">
-              <option value="1">1 гекс</option>
-              <option value="2" selected>2 гекса</option>
-              <option value="3">3 гекса</option>
-              <option value="100">100 гексов</option>
-            </select>
-          </label>
-          <label>Зона Контроля:
-            <select id="zocSelect">
-              <option value="on">Вкл. (1 гекс)</option>
-              <option value="off">Выключена</option>
-            </select>
-          </label>
-        </div>
-      </details>
-
-      <details class="settingsGroup">
-        <summary>Вид и оформление</summary>
-        <div class="settingsGrid">
-          <label style="grid-column: span 2;">Палитра оформления:
-            <select id="themeSelect">
-              <option value="classic">Классическая</option>
-              <option value="autumn">Осенняя</option>
-              <option value="midnight">Ночная</option>
-              <option value="parchment">Пергамент</option>
-            </select>
-          </label>
-          <label style="grid-column: span 2;">Масштаб гексов: <input type="range" id="hexSizeRange" min="16" max="32" value="22"></label>
-          <label class="checkboxLabel" style="grid-column: span 2;">
-            <input type="checkbox" id="gridToggleCheck" checked> Показать сетку
-          </label>
-          <label class="checkboxLabel" style="grid-column: span 2;">
-            <input type="checkbox" id="territoryFillCheck"> Полная окраска владений
-          </label>
-        </div>
-      </details>
+  <div id="hud">
+    <div id="topBar">
+      <h1>Hex Realms</h1>
+      <div id="roundLabel">Ход 1</div>
+      <div id="topBarSpacer"></div>
+      <button id="newGameBtn" class="iconBtn" title="Новая карта">🗺️</button>
+      <button id="audioToggleBtn" class="iconBtn" title="Звук">🔊</button>
+      <button id="panelToggle" class="iconBtn" title="Настройки и приказы">⚙️</button>
     </div>
 
-    <div class="card">
-      <h2><span class="icon">⚔️</span> Владения фракций</h2>
-      <div id="playerList"></div>
+    <div id="camControls">
+      <button id="zoomInBtn" title="Приблизить">+</button>
+      <button id="zoomOutBtn" title="Отдалить">–</button>
+      <button id="centerViewBtn" title="Центрировать карту">⤢</button>
     </div>
 
-    <div class="card">
-      <h2><span class="icon">🎯</span> Управление и Разведка</h2>
-      <div id="selectedInfo"><span class="placeholder">Выберите гекс для отдачи приказов</span></div>
-      <div id="actionButtons"></div>
-    </div>
+    <div id="fixedTooltip"><span style="color:var(--text-muted)">Наведите или выберите гекс для информации...</span></div>
 
-    <div class="card" style="padding:10px;">
-      <button id="endTurnBtn">Закончить ход</button>
-    </div>
+    <button id="endTurnBtn">Закончить ход</button>
 
-    <div class="card">
-      <h2><span class="icon">📜</span> Журнал кампании</h2>
-      <div id="log"></div>
-    </div>
+    <div id="panel">
+      <div class="card">
+        <h2><span class="icon">⚙️</span> Настройки партии</h2>
 
-    <div class="card">
-      <h2><span class="icon">📖</span> Правила и Механики</h2>
-      <div class="legendGrid" id="legendGridContainer"></div>
-      <div class="eyebrow" style="margin-top:10px;line-height:1.5;">
-        • <b>Оккупация области</b>: Занимая вражескую или нейтральную столицу, вы оккупируете всю область целиком (все клетки блокируются). В период оккупации области найм и усиление войск заблокированы.<br>
-        • <b>Досягаемость врага</b>: При наведении на вражеский отряд подсвечивается зона его перемещения.<br>
-        • <b>Активная область</b>: При клике на столицу подсветка выделяет всю область.
+        <details class="settingsGroup" open>
+          <summary>Генерация карты</summary>
+          <div class="settingsGrid">
+            <label>Радиус карты:
+              <select id="mapSizeSelect">
+                <option value="5">Малая (радиус 5)</option>
+                <option value="6" selected>Средняя (радиус 6)</option>
+                <option value="8">Большая (радиус 8)</option>
+                <option value="10" >Обширная (радиус 10)</option>
+                <option value="12" >Громадная (радиус 12)</option>
+              </select>
+            </label>
+            <label>Размер областей:
+              <select id="regionSizeSelect">
+                <option value="compact">Компактные (до 6 гексов)</option>
+                <option value="balanced" selected>Сбалансированные (~7-9 гексов)</option>
+                <option value="large">Обширные (~11 гексов)</option>
+              </select>
+            </label>
+            <label style="grid-column: span 2;">Количество фракций:
+              <select id="factionsCountSelect">
+                <option value="2">2 фракции (Вы + 1)</option>
+                <option value="3">3 фракции (Вы + 2)</option>
+                <option value="4" selected>4 фракции (Вы + 3)</option>
+                <option value="5">5 фракций (Вы + 4)</option>
+                <option value="6">6 фракций (Вы + 5)</option>
+              </select>
+            </label>
+          </div>
+        </details>
+
+        <details class="settingsGroup">
+          <summary>Правила боя и хода</summary>
+          <div class="settingsGrid">
+            <label>Базовый ход:
+              <select id="moveRangeSelect">
+                <option value="1">1 гекс</option>
+                <option value="2" selected>2 гекса</option>
+                <option value="3">3 гекса</option>
+                <option value="100">100 гексов</option>
+              </select>
+            </label>
+            <label>Зона Контроля:
+              <select id="zocSelect">
+                <option value="on">Вкл. (1 гекс)</option>
+                <option value="off">Выключена</option>
+              </select>
+            </label>
+          </div>
+        </details>
+
+        <details class="settingsGroup">
+          <summary>Вид и оформление</summary>
+          <div class="settingsGrid">
+            <label style="grid-column: span 2;">Палитра оформления:
+              <select id="themeSelect">
+                <option value="classic">Классическая</option>
+                <option value="autumn">Осенняя</option>
+                <option value="midnight">Ночная</option>
+                <option value="parchment">Пергамент</option>
+              </select>
+            </label>
+            <label style="grid-column: span 2;">Масштаб гексов: <input type="range" id="hexSizeRange" min="16" max="32" value="22"></label>
+            <label class="checkboxLabel" style="grid-column: span 2;">
+              <input type="checkbox" id="gridToggleCheck" checked> Показать сетку
+            </label>
+            <label class="checkboxLabel" style="grid-column: span 2;">
+              <input type="checkbox" id="territoryFillCheck"> Полная окраска владений
+            </label>
+          </div>
+        </details>
+
+        <details class="settingsGroup">
+          <summary>Легенда местности</summary>
+          <div class="legendGrid" id="legendGridContainer"></div>
+        </details>
+      </div>
+
+      <div class="card">
+        <h2><span class="icon">⚔️</span> Владения фракций</h2>
+        <div id="playerList"></div>
+      </div>
+
+      <div class="card">
+        <h2><span class="icon">🎯</span> Управление и Разведка</h2>
+        <div id="selectedInfo"><span class="placeholder">Выберите гекс для отдачи приказов</span></div>
+        <div id="actionButtons"></div>
+      </div>
+
+      <div class="card">
+        <h2><span class="icon">📜</span> Журнал кампании</h2>
+        <div id="log"></div>
       </div>
     </div>
   </div>
@@ -466,6 +533,7 @@
   <p id="overlayText"></p>
   <button id="restartBtn">Новая кампания</button>
 </div>
+
 
 <script>
 (function(){
@@ -576,7 +644,7 @@
   // Game.Config — mutable settings (bound to the settings panel controls)
   // and static rule constants/theme palettes. Exposed as Game.Config below.
   // ---------------------------------------------------------------------
-  let hexSize = 22;
+  let hexSize = 28;
   let showGrid = true;
   let territoryFillMode = false;
   let currentTheme = 'classic';
@@ -585,7 +653,19 @@
   let maxMovementPoints = 2;
   let regionSizeMode = 'balanced';
   let factionsCount = 4;
-
+  // --- Камера (полёт "птичьим взглядом" над картой): pan + zoom -----------
+  // camera.x/camera.y/camera.zoom описывают единственную ctx.setTransform(...),
+  // которой рендер переводит МИРОВЫЕ координаты карты (те, что считает
+  // pixelForHex/projectFlatPoint) в пиксели буфера канваса. Все обработчики
+  // мыши/тача обязаны использовать РОВНО ту же формулу в обратную сторону
+  // (bufferToWorld), иначе клики "уезжают" от того, что нарисовано.
+  let camera = { x: 0, y: 0, zoom: 1.0 };
+  const MIN_ZOOM = 0.35, MAX_ZOOM = 4.0;
+  // Габариты карты в мировых пикселях (см. resizeCanvas) — используются, чтобы
+  // отцентровать/вписать карту камерой и как опорная точка перспективы
+  // (mapPixelW/2), НЕЗАВИСИМО от размера холста, который теперь на весь экран.
+  let mapPixelW = 0, mapPixelH = 0;
+  let devicePixelRatioUsed = 1;
   
 
   const THEMES = {
@@ -662,17 +742,53 @@
     const y = hexSize * 1.5 * r;
     return {x,y};
   }
-  function hexCorner(cx, cy, i){
-    // cx,cy приходят из pixelForHex() и уже наклонены (TILT_FACTOR применён к центру).
-    // Наклонять нужно только вертикальное смещение угла от центра, а не сам центр —
-    // иначе TILT_FACTOR применяется дважды и полигон гекса "уезжает" вниз относительно
-    // юнитов/столиц, которые рисуются прямо в pixelForHex-точке.
+  // ЕДИНАЯ функция проекции плоской точки доски (flatX,flatY — координаты ДО
+  // наклона/перспективы, т.е. axialToPixel(...)+offset) в экранные пиксели.
+  // Это критично: чтобы у соседних гексов совпадали общие углы, оба должны
+  // проецировать один и тот же плоский угол через ОДНУ и ТУ ЖЕ функцию от
+  // (x,y) — а не через масштаб "своего" гекса. Тогда щелей между рядами нет,
+  // а форма самого гекса перестаёт быть правильным шестиугольником: его
+  // верхние углы (которые дальше от камеры и потому "выше" по flatY) получают
+  // меньший scale, чем нижние — гекс сам визуально сужается кверху, как и
+  // должно быть при настоящем перспективном наклоне.
+  function projectFlatPoint(flatX, flatY){
+    const scale = perspectiveScaleForFlatY(flatY);
+    // ВАЖНО: центр схождения перспективы по X — это центр КАРТЫ (mapPixelW/2),
+    // а не центр холста. Раньше холст был размером ровно с карту, так что оба
+    // центра случайно совпадали; теперь холст — это весь вьюпорт (карта рисуется
+    // в мировых координатах, а на экран её переносит camera-transform в render()),
+    // поэтому центр обязан браться из геометрии самой карты.
+    const centerX = mapPixelW ? mapPixelW / 2 : flatX;
+    return {
+      x: centerX + (flatX - centerX) * scale,
+      y: flatY * scale * TILT_FACTOR, // Добавлен учет масштаба перспективы для высоты
+      scale
+    };
+  }
+
+  // Плоский (недеформированный) центр гекса — координаты в системе
+  // axialToPixel(...) + текущее смещение канваса, БЕЗ наклона/перспективы.
+  function flatCenterForHex(h){
+    const p = axialToPixel(h.q, h.r);
+    const offX = canvas && canvas.dataset && canvas.dataset.offx ? parseFloat(canvas.dataset.offx) : 0;
+    const offY = canvas && canvas.dataset && canvas.dataset.offy ? parseFloat(canvas.dataset.offy) : 0;
+    return { x: p.x + offX, y: p.y + offY };
+  }
+
+  // Плоский (недеформированный) угол i гекса h — до проекции.
+  function hexCornerFlat(h, i){
+    const c = flatCenterForHex(h);
     const angle = Math.PI/180 * (60*i - 30);
     const rEff = hexSize * 1.02;
-    return { 
-      x: cx + rEff * Math.cos(angle), 
-      y: cy + rEff * Math.sin(angle) * TILT_FACTOR // Сжимаем только смещение, не центр
-    };
+    return { x: c.x + rEff * Math.cos(angle), y: c.y + rEff * Math.sin(angle) };
+  }
+
+  // Угол i гекса h, спроецированный на экран. Два соседних гекса, у которых
+  // угол i/j геометрически совпадает, всегда дадут одинаковый результат —
+  // потому что projectFlatPoint зависит только от (flatX,flatY) самой точки.
+  function projectedHexCorner(h, i){
+    const fc = hexCornerFlat(h, i);
+    return projectFlatPoint(fc.x, fc.y);
   }
 
   let _terrainDefsCache = null;
@@ -682,12 +798,12 @@
     if(_terrainDefsCache && _terrainDefsCacheTheme === currentTheme) return _terrainDefsCache;
     const th = THEMES[currentTheme];
     _terrainDefsCache = {
-      plains:    { color:th.plains, yield:2, defense:0, moveCost:1.0, label:'Равнина', imageSrc: 'assets/terrain_plain.jpg' },
-      forest:    { color:th.forest, yield:1, defense:1, moveCost:2.0, label:'Густой Лес', imageSrc: 'assets/terrain_forest.jpg' },
-      hills:     { color:th.hills, yield:1, defense:1, moveCost:2.0, label:'Холмы', imageSrc: 'assets/terrain_hills.jpg' },
-      goldmine:  { color:th.goldmine, yield:4, defense:0, moveCost:1.0, label:'Золотой рудник', imageSrc: 'assets/terrain_mines.jpg' },
-      mountains: { color:th.mountains, yield:0, defense:0, moveCost:99, label:'Горный хребет', impassable:true, imageSrc: 'assets/terrain_mountains.jpg' },
-      water:     { color:th.water, yield:0, defense:0, moveCost:99, label:'Море / Озеро', impassable:true, imageSrc: 'assets/terrain_water.jpg' },
+      plains:    { color:th.plains, yield:2, defense:0, moveCost:1.0, label:'Равнина', imageSrc: ['assets/plain.png', 'assets/plain1.png'], artOverflowTop: 0 },
+      forest:    { color:th.forest, yield:1, defense:1, moveCost:2.0, label:'Густой Лес', imageSrc: ['assets/forest.png', 'assets/forest1.png'], artOverflowTop: 0 },
+      hills:     { color:th.hills, yield:1, defense:1, moveCost:2.0, label:'Холмы', imageSrc: ['assets/hills.png'], artOverflowTop: 0 },
+      goldmine:  { color:th.goldmine, yield:4, defense:0, moveCost:1.0, label:'Золотой рудник', imageSrc: ['assets/terrain_mines.jpg'], artOverflowTop: 0 },
+      mountains: { color:th.mountains, yield:0, defense:0, moveCost:99, label:'Горный хребет', impassable:true, imageSrc: ['assets/mountains.png'], artOverflowTop: 0 },
+      water:     { color:th.water, yield:0, defense:0, moveCost:99, label:'Море / Озеро', impassable:true, imageSrc: ['assets/water.png'], artOverflowTop: 0 },
     };
     _terrainDefsCacheTheme = currentTheme;
     return _terrainDefsCache;
@@ -695,24 +811,54 @@
 
   function loadTerrainAssets(callback) {
     const TERRAIN = getTerrainDefs();
-    let loadedCount = 0;
-    let totalTerrainTypes = Object.keys(TERRAIN).length;
+    _terrainImages = {};
+
+    // imageSrc теперь может быть строкой ИЛИ массивом строк — приводим всё к массиву,
+    // чтобы поддержать несколько картинок-вариантов на один тип террейна.
+    let totalImages = 0;
     for (const key in TERRAIN) {
-      const terrain = TERRAIN[key];
-      if (terrain.imageSrc) { 
-        const img = new Image();
-        img.src = terrain.imageSrc;
-        img.onload = () => {
-          console.log(img)
-          _terrainImages[key] = img;
-          loadedCount++;
-      
-          if (loadedCount === totalTerrainTypes) callback();
-        };
-      } else {
-        loadedCount++;
-      }
+      const sources = normalizeImageSources(TERRAIN[key].imageSrc);
+      _terrainImages[key] = new Array(sources.length);
+      totalImages += sources.length;
     }
+
+    if (totalImages === 0) { callback(); return; }
+
+    let loadedCount = 0;
+    const onSlotDone = () => {
+      loadedCount++;
+      if (loadedCount === totalImages) callback();
+    };
+
+    for (const key in TERRAIN) {
+      const sources = normalizeImageSources(TERRAIN[key].imageSrc);
+      sources.forEach((src, idx) => {
+        const img = new Image();
+        img.onload = () => { _terrainImages[key][idx] = img; onSlotDone(); };
+        img.onerror = () => {
+          // Один из вариантов не нашёлся — не блокируем загрузку всей карты,
+          // просто пропускаем этот слот (drawHexTerrain отфильтрует пустые).
+          console.warn('Не удалось загрузить изображение террейна:', src);
+          onSlotDone();
+        };
+        img.src = src;
+      });
+    }
+  }
+  function normalizeImageSources(imageSrc){
+    if (!imageSrc) return [];
+    return Array.isArray(imageSrc) ? imageSrc : [imageSrc];
+  }
+  function hashHexIndex(q, r, mod){
+    // Простой детерминированный хэш координат гекса, чтобы вариант картинки для
+    // конкретной клетки был стабильным между перерисовками (иначе карта бы "мерцала",
+    // меняя случайную картинку на каждый render()).
+    let x = (q * 374761393 + r * 668265263) ^ (q << 13);
+    x = (x ^ (x >>> 16)) >>> 0;
+    return mod > 0 ? x % mod : 0;
+  }
+  function pickTerrainVariant(h, variants){
+    return variants[hashHexIndex(h.q, h.r, variants.length)];
   }
   // Balance constants — kept exactly as designed, exposed via Game.Config.
   const RECRUIT_COST = 4;
@@ -737,7 +883,31 @@
   let staticCtx = null;
   let isStaticLayerDirty = true;
   
-  const TILT_FACTOR = 0.9;
+  const TILT_FACTOR = 0.8;
+
+  // --- Псевдо-3D перспектива -------------------------------------------
+  // TILT_FACTOR просто сжимает карту по Y (имитация наклона стола), но при
+  // реальном наклоне ближние ряды (больший r, низ экрана) ещё и визуально
+  // крупнее дальних (меньший r, верх экрана) — сами ячейки и разбег между
+  // ними по X должны сужаться к "горизонту". PERSPECTIVE_STRENGTH задаёт
+  // насколько сильно (0 — выключено, полностью плоская сетка; ~0.3–0.4 —
+  // заметный, но не карикатурный эффект; 1 — дальний край схлопывается в точку).
+  const PERSPECTIVE_STRENGTH = 0.3;
+  const PERSPECTIVE_FAR_SCALE = 1 - PERSPECTIVE_STRENGTH;
+  // Диапазон считается по ПЛОСКОЙ координате Y (до наклона), а не по индексу
+  // ряда r — так масштаб становится непрерывной функцией позиции точки на
+  // доске, а не дискретным значением "на весь гекс". Именно это и позволяет
+  // двум соседним гексам с разным r сходиться в одной и той же точке на общей
+  // границе: масштаб их общего угла вычисляется из координаты самого угла,
+  // а не из того, какому гексу он принадлежит.
+  let _persMinFlatY = 0, _persMaxFlatY = 0, _persRangeReady = false;
+
+  function perspectiveScaleForFlatY(flatY){
+    if(!_persRangeReady || _persMaxFlatY === _persMinFlatY) return 1;
+    let t = (flatY - _persMinFlatY) / (_persMaxFlatY - _persMinFlatY); // 0 = дальний край (верх), 1 = ближний (низ)
+    if(t < 0) t = 0; else if(t > 1) t = 1; // на случай запаса/паддинга за пределами карты
+    return PERSPECTIVE_FAR_SCALE + t * (1 - PERSPECTIVE_FAR_SCALE);
+  }
 
   // ---------------------------------------------------------------------
   // Game.Map / Game.Movement / Game.Combat — world queries, map generation,
@@ -1646,48 +1816,274 @@
   // Game.Render — canvas setup, hex<->pixel math and the draw loop.
   // Untouched (per request: the map's visual rendering is not to change).
   // ---------------------------------------------------------------------
+  // ---------------------------------------------------------------------
+  // Камера: перевод между "координатами буфера канваса" (то, что реально
+  // приходит в клиентских событиях мыши/тача) и "мировыми" координатами
+  // карты (в которых работают pixelForHex/projectFlatPoint). Один источник
+  // истины для обоих направлений — рендер и хит-тест НИКОГДА не расходятся.
+  // ---------------------------------------------------------------------
+  function clientToBuffer(evt){
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    return {
+      x: (evt.clientX - rect.left) * scaleX,
+      y: (evt.clientY - rect.top) * scaleY
+    };
+  }
+  function bufferToWorld(pt){
+    return { x: (pt.x - camera.x) / camera.zoom, y: (pt.y - camera.y) / camera.zoom };
+  }
+  function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
+
+  // Не даём карте полностью "улететь" за пределы экрана при панорамировании —
+  // всегда оставляем хотя бы небольшой нахлёст карты с вьюпортом.
+  function clampCamera(){
+    if(!canvas || !mapPixelW || !mapPixelH) return;
+    const mapW = mapPixelW * camera.zoom, mapH = mapPixelH * camera.zoom;
+    const padX = Math.min(canvas.width * 0.4, 320);
+    const padY = Math.min(canvas.height * 0.4, 320);
+    let minX = canvas.width - mapW - padX, maxX = padX;
+    if(minX > maxX){ const mid = (minX + maxX) / 2; minX = maxX = mid; }
+    camera.x = clamp(camera.x, minX, maxX);
+    let minY = canvas.height - mapH - padY, maxY = padY;
+    if(minY > maxY){ const mid = (minY + maxY) / 2; minY = maxY = mid; }
+    camera.y = clamp(camera.y, minY, maxY);
+  }
+
+  // Зум с фиксированной "опорной" точкой в координатах буфера канваса —
+  // при масштабировании карта под этой точкой (например, под курсором) не
+  // "уезжает" в сторону.
+  function zoomBy(factor, anchorBuffer){
+    if(!canvas) return;
+    const anchor = anchorBuffer || { x: canvas.width / 2, y: canvas.height / 2 };
+    const oldZoom = camera.zoom;
+    const newZoom = clamp(oldZoom * factor, MIN_ZOOM, MAX_ZOOM);
+    if(newZoom === oldZoom) return;
+    camera.x = anchor.x - (anchor.x - camera.x) * (newZoom / oldZoom);
+    camera.y = anchor.y - (anchor.y - camera.y) * (newZoom / oldZoom);
+    camera.zoom = newZoom;
+    clampCamera();
+    render();
+  }
+
+  // Вписывает всю карту в текущий вьюпорт по центру — исходное положение
+  // "птичьего полёта" и то, к чему возвращает кнопка ⤢.
+  function fitCameraToMap(){
+    if(!canvas || !mapPixelW || !mapPixelH) return;
+    const margin = 0.92;
+    const z = clamp(Math.min(canvas.width / mapPixelW, canvas.height / mapPixelH) * margin, MIN_ZOOM, MAX_ZOOM);
+    camera.zoom = z;
+    camera.x = (canvas.width - mapPixelW * z) / 2;
+    camera.y = (canvas.height - mapPixelH * z) / 2;
+  }
+
+  // --- Панорамирование мышью/тачем (Pointer Events объединяют оба) --------
+  const activePointers = new Map();
+  let isPanning = false, didDrag = false;
+  let panStartBuffer = null, panStartCamera = null, panStartClient = null;
+  let pinchStartDist = 0, pinchStartZoom = 1, pinchStartMid = null, pinchStartCamera = null;
+
+  function pointerDist(a, b){ return Math.hypot(a.x - b.x, a.y - b.y); }
+
+  function onPointerDown(evt){
+    canvas.setPointerCapture(evt.pointerId);
+    activePointers.set(evt.pointerId, { x: evt.clientX, y: evt.clientY });
+
+    if(activePointers.size === 1){
+      isPanning = true;
+      didDrag = false;
+      panStartBuffer = clientToBuffer(evt);
+      panStartCamera = { x: camera.x, y: camera.y };
+      panStartClient = { x: evt.clientX, y: evt.clientY };
+    } else if(activePointers.size === 2){
+      isPanning = false;
+      const pts = Array.from(activePointers.values());
+      pinchStartDist = pointerDist(pts[0], pts[1]) || 1;
+      pinchStartZoom = camera.zoom;
+      pinchStartCamera = { x: camera.x, y: camera.y };
+      pinchStartMid = clientToBuffer({ clientX: (pts[0].x + pts[1].x) / 2, clientY: (pts[0].y + pts[1].y) / 2 });
+    }
+  }
+
+  function onPointerMove(evt){
+    if(!activePointers.has(evt.pointerId)){
+      onCanvasHover(evt);
+      return;
+    }
+    activePointers.set(evt.pointerId, { x: evt.clientX, y: evt.clientY });
+
+    if(activePointers.size >= 2){
+      const pts = Array.from(activePointers.values());
+      const dist = pointerDist(pts[0], pts[1]) || 1;
+      const newZoom = clamp(pinchStartZoom * (dist / pinchStartDist), MIN_ZOOM, MAX_ZOOM);
+      camera.x = pinchStartMid.x - (pinchStartMid.x - pinchStartCamera.x) * (newZoom / pinchStartZoom);
+      camera.y = pinchStartMid.y - (pinchStartMid.y - pinchStartCamera.y) * (newZoom / pinchStartZoom);
+      camera.zoom = newZoom;
+      clampCamera();
+      render();
+      return;
+    }
+
+    if(isPanning && panStartBuffer){
+      if(!didDrag && Math.hypot(evt.clientX - panStartClient.x, evt.clientY - panStartClient.y) > 4){
+        didDrag = true;
+        canvas.classList.add('dragging');
+      }
+      if(didDrag){
+        const buf = clientToBuffer(evt);
+        camera.x = panStartCamera.x + (buf.x - panStartBuffer.x);
+        camera.y = panStartCamera.y + (buf.y - panStartBuffer.y);
+        clampCamera();
+        hoveredHex = null;
+        render();
+      }
+    }
+  }
+
+  function onPointerUp(evt){
+    const wasPanning = isPanning && activePointers.has(evt.pointerId);
+    activePointers.delete(evt.pointerId);
+
+    if(activePointers.size === 0){
+      canvas.classList.remove('dragging');
+      if(wasPanning && !didDrag){
+        const h = hexAtEvent(evt);
+        if(h) selectHex(h);
+      }
+      isPanning = false;
+      panStartBuffer = null;
+      didDrag = false;
+    } else if(activePointers.size === 1){
+      // Отпустили один из двух пальцев при щипке — переходим обратно в pan
+      // от оставшегося пальца, без "скачка" камеры.
+      const [remaining] = activePointers.values();
+      isPanning = true;
+      didDrag = true;
+      panStartBuffer = clientToBuffer({ clientX: remaining.x, clientY: remaining.y });
+      panStartCamera = { x: camera.x, y: camera.y };
+      panStartClient = { x: remaining.x, y: remaining.y };
+    }
+  }
+
+  // --- Клавиатурное панорамирование (WASD / стрелки) — довершает ощущение
+  // "птичьего полёта" над картой для тех, кто предпочитает клавиатуру. -----
+  const _panKeys = new Set();
+  const PAN_KEY_MAP = { 'w':[0,-1], 'ц':[0,-1], 'arrowup':[0,-1], 's':[0,1], 'ы':[0,1], 'arrowdown':[0,1],
+                         'a':[-1,0], 'ф':[-1,0], 'arrowleft':[-1,0], 'd':[1,0], 'в':[1,0], 'arrowright':[1,0] };
+  let _panRafId = null;
+  function keyPanStep(){
+    if(_panKeys.size === 0){ _panRafId = null; return; }
+    let dx = 0, dy = 0;
+    _panKeys.forEach(k => { const v = PAN_KEY_MAP[k]; if(v){ dx += v[0]; dy += v[1]; } });
+    if(dx || dy){
+      const len = Math.hypot(dx, dy) || 1;
+      const speed = 14 / camera.zoom * (canvas ? canvas.width / 1200 + 0.6 : 1);
+      camera.x -= (dx / len) * speed;
+      camera.y -= (dy / len) * speed;
+      clampCamera();
+      render();
+    }
+    _panRafId = requestAnimationFrame(keyPanStep);
+  }
+  function initCameraKeyboard(){
+    window.addEventListener('keydown', (e) => {
+      const tag = (e.target && e.target.tagName || '').toLowerCase();
+      if(tag === 'input' || tag === 'select' || tag === 'textarea') return;
+      const k = e.key.toLowerCase();
+      if(!PAN_KEY_MAP[k]) return;
+      _panKeys.add(k);
+      if(_panRafId === null) _panRafId = requestAnimationFrame(keyPanStep);
+    });
+    window.addEventListener('keyup', (e) => { _panKeys.delete(e.key.toLowerCase()); });
+    window.addEventListener('blur', () => { _panKeys.clear(); });
+  }
+
   function setupCanvas(){
     canvas = document.getElementById('board');
 
     if(!canvas) return;
     ctx = canvas.getContext('2d');
-    resizeCanvas();
 
     staticMapCanvas = document.createElement('canvas');
-    
     staticCtx = staticMapCanvas.getContext('2d');
 
+    resizeCanvas();
 
-    canvas.addEventListener('click', onCanvasClick);
-    canvas.addEventListener('mousemove', onCanvasHover);
+    canvas.addEventListener('pointerdown', onPointerDown);
+    canvas.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerUp);
+
     canvas.addEventListener('mouseleave', ()=>{
+      if(activePointers.size > 0) return; // не сбрасываем hover прямо посреди drag/pinch
       hoveredHex = null;
       updateTooltipHTML(null);
       render();
     });
+
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const buf = clientToBuffer(e);
+      const zoomSpeed = 1.12;
+      const factor = e.deltaY > 0 ? 1 / zoomSpeed : zoomSpeed;
+      zoomBy(factor, buf);
+    }, { passive: false });
+
+    initCameraKeyboard();
   }
 
   function resizeCanvas(){
     if(!canvas || !game) return;
-    const pts = Array.from(game.hexes.values()).map(h=>axialToPixel(h.q,h.r));
+    const hexList = Array.from(game.hexes.values());
+    const pts = hexList.map(h=>axialToPixel(h.q,h.r));
     const minX = Math.min(...pts.map(p=>p.x)) - hexSize * 1.6;
     const maxX = Math.max(...pts.map(p=>p.x)) + hexSize * 1.6;
     const minY = Math.min(...pts.map(p=>p.y)) - hexSize * 1.6;
     const maxY = Math.max(...pts.map(p=>p.y)) + hexSize * 1.6;
-    canvas.width = maxX-minX;
-    // Контент по вертикали сжимается на TILT_FACTOR внутри pixelForHex
-    // ((axialY + offY) * TILT_FACTOR), поэтому высоту канваса тоже уменьшаем —
-    // иначе снизу остаётся пустая полоса ровно в (1 - TILT_FACTOR) высоты карты.
-    canvas.height = (maxY-minY) * TILT_FACTOR;
+
     canvas.dataset.offx = -minX;
     canvas.dataset.offy = -minY;
+
+    // Мировые габариты карты (см. mapPixelW/mapPixelH) — независимы от
+    // размера холста, который теперь всегда равен размеру вьюпорта.
+    mapPixelW = maxX - minX;
+    // Контент по вертикали сжимается на TILT_FACTOR внутри projectFlatPoint,
+    // поэтому и мировую высоту карты уменьшаем на тот же множитель — иначе
+    // снизу остаётся пустая полоса ровно в (1 - TILT_FACTOR) высоты карты.
+    mapPixelH = (maxY - minY) * TILT_FACTOR;
+
+    // Диапазон плоской Y — в ТОЙ ЖЕ системе координат (offset уже применён), что и
+    // flatCenterForHex()/hexCornerFlat(), которыми пользуется projectFlatPoint().
+    const flatYs = pts.map(p => p.y - minY);
+    _persMinFlatY = Math.min(...flatYs);
+    _persMaxFlatY = Math.max(...flatYs);
+    _persRangeReady = true;
+
+    // Канвас теперь — полноэкранный буфер (карта на весь экран), а не "холст
+    // ровно по размеру карты": позиционирование/масштаб карты внутри него
+    // задаёт camera-transform в render(). Буфер считаем в физических пикселях
+    // (devicePixelRatio, но не выше 2x — экономим память/время на очень
+    // больших картах и densely-pixel экранах).
+    devicePixelRatioUsed = Math.min(window.devicePixelRatio || 1, 2);
+    const viewW = canvas.clientWidth || window.innerWidth;
+    const viewH = canvas.clientHeight || window.innerHeight;
+    canvas.width = Math.max(1, Math.round(viewW * devicePixelRatioUsed));
+    canvas.height = Math.max(1, Math.round(viewH * devicePixelRatioUsed));
+
     isStaticLayerDirty = true;
+    fitCameraToMap();
   }
   function pixelForHex(h){
-    const p = axialToPixel(h.q,h.r);
-    const offX = canvas && canvas.dataset && canvas.dataset.offx ? parseFloat(canvas.dataset.offx) : 0;
-    const offY = canvas && canvas.dataset && canvas.dataset.offy ? parseFloat(canvas.dataset.offy) : 0;
-    return { x: p.x + offX, y: (p.y + offY) * TILT_FACTOR };
+    // Центр гекса проецируется той же единой функцией, что и его углы
+    // (projectFlatPoint) — гарантирует, что юниты/столицы/текст, которые
+    // рисуются в pixelForHex-точке, остаются точно в центре перспективно
+    // искажённого шестиугольника, а не "уезжают" относительно его формы.
+    // Возвращаемая точка — в МИРОВЫХ координатах карты; экранные пиксели
+    // получаются из неё через camera-transform, который ставит render().
+    const c = flatCenterForHex(h);
+    const proj = projectFlatPoint(c.x, c.y);
+    return { x: proj.x, y: proj.y, hexSize: hexSize * proj.scale, scale: proj.scale };
   }
 
   function cubeRound(qf, rf){
@@ -1702,39 +2098,43 @@
 
   function hexAtEvent(evt){
     if(!canvas || !game) return null;
-    const rect = canvas.getBoundingClientRect();
+    // Клиентские координаты -> буфер канваса (учитывает CSS-масштаб/DPR) ->
+    // мировые координаты карты (отменяет камеру: pan+zoom). Это ТОЧНОЕ
+    // обращение той трансформации, что render() задаёт через ctx.setTransform,
+    // так что попадание в гекс остаётся точным при любом зуме/сдвиге камеры.
+    const world = bufferToWorld(clientToBuffer(evt));
+
     const offX = canvas.dataset.offx ? parseFloat(canvas.dataset.offx) : 0;
     const offY = canvas.dataset.offy ? parseFloat(canvas.dataset.offy) : 0;
-    // pixelForHex делает: screenX = axialX + offX; screenY = (axialY + offY) * TILT_FACTOR.
-    // Здесь нужно применить обратное преобразование в том же порядке, иначе курсор
-    // "уезжает" по вертикали относительно наклонённой сетки.
-    const mx = evt.clientX - rect.left - offX;
-    const my = (evt.clientY - rect.top) / TILT_FACTOR - offY;
+
+    // pixelForHex ещё и сжимает X по перспективе (perspectiveScaleForFlatY),
+    // а не только Y (TILT_FACTOR) — точное обратное преобразование зависело бы от
+    // r искомого гекса, который мы как раз ищем. Поэтому: сперва грубая оценка
+    // БЕЗ перспективы (ей достаточно точности, чтобы попасть в нужный гекс или его
+    // соседа), а затем уточнение по РЕАЛЬНЫМ мировым координатам через pixelForHex —
+    // так клики остаются точными даже на сильно "уехавших" по перспективе дальних рядах.
+    const mx = world.x - offX;
+    const my = world.y / TILT_FACTOR - offY;
 
     const qf = (Math.sqrt(3)/3 * mx - 1/3 * my) / hexSize;
     const rf = (2/3 * my) / hexSize;
     const { q, r } = cubeRound(qf, rf);
 
     let best = game.hexes.get(key(q,r)) || null;
-    let bestD = best ? distSq(best, mx, my) : Infinity;
+    let bestD = best ? distSqScreen(best, world.x, world.y) : Infinity;
     for(const [dq,dr] of DIRS){
       const cand = game.hexes.get(key(q+dq, r+dr));
       if(!cand) continue;
-      const d = distSq(cand, mx, my);
+      const d = distSqScreen(cand, world.x, world.y);
       if(d < bestD){ bestD = d; best = cand; }
     }
     if(!best || bestD > hexSize*hexSize*1.3) return null;
     return best;
 
-    function distSq(h, x, y){
-      const p = axialToPixel(h.q, h.r);
+    function distSqScreen(h, x, y){
+      const p = pixelForHex(h);
       return (p.x-x)*(p.x-x) + (p.y-y)*(p.y-y);
     }
-  }
-
-  function onCanvasClick(evt){
-    const h = hexAtEvent(evt);
-    if(h) selectHex(h);
   }
 
   function updateTooltipHTML(h){
@@ -1786,30 +2186,51 @@
   function onCanvasHover(evt){
     const h = hexAtEvent(evt);
     if(h === _lastHoverHex && renderVersion === _lastHoverRenderVersion) return;
-
+    
     hoveredHex = h;
     updateTooltipHTML(h);
     render();
     _lastHoverHex = h; _lastHoverRenderVersion = renderVersion;
   }
 
-  function hexPath(p, targetCtx){
+  // Индексы верхних трёх углов гекса (i=5 — макушка, i=4/i=0 — верхние "плечи",
+  // см. hexCornerFlat). Используются, чтобы приподнимать контур обрезки вверх и
+  // пропускать нависающий арт (гора, крона дерева) поверх верхних соседей —
+  // см. overflowTop в hexPath() и artOverflowTop в drawHexTerrain().
+  const HEX_TOP_CORNER_INDICES = [4, 5, 0];
+
+  // ВАЖНО: принимает сам гекс h (с .q,.r), а НЕ уже спроецированную точку p.
+  // Каждый угол проецируется отдельно через projectedHexCorner(h,i), которая
+  // внутри вызывает единую projectFlatPoint() от координат именно этого угла —
+  // поэтому у соседних гексов общий угол всегда совпадает пиксель-в-пиксель
+  // (щелей между рядами нет), а сам гекс перестаёт быть правильным
+  // шестиугольником: верхние углы, будучи дальше от камеры, получают меньший
+  // масштаб, чем нижние — визуально гекс сужается кверху, как и должно быть
+  // при настоящем перспективном наклоне доски.
+  function hexPath(h, targetCtx, overflowTop){
     targetCtx.beginPath();
     for(let i=0;i<6;i++){
-      const c = hexCorner(p.x,p.y,i);
-      if(i===0) targetCtx.moveTo(c.x,c.y); else targetCtx.lineTo(c.x,c.y);
+      const c = projectedHexCorner(h, i);
+      let cy = c.y;
+      // Приподнимаем только верхние три угла — контур превращается из ровного
+      // шестиугольника в шестиугольник с "домиком" сверху. Клип по бокам и снизу
+      // остаётся строгим (соседи слева/справа/снизу не перекрываются), а сверху
+      // появляется запас на overflowTop пикселей для нависающих деталей картинки.
+      if(overflowTop && HEX_TOP_CORNER_INDICES.includes(i)) cy -= overflowTop;
+      if(i===0) targetCtx.moveTo(c.x,cy); else targetCtx.lineTo(c.x,cy);
     }
     targetCtx.closePath();
   }
 
-  function drawOccupiedHatch(p, colorStr){
+  function drawOccupiedHatch(h, colorStr){
+    const p = pixelForHex(h);
     ctx.save();
-    hexPath(p, ctx);
+    hexPath(h, ctx);
     ctx.clip();
     ctx.strokeStyle = colorStr;
     ctx.lineWidth = 2;
     ctx.globalAlpha = 0.45;
-    const sz = hexSize * 1.5;
+    const sz = p.hexSize * 1.5;
     for(let x = p.x - sz; x <= p.x + sz; x += 6){
       ctx.beginPath();
       ctx.moveTo(x, p.y - sz);
@@ -1825,34 +2246,52 @@
     const TERRAIN = getTerrainDefs();
     const p = pixelForHex(h);
     const terrainType = h.terrain;
-    
-    // Если для этого террейна загружена картинка — рисуем её
-    if (!_terrainImages[terrainType]) {
+    const def = TERRAIN[terrainType];
+    const variants = (_terrainImages[terrainType] || []).filter(Boolean);
+
+    // Если для этого террейна загружены картинки — рисуем одну из них
+    // (вариант выбирается стабильно по координатам гекса, см. pickTerrainVariant).
+    if (variants.length) {
+      const img = pickTerrainVariant(h, variants);
+
+      // Насколько верх картинки может вылезти за пределы гекса вверх (в пикселях,
+      // с учётом перспективного размера ИМЕННО этого гекса — p.hexSize).
+      const overflowTop = (def.artOverflowTop || 0) * p.hexSize;
+
       staticCtx.save();
-      hexPath(p, staticCtx); // Создаем контур гекса
-      staticCtx.clip();      // Обрезаем всё, что за его пределами
-      
-      // Рассчитываем размеры и позицию картинки под размер гекса
-      const img = _terrainImages[terrainType];
-      const size = hexSize * 2;
-      staticCtx.drawImage(img, p.x - hexSize, p.y - hexSize, size, size);
-      
+      hexPath(h, staticCtx, overflowTop); // контур гекса с "бугром" вверх под нависающий арт
+      staticCtx.clip();                   // обрезаем по бокам/снизу строго, сверху — с запасом
+
+      // Саму картинку рисуем увеличенной и сдвинутой вверх на overflowTop, чтобы то,
+      // что нарисовано в её верхней части (вершина горы, кроны леса), физически
+      // оказалось выше границы гекса и легло поверх верхнего соседа — отсюда и
+      // ощущение глубины. Порядок отрисовки по рядам (см. hexesByDepth() и
+      // updateStaticLayer()) гарантирует, что дальний сосед уже нарисован и корректно
+      // перекрывается.
+      //
+      // Небольшой запас по ширине (PAD): контур клипа теперь настоящая трапеция —
+      // нижние углы гекса физически ближе к камере и потому чуть крупнее, чем
+      // p.hexSize (который посчитан по ЦЕНТРУ гекса). Без запаса низ картинки мог
+      // бы не дотягивать до расширенных нижних углов и оставлять прозрачную щель.
+      const PAD = 1.18;
+      const size = p.hexSize * 2 * PAD;
+      staticCtx.drawImage(img, p.x - size/2, p.y - size/2 - overflowTop, size, size + overflowTop);
+
       staticCtx.restore();
     } else {
       // Запасной вариант со сплошным цветом, если картинки нет
-      hexPath(p, staticCtx);
-      staticCtx.fillStyle = territoryFillMode ? getTerritoryColor(h) : TERRAIN[terrainType].color;
+      hexPath(h, staticCtx);
+      staticCtx.fillStyle = territoryFillMode ? getTerritoryColor(h) : def.color;
       staticCtx.fill();
     }
   }
   function drawRegionHighlight(h) {
-    const p = pixelForHex(h);
     for(let i=0; i<6; i++){
       const [dq, dr] = EDGE_DIRS[i];
       const nb = game.hexes.get(key(h.q + dq, h.r + dr));
       if(!nb || nb.regionId !== h.regionId){
-        const c1 = hexCorner(p.x, p.y, i);
-        const c2 = hexCorner(p.x, p.y, (i+1)%6);
+        const c1 = projectedHexCorner(h, i);
+        const c2 = projectedHexCorner(h, (i+1)%6);
         staticCtx.beginPath();
         staticCtx.moveTo(c1.x, c1.y);
         staticCtx.lineTo(c2.x, c2.y);
@@ -1864,19 +2303,16 @@
   }
   function drawActiveRegion (h) {
     if(h.regionId === activeRegionId){
-      const p = pixelForHex(h);
-      hexPath(p, ctx);
+      hexPath(h, ctx);
       ctx.fillStyle = 'rgba(212, 162, 76, 0.22)';
       ctx.fill();
     }
   }
   function drawSiegeHatch (h) {
-    const p = pixelForHex(h);
     if(h.capital){
       const regHexes = Array.from(game.hexes.values()).filter(x => x.regionId === h.regionId);
       regHexes.forEach(rh => {
-        const rp = pixelForHex(rh);
-        drawOccupiedHatch(rp, game.players[h.occupiedBy].color);
+        drawOccupiedHatch(rh, game.players[h.occupiedBy].color);
       });
     }
   }
@@ -1885,8 +2321,7 @@
     enemyReachable.forEach((cost, kStr)=>{
       const n = game.hexes.get(kStr);
       if(!n) return;
-      const p = pixelForHex(n);
-      hexPath(p, ctx);
+      hexPath(n, ctx);
       ctx.fillStyle = 'rgba(239, 68, 68, 0.22)';
       ctx.fill();
     });
@@ -1907,8 +2342,7 @@
         win = att.total > def.total;
         fillStyle = win ? 'rgba(74, 222, 128, 0.4)' : 'rgba(239, 68, 68, 0.4)';
       }
-      const p = pixelForHex(n);
-      hexPath(p, ctx);
+      hexPath(n, ctx);
       ctx.fillStyle = fillStyle;
       ctx.fill();
     });
@@ -1918,8 +2352,7 @@
     const TERRAIN = getTerrainDefs();
     neighbors(h).forEach(nb => {
       if(!TERRAIN[nb.terrain].impassable){
-        const p = pixelForHex(nb);
-        hexPath(p, ctx);
+        hexPath(nb, ctx);
         ctx.fillStyle = 'rgba(212,162,76,0.18)';
         ctx.fill();
       }
@@ -1927,9 +2360,10 @@
   }
   function drawUnit (h) {
     const p = pixelForHex(h);
+    const hs = p.hexSize; // размер юнита следует перспективному размеру его гекса
     const uColor = game.players[h.unit.owner].color;
     ctx.beginPath();
-    ctx.arc(p.x, p.y + hexSize * 0.2, hexSize * 0.36, 0, Math.PI * 2);
+    ctx.arc(p.x, p.y + hs * 0.2, hs * 0.36, 0, Math.PI * 2);
     ctx.fillStyle = uColor;
     ctx.fill();
     ctx.lineWidth = 1.8;
@@ -1938,44 +2372,86 @@
 
     if(h.unit.hasMoved){
       ctx.beginPath();
-      ctx.arc(p.x + hexSize * 0.22, p.y, 3, 0, Math.PI * 2);
+      ctx.arc(p.x + hs * 0.22, p.y, 3 * p.scale, 0, Math.PI * 2);
       ctx.fillStyle = '#94a3b8';
       ctx.fill();
     }
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 11px ' + getComputedStyle(document.body).fontFamily;
+    ctx.font = 'bold ' + Math.max(8, Math.round(11 * p.scale)) + 'px ' + getComputedStyle(document.body).fontFamily;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(h.unit.strength, p.x, p.y + hexSize * 0.2);
+    ctx.fillText(h.unit.strength, p.x, p.y + hs * 0.2);
   }
   function drawHexBorder(h){
-    const p = pixelForHex(h);
-    hexPath(p, staticCtx);
+    hexPath(h, staticCtx);
     staticCtx.lineWidth = 0.9;
-    staticCtx.strokeStyle = 'rgba(0,0,0,0.12)';
+    staticCtx.strokeStyle = 'rgba(0,0,0,0.32)';
     staticCtx.stroke();
   }
-  function drawFactionBorders(h){
-    const p = pixelForHex(h);
-    for(let i=0; i<6; i++){
+  function drawFactionBorders(h) {
+    const color = game.players[h.owner].color;
+
+    ctx.save();
+
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const c = projectedHexCorner(h, i);
+      if (i === 0) ctx.moveTo(c.x, c.y);
+      else ctx.lineTo(c.x, c.y);
+    }
+    ctx.closePath();
+    ctx.clip();
+
+    const corners = [];
+    for (let i = 0; i < 6; i++) {
+      corners.push(projectedHexCorner(h, i));
+    }
+
+    ctx.lineWidth = 6 * camera.zoom;
+    ctx.strokeStyle = color;
+    ctx.lineCap = 'square'; 
+    ctx.beginPath();
+
+    let hasEdges = false;
+
+    for (let i = 0; i < 6; i++) {
       const [dq, dr] = EDGE_DIRS[i];
       const nb = game.hexes.get(key(h.q + dq, h.r + dr));
-      if(!nb || nb.owner !== h.owner){
-        const c1 = hexCorner(p.x, p.y, i);
-        const c2 = hexCorner(p.x, p.y, (i+1)%6);
-        ctx.beginPath();
+      
+      if (!nb || nb.owner !== h.owner) {
+        let c1 = corners[i];
+        let c2 = corners[(i + 1) % 6];
+
+        // 4. Удлиняем каждый отрезок в обе стороны, чтобы они заходили друг за друга на углах
+        const dx = c2.x - c1.x;
+        const dy = c2.y - c1.y;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        
+        if (len > 0) {
+          const extend = 4 * camera.zoom; // Запас на перекрытие стыка
+          const ux = (dx / len) * extend;
+          const uy = (dy / len) * extend;
+
+          c1 = { x: c1.x - ux, y: c1.y - uy };
+          c2 = { x: c2.x + ux, y: c2.y + uy };
+        }
+
         ctx.moveTo(c1.x, c1.y);
         ctx.lineTo(c2.x, c2.y);
-        ctx.lineWidth = 2.6;
-        ctx.strokeStyle = game.players[h.owner].color;
-        ctx.stroke();ctx.save();
+        hasEdges = true;
       }
     }
+
+    if (hasEdges) {
+      ctx.stroke();
+    }
+
+    ctx.restore();
   }
   function drawCapital(h){
     const p = pixelForHex(h);
     staticCtx.beginPath();
-    staticCtx.arc(p.x, p.y - hexSize * 0.38, 3.5, 0, Math.PI * 2);
+    staticCtx.arc(p.x, p.y - p.hexSize * 0.38, 3.5 * p.scale, 0, Math.PI * 2);
     staticCtx.fillStyle = h.owner !== null ? game.players[h.owner].color : '#d4a24c';
     staticCtx.fill();
     staticCtx.lineWidth = 1.5;
@@ -1983,33 +2459,39 @@
     staticCtx.stroke();
   }
   function drawSelected(h){
-    const p = pixelForHex(h);
-    hexPath(p, ctx);
+    hexPath(h, ctx);
     ctx.lineWidth = 1.8;
     ctx.strokeStyle = '#f4eedb';
     ctx.stroke();
   }
   function drawHovered(h){
-    const p = pixelForHex(h);
-    hexPath(p, ctx);
+    hexPath(h, ctx);
     ctx.fillStyle = 'rgba(255,255,255,0.32)';
     ctx.fill();
   }
 
   function drawFlyingUnits(){
+    const offX = canvas.dataset.offx ? parseFloat(canvas.dataset.offx) : 0;
+    const offY = canvas.dataset.offy ? parseFloat(canvas.dataset.offy) : 0;
+
     flyingUnits.forEach(fu => {
       const fromP = axialToPixel(fu.fromQ, fu.fromR);
       const toP = axialToPixel(fu.toQ, fu.toR);
-      const offX = canvas.dataset.offx ? parseFloat(canvas.dataset.offx) : 0;
-      const offY = canvas.dataset.offy ? parseFloat(canvas.dataset.offy) : 0;
-      
-      const rawX = fromP.x + (toP.x - fromP.x) * fu.progress;
-      const rawY = fromP.y + (toP.y - fromP.y) * fu.progress;
-      const currX = rawX + offX;
-      const currY = (rawY + offY) * TILT_FACTOR; // тот же порядок преобразования, что и в pixelForHex
+
+      // Интерполируем в ПЛОСКИХ (до наклона/перспективы) координатах — ровно
+      // так же, как это делает hexCornerFlat()/flatCenterForHex() для
+      // статичных гексов — и лишь затем проецируем через ЕДИНУЮ
+      // projectFlatPoint(). Раньше здесь просто умножали на TILT_FACTOR и
+      // игнорировали perspectiveScaleForFlatY(), поэтому летящий юнит двигался
+      // по прямой, а не по той же перспективно-искажённой дуге, что рисуют
+      // сами гексы — сейчас он "приезжает" точно в центр гекса-цели.
+      const flatX = fromP.x + (toP.x - fromP.x) * fu.progress + offX;
+      const flatY = fromP.y + (toP.y - fromP.y) * fu.progress + offY;
+      const proj = projectFlatPoint(flatX, flatY);
+      const r = hexSize * proj.scale;
 
       ctx.beginPath();
-      ctx.arc(currX, currY, hexSize * 0.38, 0, Math.PI * 2);
+      ctx.arc(proj.x, proj.y, r * 0.38, 0, Math.PI * 2);
       ctx.fillStyle = game.players[fu.owner].color;
       ctx.fill();
       ctx.lineWidth = 2;
@@ -2017,10 +2499,10 @@
       ctx.stroke();
 
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 11px ' + getComputedStyle(document.body).fontFamily;
+      ctx.font = 'bold ' + Math.max(8, Math.round(11 * proj.scale)) + 'px ' + getComputedStyle(document.body).fontFamily;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(fu.strength, currX, currY);
+      ctx.fillText(fu.strength, proj.x, proj.y);
     });
   }
   function drawDestroyingUnits(){
@@ -2029,7 +2511,7 @@
       ctx.save();
       ctx.globalAlpha = Math.max(0, 1 - du.progress);
       ctx.beginPath();
-      ctx.arc(p.x, p.y + hexSize * 0.2, hexSize * (0.36 + du.progress * 0.4), 0, Math.PI * 2);
+      ctx.arc(p.x, p.y + p.hexSize * 0.2, p.hexSize * (0.36 + du.progress * 0.4), 0, Math.PI * 2);
       ctx.fillStyle = '#ef4444';
       ctx.fill();
       ctx.restore();
@@ -2037,11 +2519,20 @@
   }
 
   function updateStaticLayer() {
-    staticMapCanvas.width = canvas.width;
-    staticMapCanvas.height = canvas.height;
-    console.log("⚠️ Статический слой перерисовывается!");
+    // Статический слой (террейн/сетка/границы регионов) рисуется ОДИН РАЗ в
+    // мировых координатах карты (mapPixelW×mapPixelH), а не в размере
+    // полноэкранного буфера канваса — camera-transform в render() сам
+    // растягивает/двигает этот слой на экран через drawImage(staticMapCanvas).
+    staticMapCanvas.width = Math.max(1, Math.ceil(mapPixelW));
+    staticMapCanvas.height = Math.max(1, Math.ceil(mapPixelH));
     staticCtx.clearRect(0, 0, staticMapCanvas.width, staticMapCanvas.height);
-    game.hexes.forEach(h => {
+    // ВАЖНО: рисуем в порядке "художника" — дальние ряды (меньший r) раньше ближних
+    // (больший r), см. hexesByDepth(). game.hexes.forEach() отдаёт хексы в порядке
+    // вставки (по q, затем r), что раньше было не важно, но теперь картинка одного
+    // гекса может специально вылезать вверх за его границы (artOverflowTop) и должна
+    // ложиться ПОВЕРХ уже нарисованного дальнего соседа — иначе глубина не сработает
+    // или сработает наоборот.
+    hexesByDepth().forEach(h => {
       drawHexTerrain(h);
       if(h.regionId !== null) drawRegionHighlight(h);
       if (showGrid) drawHexBorder(h);
@@ -2059,19 +2550,21 @@
   function hexesByDepth(){
     return Array.from(game.hexes.values()).sort((a,b)=> a.r - b.r);
   }
-
   function render(){
     if(!ctx || !canvas) return;
     renderVersion++;
     ctx.clearRect(0,0,canvas.width,canvas.height);
 
-    //Layer static
+    ctx.resetTransform();
+    ctx.setTransform(camera.zoom, 0, 0, camera.zoom, camera.x, camera.y);
+
+    // Layer: static (террейн/сетка/границы регионов, кэшируются в staticMapCanvas)
     if (isStaticLayerDirty) updateStaticLayer();
     ctx.drawImage(staticMapCanvas, 0, 0);
 
     const depthOrder = hexesByDepth();
 
-    //Layer 0
+    // Layer 0: границы фракций, подсветка активной области, штриховка осады
     depthOrder.forEach(h=>{
       if(h.owner !== null) drawFactionBorders(h) 
       if (activeRegionId !== null) drawActiveRegion(h);
@@ -2099,6 +2592,7 @@
 
     drawFlyingUnits();
     drawDestroyingUnits();
+    ctx.resetTransform();
   }
 
   // ---------------------------------------------------------------------
@@ -2234,6 +2728,13 @@
       render();
       updatePanel();
     };
+    document.getElementById('panelToggle').onclick = () => {
+      document.getElementById('panel').classList.toggle("visible");
+    };
+
+    document.getElementById('zoomInBtn').onclick = () => zoomBy(1.25);
+    document.getElementById('zoomOutBtn').onclick = () => zoomBy(0.8);
+    document.getElementById('centerViewBtn').onclick = () => { fitCameraToMap(); render(); };
 
     document.getElementById('restartBtn').onclick = () => {
       document.getElementById('overlay').style.display='none';
@@ -2312,9 +2813,13 @@
       render();
     };
 
+    let _resizeDebounce = null;
     window.addEventListener('resize', () => {
-      resizeCanvas();
-      render();
+      clearTimeout(_resizeDebounce);
+      _resizeDebounce = setTimeout(() => {
+        resizeCanvas();
+        render();
+      }, 80);
     });
   }
 
@@ -2346,7 +2851,8 @@
   Game.State = {
     get current(){ return game; },
     get selected(){ return game ? game.selected : null; },
-    get isAiRunning(){ return isAiRunning; }
+    get isAiRunning(){ return isAiRunning; },
+    get camera(){ return camera; }
   };
 
   Game.Map = {
@@ -2389,13 +2895,17 @@
     resize: resizeCanvas,
     draw: render,
     pixelForHex,
-    hexAtEvent
+    hexAtEvent,
+    zoomBy,
+    fitCameraToMap
   };
 
   Game.Input = {
     selectHex,
-    onCanvasClick,
-    onCanvasHover
+    onCanvasHover,
+    onPointerDown,
+    onPointerMove,
+    onPointerUp
   };
 
   Game.UI = {
