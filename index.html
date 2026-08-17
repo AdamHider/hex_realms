@@ -772,6 +772,124 @@
   };
 
   // ==========================================================================
+  // Game.Assets — единый реестр и загрузчик картинок для ЛЮБОЙ категории
+  // (террейн, столицы, юниты, что угодно новое). Один манифест на всё, один
+  // прогресс-бар загрузки, один способ выбрать "случайный, но стабильный"
+  // вариант картинки для конкретной сущности (по её координатам).
+  //
+  // Как добавить новую категорию ассетов (например, "флаги" или "эффекты"):
+  //   1) допишите её в Game.Assets.manifest() ниже: group('flags', { siege:['assets/flag_siege.png'] })
+  //   2) на рендере берите картинку через Game.Assets.variant('flags','siege', h)
+  // Всё остальное (загрузка, кэш, fallback при отсутствии файла) уже общее.
+  // ==========================================================================
+  Game.Assets = {};
+  Game.Assets.images = {};   // images[group][key] = [Image, Image, ...] (варианты)
+
+  // Манифест: какие категории и ключи вообще существуют и откуда их грузить.
+  // Собирается заново при каждой loadAll() — терраины зависят от темы
+  // оформления (Game.Config.terrainDefs()), поэтому их нельзя захардкодить.
+  Game.Assets.manifest = function manifest(){
+    const groups = {};
+
+    const TERRAIN = Game.Config.terrainDefs();
+    groups.terrain = {};
+    Object.keys(TERRAIN).forEach(key => { groups.terrain[key] = TERRAIN[key].imageSrc; });
+
+    // Столицы и юниты — по умолчанию один общий вариант на категорию (без
+    // деления по фракциям: цвет фракции по-прежнему рисуется под картинкой,
+    // см. Game.Render.drawCapital()/drawUnit()). Просто положите файлы по
+    // этим путям — при их отсутствии Game.Assets тихо откатится на старую
+    // отрисовку кружком, ничего не сломается.
+    groups.capital = { default: ['assets/capital.png'] };
+    groups.unit = { default: ['assets/unit.png'] };
+
+    // Переходы между соседними гексами ("автотайлинг"): для КАЖДОЙ пары
+    // (террейн этого гекса → террейн соседа) и КАЖДОГО из 6 направлений
+    // можно положить отдельную картинку — см. подробный комментарий у
+    // Game.Render.drawTerrain() ниже про то, как именно выбирается нужный
+    // файл и что означает "направление".
+    //
+    // Схема имени файла (ничего создавать заранее не нужно — то, чего нет,
+    // просто тихо пропускается, ничего не ломается):
+    //   assets/edge/<террейн>_<направление 0-5>.png                — общий
+    //     "край" этого террейна в эту сторону (на любой ДРУГОЙ террейн)
+    //   assets/edge/<террейн>_<террейн-соседа>_<направление 0-5>.png — art
+    //     именно для ЭТОЙ пары террейнов в эту сторону (перекрывает общий
+    //     вариант, если есть). Тот же приём работает и когда сосед —
+    //     террейн ТОГО ЖЕ типа (это и есть ваш пример "лес рядом с лесом") —
+    //     просто положите assets/edge/forest_forest_2.png, к примеру.
+    groups.edge = {};
+    const terrainKeys = Object.keys(TERRAIN).filter(k => k !== 'border');
+    terrainKeys.forEach(t1 => {
+      for (let dir = 0; dir < 6; dir++) {
+        groups.edge[`${t1}_${dir}`] = [`assets/edge/${t1}_${dir}.png`];
+      }
+      console.log(groups.edge)
+      terrainKeys.forEach(t2 => {
+        for (let dir = 0; dir < 6; dir++) {
+          groups.edge[`${t1}_${t2}_${dir}`] = [`assets/edge/${t1}_${t2}_${dir}.png`];
+        }
+      });
+    });
+
+    return groups;
+  };
+
+  // Грузит ВСЕ категории разом и один раз зовёт callback, когда всё
+  // загрузилось (или гарантированно не загрузится — отсутствующий файл не
+  // блокирует остальные, см. img.onerror).
+  Game.Assets.loadAll = function loadAll(callback){
+    const groups = Game.Assets.manifest();
+    Game.Assets.images = {};
+
+    let total = 0;
+    Object.keys(groups).forEach(group => {
+      Game.Assets.images[group] = {};
+      Object.keys(groups[group]).forEach(key => {
+        const sources = Game.Utils.normalizeImageSources(groups[group][key]);
+        Game.Assets.images[group][key] = new Array(sources.length);
+        total += sources.length;
+      });
+    });
+
+    if(total === 0){ callback(); return; }
+
+    let loaded = 0;
+    const onSlotDone = () => { loaded++; if(loaded === total) callback(); };
+
+    Object.keys(groups).forEach(group => {
+      Object.keys(groups[group]).forEach(key => {
+        const sources = Game.Utils.normalizeImageSources(groups[group][key]);
+        sources.forEach((src, idx) => {
+          const img = new Image();
+          img.onload = () => { Game.Assets.images[group][key][idx] = img; onSlotDone(); };
+          img.onerror = () => {
+            // 'edge' — это сотни ЗАВЕДОМО опциональных комбинаций (см.
+            // manifest()); отсутствие конкретного файла — норма, а не
+            // ошибка, поэтому для этой категории в консоль не пишем.
+            if (group !== 'edge') {
+              console.warn(`Не удалось загрузить ассет [${group}/${key}]:`, src);
+            }
+            onSlotDone();
+          };
+          img.src = src;
+        });
+      });
+    });
+  };
+
+  // Стабильный (не мерцающий при перерисовке) выбор одного из вариантов
+  // картинки для конкретной сущности — та же идея, что раньше была только у
+  // террейна (Game.Config.terrainVariant), теперь общая для всех категорий.
+  // Возвращает null, если для этого ключа ничего не загружено — вызывающий
+  // код (drawCapital/drawUnit/drawTerrain) в этом случае рисует как раньше.
+  Game.Assets.variant = function variant(group, key, entity){
+    const arr = ((Game.Assets.images[group] || {})[key] || []).filter(Boolean);
+    if(!arr.length) return null;
+    return arr[Game.Utils.hashHexIndex(entity.q, entity.r, arr.length)];
+  };
+
+  // ==========================================================================
   // Game.Config — tunable settings (bound to the settings panel) plus
   // static rule constants, theme palettes and terrain art
   // ==========================================================================
@@ -846,10 +964,10 @@
       }
     },
 
-    // Terrain-definition / terrain-image cache (theme-dependent, see terrainDefs()).
+    // Terrain-definition cache (theme-dependent, see terrainDefs()). Terrain
+    // IMAGES now live in Game.Assets.images.terrain — see Game.Assets above.
     _defsCache: null,
-    _defsCacheTheme: null,
-    _images: {}
+    _defsCacheTheme: null
   };
 
   Game.Config.terrainDefs = function terrainDefs(){
@@ -870,9 +988,7 @@
       hills:     { color:th.hills, yield:1, defense:1, moveCost:2.0, label:'Холмы', imageSrc: ['assets/hills.png'], artOverflowTop: 0 },
       goldmine:  { color:th.goldmine, yield:4, defense:0, moveCost:1.0, label:'Золотой рудник', imageSrc: ['assets/terrain_mines.jpg'], artOverflowTop: 0 },
       mountains: { color:th.mountains, yield:0, defense:0, moveCost:99, label:'Горный хребет', impassable:true, imageSrc: ['assets/mountains.png'], artOverflowTop: 0 },
-      water:     { color:th.water, yield:0, defense:0, moveCost:99, label:'Море / Озеро', impassable:true, imageSrc: ['assets/water.png'], imgVariation: {
-        'nw-plains': 'water-plain-nw.png'
-      }, artOverflowTop: 0 },
+      water:     { color:th.water, yield:0, defense:0, moveCost:99, label:'Море / Озеро', impassable:true, imageSrc: ['assets/water.png'], artOverflowTop: 0 },
       // Кайма непроходимых гексов по краю карты (см. Game.Map.create() и
       // Game.Config.BORDER_THICKNESS) — рамка "старой бумажной карты", не
       // связана с темой оформления, поэтому цвет фиксированный, а не th.*.
@@ -883,42 +999,10 @@
     Game.Config._defsCacheTheme = Game.Config.settings.currentTheme;
     return Game.Config._defsCache;
   };
+  // Загрузка ассетов теперь общая для всех категорий — см. Game.Assets выше.
+  // Имя/сигнатура сохранены для совместимости с bootstrap-вызовом ниже.
   Game.Config.loadAssets = function loadAssets(callback) {
-    const TERRAIN = Game.Config.terrainDefs();
-    Game.Config._images = {};
-
-    // imageSrc теперь может быть строкой ИЛИ массивом строк — приводим всё к массиву,
-    // чтобы поддержать несколько картинок-вариантов на один тип террейна.
-    let totalImages = 0;
-    for (const key in TERRAIN) {
-      const sources = Game.Utils.normalizeImageSources(TERRAIN[key].imageSrc);
-      Game.Config._images[key] = new Array(sources.length);
-      totalImages += sources.length;
-    }
-
-    if (totalImages === 0) { callback(); return; }
-
-    let loadedCount = 0;
-    const onSlotDone = () => {
-      loadedCount++;
-      if (loadedCount === totalImages) callback();
-    };
-
-    for (const key in TERRAIN) {
-      const sources = Game.Utils.normalizeImageSources(TERRAIN[key].imageSrc);
-      sources.forEach((src, idx) => {
-        const img = new Image();
-        img.onload = () => { Game.Config._images[key][idx] = img; onSlotDone(); };
-        img.onerror = () => {
-          // Один из вариантов не нашёлся — не блокируем загрузку всей карты,
-          // просто пропускаем этот слот (Game.Render.drawTerrain отфильтрует пустые).
-          console.warn('Не удалось загрузить изображение террейна:', src);
-          onSlotDone();
-        };
-        img.src = src;
-      });
-      
-    }
+    Game.Assets.loadAll(callback);
   };
   Game.Config.terrainVariant = function terrainVariant(h, variants){
     return variants[Game.Utils.hashHexIndex(h.q, h.r, variants.length)];
@@ -1176,6 +1260,14 @@
   Game.Map.neighbors = function neighbors(h){
     if(!Game.State.match || !Game.State.match.hexes) return [];
     return Game.Config.DIRS.map(([dq,dr])=>Game.State.match.hexes.get(Game.Utils.key(h.q+dq,h.r+dr))).filter(Boolean);
+  };
+  // Как neighbors(), но НЕ фильтрует отсутствующих соседей и возвращает их
+  // строго в порядке Game.Config.DIRS — нужно там, где важен именно индекс
+  // направления (0..5), а не просто список "кто рядом" (см. Game.Render's
+  // edge-blend систему террейнов ниже).
+  Game.Map.neighborAt = function neighborAt(h, dirIndex){
+    const [dq, dr] = Game.Config.DIRS[dirIndex];
+    return Game.State.match.hexes.get(Game.Utils.key(h.q+dq, h.r+dr)) || null;
   };
   Game.Map.claimRegion = function claimRegion(regionId, pid){
     if(regionId === null) return;
@@ -1513,6 +1605,7 @@
   Game.Turns.finalizeTurnCycle = function finalizeTurnCycle(){
     Game.State.match.round++;
     Game.Turns.startPlayerTurn(0);
+    Game.UI.hideAiTurnBanner();
 
     const roundLabel = document.getElementById('roundLabel');
     if(roundLabel) roundLabel.textContent = 'Ход ' + Game.State.match.round;
@@ -1884,12 +1977,26 @@
     const owner = Game.State.match.players[h.owner];
     return owner ? owner.color : fallbackColor;
   };
+  // Общая отрисовка "картинка на гекс" — тот же клип/масштаб/нависание сверху
+  // (overflowTop), что раньше был только внутри drawTerrain. Используется и
+  // для базового изображения террейна, и для оверлеев переходов (edge-блендов,
+  // см. ниже) — они физически одна и та же операция, просто накладываются
+  // друг на друга по очереди.
+  Game.Render.drawHexImage = function drawHexImage(h, img, overflowTop){
+    const p = Game.Render.pixelForHex(h);
+    Game.Render.staticCtx.save();
+    Game.Render.hexPath(h, Game.Render.staticCtx, overflowTop);
+    Game.Render.staticCtx.clip();
+    const PAD = 1.18;
+    const size = p.hexSize * 2 * PAD;
+    Game.Render.staticCtx.drawImage(img, p.x - size/2, p.y - size/2 - overflowTop, size, size + overflowTop);
+    Game.Render.staticCtx.restore();
+  };
   Game.Render.drawTerrain = function drawTerrain(h){
     const TERRAIN = Game.Config.terrainDefs();
-    const p = Game.Render.pixelForHex(h);
     const terrainType = h.terrain;
     const def = TERRAIN[terrainType];
-    const variants = (Game.Config._images[terrainType] || []).filter(Boolean);
+    const variants = ((Game.Assets.images.terrain || {})[terrainType] || []).filter(Boolean);
 
     // Если для этого террейна загружены картинки — рисуем одну из них
     // (вариант выбирается стабильно по координатам гекса, см. Game.Config.terrainVariant).
@@ -1898,33 +2005,53 @@
 
       // Насколько верх картинки может вылезти за пределы гекса вверх (в пикселях,
       // с учётом перспективного размера ИМЕННО этого гекса — p.hexSize).
-      const overflowTop = (def.artOverflowTop || 0) * p.hexSize;
-
-      Game.Render.staticCtx.save();
-      Game.Render.hexPath(h, Game.Render.staticCtx, overflowTop); // контур гекса с "бугром" вверх под нависающий арт
-      Game.Render.staticCtx.clip();                   // обрезаем по бокам/снизу строго, сверху — с запасом
-
+      //
       // Саму картинку рисуем увеличенной и сдвинутой вверх на overflowTop, чтобы то,
       // что нарисовано в её верхней части (вершина горы, кроны леса), физически
       // оказалось выше границы гекса и легло поверх верхнего соседа — отсюда и
       // ощущение глубины. Порядок отрисовки по рядам (см. Game.Render.hexesByDepth() и
       // Game.Render.updateStaticLayer()) гарантирует, что дальний сосед уже нарисован и корректно
       // перекрывается.
-      //
-      // Небольшой запас по ширине (PAD): контур клипа теперь настоящая трапеция —
-      // нижние углы гекса физически ближе к камере и потому чуть крупнее, чем
-      // p.hexSize (который посчитан по ЦЕНТРУ гекса). Без запаса низ картинки мог
-      // бы не дотягивать до расширенных нижних углов и оставлять прозрачную щель.
-      const PAD = 1.18;
-      const size = p.hexSize * 2 * PAD;
-      Game.Render.staticCtx.drawImage(img, p.x - size/2, p.y - size/2 - overflowTop, size, size + overflowTop);
-
-      Game.Render.staticCtx.restore();
+      Game.Render.drawHexImage(h, img, (def.artOverflowTop || 0) * Game.Render.pixelForHex(h).hexSize);
     } else {
       // Запасной вариант со сплошным цветом, если картинки нет
       Game.Render.hexPath(h, Game.Render.staticCtx);
       Game.Render.staticCtx.fillStyle = Game.Config.settings.territoryFillMode ? Game.Render.territoryColor(h, def.color) : def.color;
       Game.Render.staticCtx.fill();
+    }
+
+    Game.Render.drawTerrainEdges(h);
+  };
+  // Переходы между соседними гексами ("автотайлинг" по террейну соседа).
+  //
+  // Для каждого из 6 направлений (индекс соответствует Game.Config.DIRS —
+  // тому же порядку, в котором Game.Map.neighborAt(h, dir) достаёт соседа)
+  // смотрим на террейн соседа и ищем подходящую картинку в Game.Assets,
+  // группа 'edge' (см. полное описание схемы имён в Game.Assets.manifest()):
+  //   1) сначала САМЫЙ конкретный вариант — именно для этой пары террейнов
+  //      именно в эту сторону (работает и когда сосед — ТОТ ЖЕ террейн, это
+  //      и есть механизм "лес рядом с лесом выглядит иначе, чем лес у моря");
+  //   2) если его нет и сосед — ДРУГОЙ террейн — общий "край" этого террейна
+  //      в эту сторону (не завязан на то, что именно по соседству).
+  // Если для этого гекса вообще ничего не загружено — просто ничего не
+  // рисуется, никакой ошибки. Каждый найденный оверлей накладывается поверх
+  // уже нарисованной базовой картинки, поэтому направлений с разными
+  // соседями может быть сразу несколько — они складываются естественным
+  // образом, без комбинаторного взрыва готовых картинок "на все случаи".
+  Game.Render.drawTerrainEdges = function drawTerrainEdges(h){
+    if(h.terrain === 'border') return;
+    const TERRAIN = Game.Config.terrainDefs();
+    const def = TERRAIN[h.terrain];
+    const overflowTop = (def.artOverflowTop || 0) * Game.Render.pixelForHex(h).hexSize;
+
+    for(let dir = 0; dir < 6; dir++){
+      const nb = Game.Map.neighborAt(h, dir);
+      if(!nb || nb.terrain === 'border') continue;
+
+      const specific = Game.Assets.variant('edge', `${h.terrain}_${nb.terrain}_${dir}`, h);
+      const generic = nb.terrain !== h.terrain ? Game.Assets.variant('edge', `${h.terrain}_${dir}`, h) : null;
+      const img = specific || generic;
+      if(img) Game.Render.drawHexImage(h, img, overflowTop);
     }
   };
   Game.Render.drawRegionHighlight = function drawRegionHighlight(h) {
@@ -2002,13 +2129,29 @@
     const p = Game.Render.pixelForHex(h);
     const hs = p.hexSize; // размер юнита следует перспективному размеру его гекса
     const uColor = Game.State.match.players[h.unit.owner].color;
+    const cx = p.x, cy = p.y + hs * 0.2, r = hs * 0.36;
+    const img = Game.Assets.variant('unit', 'default', h);
+
+    // Цветной кружок фракции — рисуем всегда (и без картинки, и под ней),
+    // чтобы принадлежность юнита было видно с первого взгляда независимо от
+    // того, положили вы уже арт для юнитов или ещё нет.
     Game.Render.ctx.beginPath();
-    Game.Render.ctx.arc(p.x, p.y + hs * 0.2, hs * 0.36, 0, Math.PI * 2);
+    Game.Render.ctx.arc(cx, cy, r, 0, Math.PI * 2);
     Game.Render.ctx.fillStyle = uColor;
     Game.Render.ctx.fill();
     Game.Render.ctx.lineWidth = 1.8;
     Game.Render.ctx.strokeStyle = '#101712';
     Game.Render.ctx.stroke();
+
+    if(img){
+      const size = r * 1.7;
+      Game.Render.ctx.save();
+      Game.Render.ctx.beginPath();
+      Game.Render.ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      Game.Render.ctx.clip();
+      Game.Render.ctx.drawImage(img, cx - size / 2, cy - size / 2, size, size);
+      Game.Render.ctx.restore();
+    }
 
     if(h.unit.hasMoved){
       Game.Render.ctx.beginPath();
@@ -2047,7 +2190,7 @@
       corners.push(Game.Render.corner(h, i));
     }
 
-    Game.Render.ctx.lineWidth = 6 / (Game.Render.camera.zoom/1.2);
+    Game.Render.ctx.lineWidth = 6 * Game.Render.camera.zoom;
     Game.Render.ctx.strokeStyle = color;
     Game.Render.ctx.lineCap = 'square'; 
     Game.Render.ctx.beginPath();
@@ -2062,12 +2205,13 @@
         let c1 = corners[i];
         let c2 = corners[(i + 1) % 6];
 
+        // 4. Удлиняем каждый отрезок в обе стороны, чтобы они заходили друг за друга на углах
         const dx = c2.x - c1.x;
         const dy = c2.y - c1.y;
         const len = Math.sqrt(dx * dx + dy * dy);
         
         if (len > 0) {
-          const extend = 4 * Game.Render.camera.zoom;
+          const extend = 4 * Game.Render.camera.zoom; // Запас на перекрытие стыка
           const ux = (dx / len) * extend;
           const uy = (dy / len) * extend;
 
@@ -2089,13 +2233,30 @@
   };
   Game.Render.drawCapital = function drawCapital(h){
     const p = Game.Render.pixelForHex(h);
-    Game.Render.staticCtx.beginPath();
-    Game.Render.staticCtx.arc(p.x, p.y - p.hexSize * 0.38, 3.5 * p.scale, 0, Math.PI * 2);
-    Game.Render.staticCtx.fillStyle = h.owner !== null ? Game.State.match.players[h.owner].color : '#d4a24c';
-    Game.Render.staticCtx.fill();
-    Game.Render.staticCtx.lineWidth = 1.5;
-    Game.Render.staticCtx.strokeStyle = '#101712';
-    Game.Render.staticCtx.stroke();
+    const color = h.owner !== null ? Game.State.match.players[h.owner].color : '#d4a24c';
+    const cx = p.x, cy = p.y - p.hexSize * 0.38, r = 3.5 * p.scale;
+    const img = Game.Assets.variant('capital', 'default', h);
+    // ИСПРАВЛЕНО: раньше рисовалось в staticCtx (кэшированный слой террейна),
+    // хотя вызывается каждый кадр из динамического Layer 2 в draw() — иконка
+    // столицы из-за этого на кадр отставала от остального рендера. Теперь,
+    // как и юниты, рисуется прямо в Game.Render.ctx.
+    Game.Render.ctx.beginPath();
+    Game.Render.ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    Game.Render.ctx.fillStyle = color;
+    Game.Render.ctx.fill();
+    Game.Render.ctx.lineWidth = 1.5;
+    Game.Render.ctx.strokeStyle = '#101712';
+    Game.Render.ctx.stroke();
+
+    if(img){
+      const size = r * 1.7;
+      Game.Render.ctx.save();
+      Game.Render.ctx.beginPath();
+      Game.Render.ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      Game.Render.ctx.clip();
+      Game.Render.ctx.drawImage(img, cx - size / 2, cy - size / 2, size, size);
+      Game.Render.ctx.restore();
+    }
   };
   Game.Render.drawSelected = function drawSelected(h){
     Game.Render.hexPath(h, Game.Render.ctx);
@@ -2111,8 +2272,14 @@
   Game.Render.drawFlyingUnits = function drawFlyingUnits(){
     const offX = Game.Render.canvas.dataset.offx ? parseFloat(Game.Render.canvas.dataset.offx) : 0;
     const offY = Game.Render.canvas.dataset.offy ? parseFloat(Game.Render.canvas.dataset.offy) : 0;
+    const visible = Game.Render.visible;
 
     Game.Render.flyingUnits.forEach(fu => {
+      // Чужой марш в тумане войны не показываем — виден, только если один из
+      // концов пути (откуда/куда) сейчас в зоне обзора игрока.
+      if(fu.owner !== 0 && visible && !visible.has(Game.Utils.key(fu.fromQ, fu.fromR)) && !visible.has(Game.Utils.key(fu.toQ, fu.toR))){
+        return;
+      }
       const fromP = Game.Render.toPixel(fu.fromQ, fu.fromR);
       const toP = Game.Render.toPixel(fu.toQ, fu.toR);
 
@@ -2144,7 +2311,9 @@
     });
   };
   Game.Render.drawDestroyingUnits = function drawDestroyingUnits(){
+    const visible = Game.Render.visible;
     Game.Render.destroyingUnits.forEach(du => {
+      if(du.owner !== 0 && visible && !visible.has(Game.Utils.key(du.q, du.r))) return;
       const p = Game.Render.pixelForHex(du);
       Game.Render.ctx.save();
       Game.Render.ctx.globalAlpha = Math.max(0, 1 - du.progress);
@@ -2265,6 +2434,17 @@
     Game.State.match.hexes.forEach(h=>{
       if(h.terrain === 'border') return;
       if(h.owner === 0 || h.occupiedBy === 0 || (h.unit && h.unit.owner === 0)) sources.push(h);
+    });
+    // Юнит игрока в полёте между гексами (см. animateMove) на миг никому не
+    // "принадлежит" — он уже ушёл из from.unit и ещё не встал в to.unit.
+    // Без этого туман на секунду откатывается в начале хода и снова
+    // раскрывается в конце. Добавляем обе точки анимации как источники обзора
+    // на всё время полёта — старое место видно, пока юнит летит, новое видно
+    // сразу, не дожидаясь конца анимации.
+    Game.Render.flyingUnits.forEach(fu=>{
+      if(fu.owner !== 0) return;
+      sources.push({ q: fu.fromQ, r: fu.fromR });
+      sources.push({ q: fu.toQ, r: fu.toR });
     });
 
     const visible = new Set();
