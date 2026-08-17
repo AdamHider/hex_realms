@@ -103,11 +103,12 @@
     line-height:1;
   }
 
-  /* --- Плавающая подсказка по гексу --- */
+  /* --- Плавающая подсказка по гексу (сверху слева, чтобы не перекрывать
+     постоянно видимую нижнюю панель управления, см. #bottomDock) --- */
   #fixedTooltip{
     position:absolute;
     left:10px;
-    bottom:14px;
+    top:64px;
     max-width:min(440px, calc(100vw - 240px));
     background:var(--hud-bg);
     border:1px solid var(--panel-line);
@@ -122,14 +123,80 @@
     line-height:1.4;
   }
 
-  /* --- Кнопка "Закончить ход" — всегда на виду, отдельно от сворачиваемой
-     панели, зафиксирована в углу поверх карты. --- */
-  #endTurnBtn{
+  /* --- Баннер "сейчас ходит..." — как смена хода в Total War, наверху по
+     центру, видим только пока идёт ход ИИ-фракции (см. Game.UI.showAiTurnBanner). --- */
+  #aiTurnBanner{
     position:absolute;
+    top:64px;
+    left:50%;
+    display:flex;
+    align-items:center;
+    gap:10px;
+    background:var(--hud-bg);
+    border:1px solid var(--gold-dim);
+    border-radius:8px;
+    padding:10px 22px;
+    font-family:var(--font-ui);
+    font-size:13px;
+    letter-spacing:.08em;
+    text-transform:uppercase;
+    color:var(--gold);
+    backdrop-filter:blur(3px);
+    box-shadow:0 8px 24px rgba(0,0,0,0.45);
+    opacity:0;
+    pointer-events:none;
+    transition:opacity .25s ease, transform .25s ease;
+    transform:translate(-50%, -14px);
+    z-index:30;
+    white-space:nowrap;
+  }
+  #aiTurnBanner.visible{
+    opacity:1;
+    transform:translate(-50%, 0);
+  }
+  #aiTurnBanner .swatch{
+    width:12px;height:12px;border-radius:50%;
+    flex-shrink:0;
+    box-shadow: 0 0 0 2px rgba(0,0,0,0.3) inset;
+  }
+
+  /* --- Нижняя панель "Управление и Разведка" — всегда на виду поверх карты
+     (не часть сворачиваемой #panel), как командная панель в Total War.
+     Кнопка "Закончить ход" теперь её часть, а не отдельный плавающий блок. --- */
+  #bottomDock{
+    position:absolute;
+    left:14px;
     right:14px;
     bottom:14px;
+    display:flex;
+    align-items:stretch;
+    gap:14px;
+    z-index:20;
+  }
+  #bottomDock .card{
+    margin:0;
+    flex:1;
+    min-width:0;
+    max-height:210px;
+    display:flex;
+    flex-direction:column;
+  }
+  #bottomDock .card h2{ flex-shrink:0; }
+  #bottomDock #selectedInfo{
+    flex-shrink:0;
+  }
+  #bottomDock #actionButtons{
+    overflow-y:auto;
+  }
+  #bottomDock #endTurnBtn{
     width:auto;
     min-width:190px;
+    align-self:center;
+  }
+
+  /* --- Кнопка "Закончить ход" — теперь живёт внутри #bottomDock (см. выше),
+     здесь только её собственный вид. --- */
+  #endTurnBtn{
     background:var(--gold);
     color:#1b1305;
     font-size:13px;
@@ -137,7 +204,6 @@
     padding:15px 20px;
     margin-top:0;
     box-shadow:0 6px 20px rgba(212,162,76,0.35);
-    z-index:20;
   }
   #endTurnBtn:hover:not(:disabled){background:#e6b464;}
 
@@ -395,8 +461,11 @@
   @media (max-width:760px){
     #panel{width:calc(100vw - 28px);max-width:420px;top:110px;}
     #topBar h1{font-size:15px;}
+    #bottomDock{flex-direction:column;left:10px;right:10px;bottom:10px;gap:8px;}
+    #bottomDock .card{max-height:150px;}
     #endTurnBtn{min-width:0;padding:14px 16px;}
     #fixedTooltip{max-width:calc(100vw - 28px);right:10px;}
+    #aiTurnBanner{top:56px;padding:8px 16px;font-size:11px;}
   }
 </style>
 </head>
@@ -425,7 +494,16 @@
 
     <div id="fixedTooltip"><span style="color:var(--text-muted)">Наведите или выберите гекс для информации...</span></div>
 
-    <button id="endTurnBtn">Закончить ход</button>
+    <div id="aiTurnBanner"><span class="swatch"></span><span class="label"></span></div>
+
+    <div id="bottomDock">
+      <div class="card">
+        <h2><span class="icon">🎯</span> Управление и Разведка</h2>
+        <div id="selectedInfo"><span class="placeholder">Выберите гекс для отдачи приказов</span></div>
+        <div id="actionButtons"></div>
+      </div>
+      <button id="endTurnBtn">Закончить ход</button>
+    </div>
 
     <div id="panel">
       <div class="card">
@@ -515,12 +593,6 @@
       </div>
 
       <div class="card">
-        <h2><span class="icon">🎯</span> Управление и Разведка</h2>
-        <div id="selectedInfo"><span class="placeholder">Выберите гекс для отдачи приказов</span></div>
-        <div id="actionButtons"></div>
-      </div>
-
-      <div class="card">
         <h2><span class="icon">📜</span> Журнал кампании</h2>
         <div id="log"></div>
       </div>
@@ -539,16 +611,79 @@
 (function(){
   "use strict";
 
-  // ==========================================================================
-  // Game — root namespace. Sub-modules are attached below as the original
-  // engine (map generation, combat, AI, rendering) is intentionally left
-  // untouched: only the audio/UI layers are wrapped into real objects here.
-  // ==========================================================================
+  // Root namespace. Everything the game needs lives on this single object:
+  // Game.data (settings + live match/runtime state) plus behaviour grouped
+  // by concern (Map, Movement, Combat, Turns, AI, Render, Input, UI, Audio,
+  // Utils). No bare globals — every function and every piece of mutable
+  // state is a real property somewhere under Game.
   const Game = {};
 
-  // ---------------------------------------------------------------------
+  // ==========================================================================
+  // Game.Utils — small, stateless helper functions
+  // ==========================================================================
+  Game.Utils = {};
+  Game.Utils.mulberry32 = function mulberry32(seed){
+    return function(){
+      seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  };
+  Game.Utils.createNoise2D = function createNoise2D(rand) {
+    const permutation = new Uint8Array(256);
+    for(let i=0; i<256; i++) permutation[i] = i;
+    for(let i=255; i>0; i--){
+      const j = Math.floor(rand() * (i + 1));
+      const tmp = permutation[i]; permutation[i] = permutation[j]; permutation[j] = tmp;
+    }
+    const p = new Uint8Array(512);
+    for(let i=0; i<512; i++) p[i] = permutation[i & 255];
+
+    function fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
+    function lerp(t, a, b) { return a + t * (b - a); }
+    function grad(hash, x, y) {
+      const h = hash & 7;
+      const u = h<4 ? x : y;
+      const v = h<4 ? y : x;
+      return ((h&1)===0 ? u : -u) + ((h&2)===0 ? v : -v);
+    }
+
+    return function noise2D(x, y) {
+      const X = Math.floor(x) & 255;
+      const Y = Math.floor(y) & 255;
+      const xf = x - Math.floor(x);
+      const yf = y - Math.floor(y);
+      const u = fade(xf);
+      const v = fade(yf);
+      const g00 = grad(p[p[X] + Y], xf, yf);
+      const g10 = grad(p[p[X+1] + Y], xf - 1, yf);
+      const g01 = grad(p[p[X] + Y+1], xf, yf - 1);
+      const g11 = grad(p[p[X+1] + Y+1], xf - 1, yf - 1);
+      return lerp(v, lerp(u, g00, g10), lerp(u, g01, g11));
+    };
+  };
+  Game.Utils.hexDist = function hexDist(a,b){
+    return (Math.abs(a.q-b.q)+Math.abs(a.q+a.r-b.q-b.r)+Math.abs(a.r-b.r))/2;
+  };
+  Game.Utils.clamp = function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); };
+  Game.Utils.normalizeImageSources = function normalizeImageSources(imageSrc){
+    if (!imageSrc) return [];
+    return Array.isArray(imageSrc) ? imageSrc : [imageSrc];
+  };
+  Game.Utils.hashHexIndex = function hashHexIndex(q, r, mod){
+    // Простой детерминированный хэш координат гекса, чтобы вариант картинки для
+    // конкретной клетки был стабильным между перерисовками (иначе карта бы "мерцала",
+    // меняя случайную картинку на каждый Game.Render.draw()).
+    let x = (q * 374761393 + r * 668265263) ^ (q << 13);
+    x = (x ^ (x >>> 16)) >>> 0;
+    return mod > 0 ? x % mod : 0;
+  };
+  Game.Utils.key = function key(q,r){ return q+","+r; };
+
+  // ==========================================================================
   // Game.Audio — tiny WebAudio SFX engine (mute toggle + oscillator blips)
-  // ---------------------------------------------------------------------
+  // ==========================================================================
   Game.Audio = {
     enabled: true,
     _ctx: null,
@@ -636,189 +771,128 @@
     }
   };
 
-  // Back-compat shim so the untouched game-logic code below (map/combat/AI/
-  // render) can keep calling playSound(...) exactly as before.
-  function playSound(type){ Game.Audio.play(type); }
+  // ==========================================================================
+  // Game.Config — tunable settings (bound to the settings panel) plus
+  // static rule constants, theme palettes and terrain art
+  // ==========================================================================
+  Game.Config = {
+    // Mutable, user-adjustable settings (each one bound to a control in the
+    // settings panel — see Game.UI.initEvents()).
+    settings: {
+      hexSize: 28,
+      showGrid: true,
+      territoryFillMode: false,
+      currentTheme: 'classic',
+      zocEnabled: true,
+      mapRadius: 6,
+      maxMovementPoints: 2,
+      regionSizeMode: 'balanced',
+      factionsCount: 4
+    },
 
-  // ---------------------------------------------------------------------
-  // Game.Config — mutable settings (bound to the settings panel controls)
-  // and static rule constants/theme palettes. Exposed as Game.Config below.
-  // ---------------------------------------------------------------------
-  let hexSize = 28;
-  let showGrid = true;
-  let territoryFillMode = false;
-  let currentTheme = 'classic';
-  let zocEnabled = true;
-  let mapRadius = 6;
-  let maxMovementPoints = 2;
-  let regionSizeMode = 'balanced';
-  let factionsCount = 4;
-  // --- Камера (полёт "птичьим взглядом" над картой): pan + zoom -----------
-  // camera.x/camera.y/camera.zoom описывают единственную ctx.setTransform(...),
-  // которой рендер переводит МИРОВЫЕ координаты карты (те, что считает
-  // pixelForHex/projectFlatPoint) в пиксели буфера канваса. Все обработчики
-  // мыши/тача обязаны использовать РОВНО ту же формулу в обратную сторону
-  // (bufferToWorld), иначе клики "уезжают" от того, что нарисовано.
-  let camera = { x: 0, y: 0, zoom: 1.0 };
-  const MIN_ZOOM = 0.35, MAX_ZOOM = 4.0;
-  // Габариты карты в мировых пикселях (см. resizeCanvas) — используются, чтобы
-  // отцентровать/вписать карту камерой и как опорная точка перспективы
-  // (mapPixelW/2), НЕЗАВИСИМО от размера холста, который теперь на весь экран.
-  let mapPixelW = 0, mapPixelH = 0;
-  let devicePixelRatioUsed = 1;
-  
+    // Balance constants — kept exactly as designed.
+    RECRUIT_COST: 4,
+    REINFORCE_COST: 4,
+    INITIAL_STRENGTH: 1,
+    CAPITAL_BONUS_GOLD: 5,
+    CAPITAL_BONUS_DEFENSE: 2,
 
-  const THEMES = {
-    classic: {
-      plains: '#687b47', forest: '#4b633b', hills: '#736b53', goldmine: '#8a7945', mountains: '#595450', water: '#26434f',
-      table: '#1f2b21', textPrimary: '#e9e3cf', bgPanel: '#1b241d'
+    // Радиус тумана войны (в гексах) вокруг владений/юнитов игрока-человека
+    // (id:0) — за его пределами вражеские юниты/границы/столицы не рисуются.
+    // Меняется прямо здесь, в коде — отдельного UI-контрола не предусмотрено.
+    FOG_OF_WAR_RADIUS: 4,
+
+    // Толщина каймы непроходимых гексов, обрамляющей карту со всех сторон
+    // (терраин 'border' — см. terrainDefs()). Меняется прямо здесь.
+    BORDER_THICKNESS: 2,
+
+    // Camera limits.
+    MIN_ZOOM: 0.35,
+    MAX_ZOOM: 4.0,
+
+    // Pseudo-3D perspective tuning (see Game.Render.projectFlat/perspectiveScale).
+    TILT_FACTOR: 0.9,
+    PERSPECTIVE_STRENGTH: 0.2,
+    get PERSPECTIVE_FAR_SCALE(){ return 1 - this.PERSPECTIVE_STRENGTH; },
+
+    // Hex-grid axial direction vectors.
+    DIRS: [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]],
+    EDGE_DIRS: [[1,0],[0,1],[-1,1],[-1,0],[0,-1],[1,-1]],
+
+    // Keyboard camera-pan bindings (WASD / стрелки, RU-layout keys included).
+    PAN_KEY_MAP: { 'w':[0,-1], 'ц':[0,-1], 'arrowup':[0,-1], 's':[0,1], 'ы':[0,1], 'arrowdown':[0,1],
+                   'a':[-1,0], 'ф':[-1,0], 'arrowleft':[-1,0], 'd':[1,0], 'в':[1,0], 'arrowright':[1,0] },
+
+    // Which of a hex's 6 corners sit along its visual "top" edge.
+    HEX_TOP_CORNER_INDICES: [4, 5, 0],
+
+    // Theme color palettes.
+    THEMES: {
+      classic: {
+        plains: '#687b47', forest: '#4b633b', hills: '#736b53', goldmine: '#8a7945', mountains: '#595450', water: '#26434f',
+        table: '#1f2b21', textPrimary: '#e9e3cf', bgPanel: '#1b241d'
+      },
+      autumn: {
+        plains: '#917245', forest: '#7a5a3a', hills: '#85704c', goldmine: '#998042', mountains: '#544c49', water: '#2b3f4f',
+        table: '#241e17', textPrimary: '#f2ebd9', bgPanel: '#211a14'
+      },
+      midnight: {
+        plains: '#314747', forest: '#273c3d', hills: '#374747', goldmine: '#565e47', mountains: '#363842', water: '#122330',
+        table: '#121820', textPrimary: '#d8e2ec', bgPanel: '#151d26'
+      },
+      parchment: {
+        plains: '#b0a382', forest: '#8f886f', hills: '#a39880', goldmine: '#a6965d', mountains: '#706b61', water: '#5a7885',
+        table: '#d1c5a2', textPrimary: '#2b261e', bgPanel: '#e3d8b5'
+      }
     },
-    autumn: {
-      plains: '#917245', forest: '#7a5a3a', hills: '#85704c', goldmine: '#998042', mountains: '#544c49', water: '#2b3f4f',
-      table: '#241e17', textPrimary: '#f2ebd9', bgPanel: '#211a14'
-    },
-    midnight: {
-      plains: '#314747', forest: '#273c3d', hills: '#374747', goldmine: '#565e47', mountains: '#363842', water: '#122330',
-      table: '#121820', textPrimary: '#d8e2ec', bgPanel: '#151d26'
-    },
-    parchment: {
-      plains: '#b0a382', forest: '#8f886f', hills: '#a39880', goldmine: '#a6965d', mountains: '#706b61', water: '#5a7885',
-      table: '#d1c5a2', textPrimary: '#2b261e', bgPanel: '#e3d8b5'
-    }
+
+    // Terrain-definition / terrain-image cache (theme-dependent, see terrainDefs()).
+    _defsCache: null,
+    _defsCacheTheme: null,
+    _images: {}
   };
 
-  function mulberry32(seed){
-    return function(){
-      seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
-      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-  }
-
-  function createNoise2D(rand) {
-    const permutation = new Uint8Array(256);
-    for(let i=0; i<256; i++) permutation[i] = i;
-    for(let i=255; i>0; i--){
-      const j = Math.floor(rand() * (i + 1));
-      const tmp = permutation[i]; permutation[i] = permutation[j]; permutation[j] = tmp;
-    }
-    const p = new Uint8Array(512);
-    for(let i=0; i<512; i++) p[i] = permutation[i & 255];
-
-    function fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
-    function lerp(t, a, b) { return a + t * (b - a); }
-    function grad(hash, x, y) {
-      const h = hash & 7;
-      const u = h<4 ? x : y;
-      const v = h<4 ? y : x;
-      return ((h&1)===0 ? u : -u) + ((h&2)===0 ? v : -v);
-    }
-
-    return function noise2D(x, y) {
-      const X = Math.floor(x) & 255;
-      const Y = Math.floor(y) & 255;
-      const xf = x - Math.floor(x);
-      const yf = y - Math.floor(y);
-      const u = fade(xf);
-      const v = fade(yf);
-      const g00 = grad(p[p[X] + Y], xf, yf);
-      const g10 = grad(p[p[X+1] + Y], xf - 1, yf);
-      const g01 = grad(p[p[X] + Y+1], xf, yf - 1);
-      const g11 = grad(p[p[X+1] + Y+1], xf - 1, yf - 1);
-      return lerp(v, lerp(u, g00, g10), lerp(u, g01, g11));
-    };
-  }
-
-  const DIRS = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
-  const EDGE_DIRS = [[1,0],[0,1],[-1,1],[-1,0],[0,-1],[1,-1]];
-
-  function key(q,r){ return q+","+r; }
-  function hexDist(a,b){
-    return (Math.abs(a.q-b.q)+Math.abs(a.q+a.r-b.q-b.r)+Math.abs(a.r-b.r))/2;
-  }
-  function axialToPixel(q,r){
-    const x = hexSize * Math.sqrt(3) * (q + r/2);
-    const y = hexSize * 1.5 * r;
-    return {x,y};
-  }
-  // ЕДИНАЯ функция проекции плоской точки доски (flatX,flatY — координаты ДО
-  // наклона/перспективы, т.е. axialToPixel(...)+offset) в экранные пиксели.
-  // Это критично: чтобы у соседних гексов совпадали общие углы, оба должны
-  // проецировать один и тот же плоский угол через ОДНУ и ТУ ЖЕ функцию от
-  // (x,y) — а не через масштаб "своего" гекса. Тогда щелей между рядами нет,
-  // а форма самого гекса перестаёт быть правильным шестиугольником: его
-  // верхние углы (которые дальше от камеры и потому "выше" по flatY) получают
-  // меньший scale, чем нижние — гекс сам визуально сужается кверху, как и
-  // должно быть при настоящем перспективном наклоне.
-  function projectFlatPoint(flatX, flatY){
-    const scale = perspectiveScaleForFlatY(flatY);
-    // ВАЖНО: центр схождения перспективы по X — это центр КАРТЫ (mapPixelW/2),
-    // а не центр холста. Раньше холст был размером ровно с карту, так что оба
-    // центра случайно совпадали; теперь холст — это весь вьюпорт (карта рисуется
-    // в мировых координатах, а на экран её переносит camera-transform в render()),
-    // поэтому центр обязан браться из геометрии самой карты.
-    const centerX = mapPixelW ? mapPixelW / 2 : flatX;
-    return {
-      x: centerX + (flatX - centerX) * scale,
-      y: flatY * scale * TILT_FACTOR, // Добавлен учет масштаба перспективы для высоты
-      scale
-    };
-  }
-
-  // Плоский (недеформированный) центр гекса — координаты в системе
-  // axialToPixel(...) + текущее смещение канваса, БЕЗ наклона/перспективы.
-  function flatCenterForHex(h){
-    const p = axialToPixel(h.q, h.r);
-    const offX = canvas && canvas.dataset && canvas.dataset.offx ? parseFloat(canvas.dataset.offx) : 0;
-    const offY = canvas && canvas.dataset && canvas.dataset.offy ? parseFloat(canvas.dataset.offy) : 0;
-    return { x: p.x + offX, y: p.y + offY };
-  }
-
-  // Плоский (недеформированный) угол i гекса h — до проекции.
-  function hexCornerFlat(h, i){
-    const c = flatCenterForHex(h);
-    const angle = Math.PI/180 * (60*i - 30);
-    const rEff = hexSize * 1.02;
-    return { x: c.x + rEff * Math.cos(angle), y: c.y + rEff * Math.sin(angle) };
-  }
-
-  // Угол i гекса h, спроецированный на экран. Два соседних гекса, у которых
-  // угол i/j геометрически совпадает, всегда дадут одинаковый результат —
-  // потому что projectFlatPoint зависит только от (flatX,flatY) самой точки.
-  function projectedHexCorner(h, i){
-    const fc = hexCornerFlat(h, i);
-    return projectFlatPoint(fc.x, fc.y);
-  }
-
-  let _terrainDefsCache = null;
-  let _terrainDefsCacheTheme = null;
-  let _terrainImages = {};
-  function getTerrainDefs(){
-    if(_terrainDefsCache && _terrainDefsCacheTheme === currentTheme) return _terrainDefsCache;
-    const th = THEMES[currentTheme];
-    _terrainDefsCache = {
+  Game.Config.terrainDefs = function terrainDefs(){
+    if(Game.Config._defsCache && Game.Config._defsCacheTheme === Game.Config.settings.currentTheme) return Game.Config._defsCache;
+    const th = Game.Config.THEMES[Game.Config.settings.currentTheme];
+    Game.Config._defsCache = {
+      // imageSrc может быть строкой (один вариант) или массивом строк (несколько
+      // вариантов картинки для одного террейна — какой именно вариант достанется
+      // конкретному гексу, решает детерминированный хэш его координат, см.
+      // Game.Config.terrainVariant(), так что при перерисовке карта не "мерцает" случайными
+      // заменами картинок). Просто допишите ещё путей в массив, чтобы добавить вариант.
+      //
+      // artOverflowTop — доля от размера гекса (0..~0.6), на которую верхняя часть
+      // картинки визуально "вылезает" за пределы своего гекса вверх и перекрывает
+      // верхних соседей (горы, кроны леса и т.п. — см. Game.Render.drawTerrain()/Game.Render.hexPath()).
       plains:    { color:th.plains, yield:2, defense:0, moveCost:1.0, label:'Равнина', imageSrc: ['assets/plain.png', 'assets/plain1.png'], artOverflowTop: 0 },
       forest:    { color:th.forest, yield:1, defense:1, moveCost:2.0, label:'Густой Лес', imageSrc: ['assets/forest.png', 'assets/forest1.png'], artOverflowTop: 0 },
       hills:     { color:th.hills, yield:1, defense:1, moveCost:2.0, label:'Холмы', imageSrc: ['assets/hills.png'], artOverflowTop: 0 },
       goldmine:  { color:th.goldmine, yield:4, defense:0, moveCost:1.0, label:'Золотой рудник', imageSrc: ['assets/terrain_mines.jpg'], artOverflowTop: 0 },
       mountains: { color:th.mountains, yield:0, defense:0, moveCost:99, label:'Горный хребет', impassable:true, imageSrc: ['assets/mountains.png'], artOverflowTop: 0 },
-      water:     { color:th.water, yield:0, defense:0, moveCost:99, label:'Море / Озеро', impassable:true, imageSrc: ['assets/water.png'], artOverflowTop: 0 },
+      water:     { color:th.water, yield:0, defense:0, moveCost:99, label:'Море / Озеро', impassable:true, imageSrc: ['assets/water.png'], imgVariation: {
+        'nw-plains': 'water-plain-nw.png'
+      }, artOverflowTop: 0 },
+      // Кайма непроходимых гексов по краю карты (см. Game.Map.create() и
+      // Game.Config.BORDER_THICKNESS) — рамка "старой бумажной карты", не
+      // связана с темой оформления, поэтому цвет фиксированный, а не th.*.
+      // Положите сюда свою текстуру (можно несколько вариантов — как и для
+      // остальных террейнов, imageSrc принимает массив путей).
+      border:    { color:'#241d14', yield:0, defense:0, moveCost:99, label:'Край карты', impassable:true, isBorder:true, imageSrc: ['assets/map_border.png'], artOverflowTop: 0 },
     };
-    _terrainDefsCacheTheme = currentTheme;
-    return _terrainDefsCache;
-  }
-
-  function loadTerrainAssets(callback) {
-    const TERRAIN = getTerrainDefs();
-    _terrainImages = {};
+    Game.Config._defsCacheTheme = Game.Config.settings.currentTheme;
+    return Game.Config._defsCache;
+  };
+  Game.Config.loadAssets = function loadAssets(callback) {
+    const TERRAIN = Game.Config.terrainDefs();
+    Game.Config._images = {};
 
     // imageSrc теперь может быть строкой ИЛИ массивом строк — приводим всё к массиву,
     // чтобы поддержать несколько картинок-вариантов на один тип террейна.
     let totalImages = 0;
     for (const key in TERRAIN) {
-      const sources = normalizeImageSources(TERRAIN[key].imageSrc);
-      _terrainImages[key] = new Array(sources.length);
+      const sources = Game.Utils.normalizeImageSources(TERRAIN[key].imageSrc);
+      Game.Config._images[key] = new Array(sources.length);
       totalImages += sources.length;
     }
 
@@ -831,156 +905,52 @@
     };
 
     for (const key in TERRAIN) {
-      const sources = normalizeImageSources(TERRAIN[key].imageSrc);
+      const sources = Game.Utils.normalizeImageSources(TERRAIN[key].imageSrc);
       sources.forEach((src, idx) => {
         const img = new Image();
-        img.onload = () => { _terrainImages[key][idx] = img; onSlotDone(); };
+        img.onload = () => { Game.Config._images[key][idx] = img; onSlotDone(); };
         img.onerror = () => {
           // Один из вариантов не нашёлся — не блокируем загрузку всей карты,
-          // просто пропускаем этот слот (drawHexTerrain отфильтрует пустые).
+          // просто пропускаем этот слот (Game.Render.drawTerrain отфильтрует пустые).
           console.warn('Не удалось загрузить изображение террейна:', src);
           onSlotDone();
         };
         img.src = src;
       });
+      
     }
-  }
-  function normalizeImageSources(imageSrc){
-    if (!imageSrc) return [];
-    return Array.isArray(imageSrc) ? imageSrc : [imageSrc];
-  }
-  function hashHexIndex(q, r, mod){
-    // Простой детерминированный хэш координат гекса, чтобы вариант картинки для
-    // конкретной клетки был стабильным между перерисовками (иначе карта бы "мерцала",
-    // меняя случайную картинку на каждый render()).
-    let x = (q * 374761393 + r * 668265263) ^ (q << 13);
-    x = (x ^ (x >>> 16)) >>> 0;
-    return mod > 0 ? x % mod : 0;
-  }
-  function pickTerrainVariant(h, variants){
-    return variants[hashHexIndex(h.q, h.r, variants.length)];
-  }
-  // Balance constants — kept exactly as designed, exposed via Game.Config.
-  const RECRUIT_COST = 4;
-  const REINFORCE_COST = 4;
-  const INITIAL_STRENGTH = 1;
-  const CAPITAL_BONUS_GOLD = 5;
-  const CAPITAL_BONUS_DEFENSE = 2;
+  };
+  Game.Config.terrainVariant = function terrainVariant(h, variants){
+    return variants[Game.Utils.hashHexIndex(h.q, h.r, variants.length)];
+  };
 
-  // ---------------------------------------------------------------------
-  // Game.State — the live world state (hex grid, players, round, camera/
-  // selection). Left exactly as-is; exposed read-only via Game.State.
-  // ---------------------------------------------------------------------
-  let game = null;
-  let canvas = null;
-  let ctx = null;
-  let hoveredHex = null;
-  let activeRegionId = null;
-  let flyingUnits = [];
-  let destroyingUnits = [];
-  let isAiRunning = false;
-  let staticMapCanvas = null;
-  let staticCtx = null;
-  let isStaticLayerDirty = true;
-  
-  const TILT_FACTOR = 0.8;
+  // ==========================================================================
+  // Game.State — the live match/session: hex grid, players, round,
+  // selection. (Rendering/camera runtime lives in Game.Render.)
+  // ==========================================================================
+  Game.State = {
+    match: null,           // set by Game.Map.create() — hexes/players/round/selected/over
+    isAiRunning: false,
+    activeRegionId: null,
+    reachableCache: { cacheKey: null, data: null }
+  };
 
-  // --- Псевдо-3D перспектива -------------------------------------------
-  // TILT_FACTOR просто сжимает карту по Y (имитация наклона стола), но при
-  // реальном наклоне ближние ряды (больший r, низ экрана) ещё и визуально
-  // крупнее дальних (меньший r, верх экрана) — сами ячейки и разбег между
-  // ними по X должны сужаться к "горизонту". PERSPECTIVE_STRENGTH задаёт
-  // насколько сильно (0 — выключено, полностью плоская сетка; ~0.3–0.4 —
-  // заметный, но не карикатурный эффект; 1 — дальний край схлопывается в точку).
-  const PERSPECTIVE_STRENGTH = 0.3;
-  const PERSPECTIVE_FAR_SCALE = 1 - PERSPECTIVE_STRENGTH;
-  // Диапазон считается по ПЛОСКОЙ координате Y (до наклона), а не по индексу
-  // ряда r — так масштаб становится непрерывной функцией позиции точки на
-  // доске, а не дискретным значением "на весь гекс". Именно это и позволяет
-  // двум соседним гексам с разным r сходиться в одной и той же точке на общей
-  // границе: масштаб их общего угла вычисляется из координаты самого угла,
-  // а не из того, какому гексу он принадлежит.
-  let _persMinFlatY = 0, _persMaxFlatY = 0, _persRangeReady = false;
-
-  function perspectiveScaleForFlatY(flatY){
-    if(!_persRangeReady || _persMaxFlatY === _persMinFlatY) return 1;
-    let t = (flatY - _persMinFlatY) / (_persMaxFlatY - _persMinFlatY); // 0 = дальний край (верх), 1 = ближний (низ)
-    if(t < 0) t = 0; else if(t > 1) t = 1; // на случай запаса/паддинга за пределами карты
-    return PERSPECTIVE_FAR_SCALE + t * (1 - PERSPECTIVE_FAR_SCALE);
-  }
-
-  // ---------------------------------------------------------------------
-  // Game.Map / Game.Movement / Game.Combat — world queries, map generation,
-  // pathfinding and battle math. This is the core simulation and is left
-  // untouched by design (per request: gameplay/map logic is not to change).
-  // ---------------------------------------------------------------------
-  function neighbors(h){
-    if(!game || !game.hexes) return [];
-    return DIRS.map(([dq,dr])=>game.hexes.get(key(h.q+dq,h.r+dr))).filter(Boolean);
-  }
-
-  function inEnemyZoC(hex, pid){
-    if(!zocEnabled) return false;
-    return neighbors(hex).some(nb => nb.unit && nb.unit.owner !== pid);
-  }
-
-  function getAdjacentSupport(hex, owner, combatTargetHex = null){
-    let support = 0;
-    neighbors(hex).forEach(nb => {
-      if (nb === combatTargetHex) return;
-      if (nb.unit && nb.unit.owner === owner) {
-        support += nb.unit.strength;
-      }
-    });
-    return support;
-  }
-
-  function getAttackerCombatData(fromHex, toHex, attackerPid){
-    if(!fromHex || !fromHex.unit) return { base: 0, support: 0, total: 0 };
-    const base = fromHex.unit.strength;
-    const support = getAdjacentSupport(toHex, attackerPid, fromHex);
-    return { base, support, total: base + support };
-  }
-
-  function getDefenderCombatData(toHex, fromHex, defenderPid){
-    const base = toHex.unit ? toHex.unit.strength : 0;
-    const TERRAIN = getTerrainDefs();
-    const defBonus = TERRAIN[toHex.terrain].defense + (toHex.capital ? CAPITAL_BONUS_DEFENSE : 0);
-    const support = (defenderPid !== null && toHex.unit) ? getAdjacentSupport(toHex, defenderPid, fromHex) : 0;
-    return { base, defBonus, support, total: base + defBonus + support };
-  }
-
-  function getPlayerIncomeAndUpkeep(pid) {
-    let income = 0;
-    let upkeep = 0;
-    const TERRAIN = getTerrainDefs();
-
-    game.hexes.forEach(h => {
-      if(h.owner === pid){
-        if(h.occupiedBy === null){
-          income += TERRAIN[h.terrain].yield + (h.capital ? CAPITAL_BONUS_GOLD : 0);
-        }
-      }
-      if(h.unit && h.unit.owner === pid){
-        upkeep += h.unit.strength * 2; // 2 gold upkeep per strength point per turn
-      }
-    });
-
-    return { income, upkeep, net: income - upkeep };
-  }
-
-  function newGame(seed){
-    const rand = mulberry32(seed);
-    const noiseElev = createNoise2D(rand);
-    const noiseMoist = createNoise2D(rand);
+  // ==========================================================================
+  // Game.Map — world generation, region/ownership, income
+  // ==========================================================================
+  Game.Map = {};
+  Game.Map.create = function create(seed){
+    const rand = Game.Utils.mulberry32(seed);
+    const noiseElev = Game.Utils.createNoise2D(rand);
+    const noiseMoist = Game.Utils.createNoise2D(rand);
     const hexes = new Map();
 
-    for(let q=-mapRadius; q<=mapRadius; q++){
-      const r1 = Math.max(-mapRadius, -q-mapRadius);
-      const r2 = Math.min(mapRadius, -q+mapRadius);
+    for(let q=-Game.Config.settings.mapRadius; q<=Game.Config.settings.mapRadius; q++){
+      const r1 = Math.max(-Game.Config.settings.mapRadius, -q-Game.Config.settings.mapRadius);
+      const r2 = Math.min(Game.Config.settings.mapRadius, -q+Game.Config.settings.mapRadius);
       for(let r=r1; r<=r2; r++){
-        const normQ = q / (mapRadius + 0.5);
-        const normR = r / (mapRadius + 0.5);
+        const normQ = q / (Game.Config.settings.mapRadius + 0.5);
+        const normR = r / (Game.Config.settings.mapRadius + 0.5);
         const distFromCenter = Math.sqrt(normQ*normQ + normR*normR + normQ*normR);
         
         const n1 = noiseElev(q * 0.32 + 15, r * 0.32 + 15);
@@ -993,7 +963,7 @@
           terrain = 'mountains';
         }
 
-        hexes.set(key(q,r), {
+        hexes.set(Game.Utils.key(q,r), {
           q, r, terrain,
           owner: null,
           occupiedBy: null,
@@ -1008,7 +978,7 @@
 
     all.forEach(h => {
       if(h.terrain === 'water' || h.terrain === 'mountains'){
-        const landNbs = neighbors(h).filter(nb => nb.terrain !== 'water' && nb.terrain !== 'mountains');
+        const landNbs = Game.Map.neighbors(h).filter(nb => nb.terrain !== 'water' && nb.terrain !== 'mountains');
         if(landNbs.length >= 4 && rand() < 0.55){
           h.terrain = 'hills';
         }
@@ -1024,7 +994,7 @@
       }
     });
 
-    game = {
+    Game.State.match = {
       hexes, players: [],
       selected: null,
       round: 1,
@@ -1032,14 +1002,37 @@
       log: [],
     };
 
+    // Кайма непроходимых гексов вокруг карты (терраин 'border', см.
+    // Game.Config.terrainDefs()) — рамка "старой бумажной карты" в духе
+    // Total War. Добавляется ПРЯМО в `hexes`, а не в `all`/`landHexes`, так
+    // что вся логика ниже (регионы, столицы, игроки) её вообще не видит —
+    // кайма существует только для рендера и как физическая преграда для
+    // движения/поиска пути (Game.Movement.reachable уже блокирует impassable-
+    // террейн).
+    (function addMapBorder(){
+      const outerRadius = Game.Config.settings.mapRadius + Game.Config.BORDER_THICKNESS;
+      for(let q=-outerRadius; q<=outerRadius; q++){
+        const r1 = Math.max(-outerRadius, -q-outerRadius);
+        const r2 = Math.min(outerRadius, -q+outerRadius);
+        for(let r=r1; r<=r2; r++){
+          const k = Game.Utils.key(q,r);
+          if(hexes.has(k)) continue;
+          hexes.set(k, {
+            q, r, terrain: 'border',
+            owner: null, occupiedBy: null, capital: false, regionId: null, unit: null
+          });
+        }
+      }
+    })();
+
     const landHexes = all.filter(h => h.terrain !== 'mountains' && h.terrain !== 'water');
     
     let targetAvgSize = 7;
     let maxAllowedSize = 8;
-    if(regionSizeMode === 'compact'){
+    if(Game.Config.settings.regionSizeMode === 'compact'){
       targetAvgSize = 4;
       maxAllowedSize = 6;
-    } else if(regionSizeMode === 'large'){
+    } else if(Game.Config.settings.regionSizeMode === 'large'){
       targetAvgSize = 11;
       maxAllowedSize = 14;
     }
@@ -1054,7 +1047,7 @@
         let maxMinDist = -1;
         landHexes.forEach(h => {
           if(seeds.includes(h)) return;
-          const minDist = Math.min(...seeds.map(s => hexDist(h, s)));
+          const minDist = Math.min(...seeds.map(s => Game.Utils.hexDist(h, s)));
           if(minDist > maxMinDist){
             maxMinDist = minDist;
             bestCandidate = h;
@@ -1072,7 +1065,7 @@
     while(unassigned.length > 0){
       let assignedInThisLoop = 0;
       unassigned.forEach(h => {
-        const assignedNbs = neighbors(h).filter(nb => nb.regionId !== null);
+        const assignedNbs = Game.Map.neighbors(h).filter(nb => nb.regionId !== null);
         if(assignedNbs.length > 0){
           const regionCountsCurrent = {};
           assignedNbs.forEach(nb => {
@@ -1097,7 +1090,7 @@
       unassigned = landHexes.filter(h => h.regionId === null);
       if(assignedInThisLoop === 0 && unassigned.length > 0){
         unassigned.forEach(uh => {
-          const validNbs = neighbors(uh).filter(nb => nb.regionId !== null);
+          const validNbs = Game.Map.neighbors(uh).filter(nb => nb.regionId !== null);
           if(validNbs.length > 0){
             uh.regionId = validNbs[0].regionId;
           } else {
@@ -1132,11 +1125,11 @@
       { id:3, name:'Дом Вердан', color:'#45a862', gold:35, ai:true, alive:true },
       { id:4, name:'Дом Золото', color:'#e58e26', gold:35, ai:true, alive:true },
       { id:5, name:'Дом Умбра', color:'#8854d0', gold:35, ai:true, alive:true },
-    ].slice(0, factionsCount);
-    game.players = players;
+    ].slice(0, Game.Config.settings.factionsCount);
+    Game.State.match.players = players;
 
     const allCapitals = landHexes.filter(h => h.capital);
-    const offsetVal = Math.max(3, mapRadius - 2);
+    const offsetVal = Math.max(3, Game.Config.settings.mapRadius - 2);
     const targets = [
       {q:0, r:-offsetVal},
       {q:-offsetVal, r:Math.floor(offsetVal/2)},
@@ -1144,20 +1137,20 @@
       {q:Math.floor(offsetVal/2), r:-Math.floor(offsetVal/2)},
       {q:-Math.floor(offsetVal/2), r:-Math.floor(offsetVal/2)},
       {q:Math.floor(offsetVal/2), r:Math.floor(offsetVal/2)}
-    ].slice(0, factionsCount);
+    ].slice(0, Game.Config.settings.factionsCount);
     const usedCapitals = [];
 
     targets.forEach((t, i) => {
       let best = null, bestScore = Infinity;
       allCapitals.forEach(c => {
         if(c.owner !== null) return;
-        const minDist = usedCapitals.length ? Math.min(...usedCapitals.map(uc => hexDist(c, uc))) : 99;
+        const minDist = usedCapitals.length ? Math.min(...usedCapitals.map(uc => Game.Utils.hexDist(c, uc))) : 99;
         if(minDist < 3) return;
-        const score = hexDist(c, t);
+        const score = Game.Utils.hexDist(c, t);
         if(score < bestScore){ bestScore = score; best = c; }
       });
       if(best){
-        claimRegionAllHexes(best.regionId, i);
+        Game.Map.claimRegion(best.regionId, i);
         best.owner = i;
         usedCapitals.push(best);
         best.unit = { owner: i, strength: 2, hasMoved: false };
@@ -1168,88 +1161,100 @@
       }
     });
 
-    game.round = 1;
-    game.over = false;
-    game.selected = null;
-    activeRegionId = null;
-    game.log = [];
-    flyingUnits = [];
-    destroyingUnits = [];
-    isAiRunning = false;
+    Game.State.match.round = 1;
+    Game.State.match.over = false;
+    Game.State.match.selected = null;
+    Game.State.activeRegionId = null;
+    Game.State.match.log = [];
+    Game.Render.flyingUnits = [];
+    Game.Render.destroyingUnits = [];
+    Game.State.isAiRunning = false;
 
-    logMsg(`Новая кампания создана. Материк сформирован (регионов: ${uniqueRegionIds.length}).`);
-    updateLegendDOM();
-  }
-
-  function claimRegionAllHexes(regionId, pid){
+    Game.UI.log(`Новая кампания создана. Материк сформирован (регионов: ${uniqueRegionIds.length}).`);
+    Game.UI.updateLegend();
+  };
+  Game.Map.neighbors = function neighbors(h){
+    if(!Game.State.match || !Game.State.match.hexes) return [];
+    return Game.Config.DIRS.map(([dq,dr])=>Game.State.match.hexes.get(Game.Utils.key(h.q+dq,h.r+dr))).filter(Boolean);
+  };
+  Game.Map.claimRegion = function claimRegion(regionId, pid){
     if(regionId === null) return;
-    game.hexes.forEach(h => {
+    Game.State.match.hexes.forEach(h => {
       if(h.regionId === regionId){
         h.owner = pid;
       }
     });
-  }
+  };
+  Game.Map.ownedHexCount = function ownedHexCount(pid){
+    let n=0;
+    Game.State.match.hexes.forEach(h=>{ if(h.owner===pid) n++; });
+    return n;
+  };
+  Game.Map.incomeAndUpkeep = function incomeAndUpkeep(pid) {
+    let income = 0;
+    let upkeep = 0;
+    const TERRAIN = Game.Config.terrainDefs();
 
-  function applyRaidLoot(hex, pid){
-    const TERRAIN = getTerrainDefs();
-    const loot = Math.max(4, (TERRAIN[hex.terrain].yield || 2) * 3);
-    game.players[pid].gold += loot;
-    logMsg(`⚔️ Рейд на (${hex.q}, ${hex.r}): захвачено ${loot}💰 добычи.`);
-  }
+    Game.State.match.hexes.forEach(h => {
+      if(h.owner === pid){
+        if(h.occupiedBy === null){
+          income += TERRAIN[h.terrain].yield + (h.capital ? Game.Config.CAPITAL_BONUS_GOLD : 0);
+        }
+      }
+      if(h.unit && h.unit.owner === pid){
+        upkeep += h.unit.strength * 2; // 2 gold upkeep per strength point per turn
+      }
+    });
 
-  function isRegionOccupiedBy(regionId, pid){
+    return { income, upkeep, net: income - upkeep };
+  };
+  Game.Map.netIncome = function netIncome(pid){
+    const stats = Game.Map.incomeAndUpkeep(pid);
+    return stats.net;
+  };
+  Game.Map.isRegionOccupiedBy = function isRegionOccupiedBy(regionId, pid){
     if(regionId === null) return false;
     let occupied = false;
-    game.hexes.forEach(h => {
+    Game.State.match.hexes.forEach(h => {
       if(h.regionId === regionId && h.capital && h.occupiedBy === pid){
         occupied = true;
       }
     });
     return occupied;
-  }
+  };
+  Game.Map.applyRaidLoot = function applyRaidLoot(hex, pid){
+    const TERRAIN = Game.Config.terrainDefs();
+    const loot = Math.max(4, (TERRAIN[hex.terrain].yield || 2) * 3);
+    Game.State.match.players[pid].gold += loot;
+    Game.UI.log(`⚔️ Рейд на (${hex.q}, ${hex.r}): захвачено ${loot}💰 добычи.`);
+  };
 
-  function updateLegendDOM(){
-    const TERRAIN = getTerrainDefs();
-    const grid = document.getElementById('legendGridContainer');
-    if(!grid) return;
-    grid.innerHTML = `
-      <div class="legendItem"><div class="legendSwatch" style="background:${TERRAIN.plains.color}"></div>Равнина (2💰)</div>
-      <div class="legendItem"><div class="legendSwatch" style="background:${TERRAIN.forest.color}"></div>Лес (1💰, +1д)</div>
-      <div class="legendItem"><div class="legendSwatch" style="background:${TERRAIN.hills.color}"></div>Холмы (1💰, +1д)</div>
-      <div class="legendItem"><div class="legendSwatch" style="background:${TERRAIN.goldmine.color}"></div>Рудник (4💰)</div>
-      <div class="legendItem"><div class="legendSwatch" style="background:${TERRAIN.mountains.color}"></div>Хребет</div>
-      <div class="legendItem"><div class="legendSwatch" style="background:${TERRAIN.water.color}"></div>Вода</div>
-    `;
-  }
-
-  function logMsg(text){
-    if(!game) return;
-    game.log.push(text);
-    if(game.log.length>60) game.log.shift();
-    const el = document.getElementById('log');
-    if(el) {
-      el.innerHTML = game.log.slice().reverse().map(m=>`<div>${m}</div>`).join('');
-    }
-  }
-
-  function getReachableHexes(startHex, actingPlayer){
-    const TERRAIN = getTerrainDefs();
+  // ==========================================================================
+  // Game.Movement — zone of control + reachable-hex pathing
+  // ==========================================================================
+  Game.Movement = {};
+  Game.Movement.inEnemyZoC = function inEnemyZoC(hex, pid){
+    if(!Game.Config.settings.zocEnabled) return false;
+    return Game.Map.neighbors(hex).some(nb => nb.unit && nb.unit.owner !== pid);
+  };
+  Game.Movement.reachable = function reachable(startHex, actingPlayer){
+    const TERRAIN = Game.Config.terrainDefs();
     const distances = new Map();
     const queue = [{ hex: startHex, cost: 0 }];
-    distances.set(key(startHex.q, startHex.r), 0);
+    distances.set(Game.Utils.key(startHex.q, startHex.r), 0);
 
-    const startingInZoC = inEnemyZoC(startHex, actingPlayer);
-    const allowedMaxRange = startingInZoC ? 1 : maxMovementPoints;
+    const startingInZoC = Game.Movement.inEnemyZoC(startHex, actingPlayer);
+    const allowedMaxRange = startingInZoC ? 1 : Game.Config.settings.maxMovementPoints;
 
     while(queue.length > 0){
       queue.sort((a,b)=>a.cost - b.cost);
       const current = queue.shift();
 
-      for(const nb of neighbors(current.hex)){
+      for(const nb of Game.Map.neighbors(current.hex)){
         if(TERRAIN[nb.terrain].impassable) continue;
 
         const isEnemyCombatTarget = (nb.unit && nb.unit.owner !== actingPlayer);
-        const isDirectNeighbor = (hexDist(startHex, nb) === 1);
+        const isDirectNeighbor = (Game.Utils.hexDist(startHex, nb) === 1);
 
         let moveCost = TERRAIN[nb.terrain].moveCost;
         if(nb.owner === actingPlayer || nb.occupiedBy === actingPlayer){
@@ -1267,7 +1272,7 @@
         const canReach = isDirectNeighbor || (newCost <= allowedMaxRange + 0.1) || isEnemyCombatTarget;
 
         if(canReach){
-          const nbKey = key(nb.q, nb.r);
+          const nbKey = Game.Utils.key(nb.q, nb.r);
           if(!distances.has(nbKey) || newCost < distances.get(nbKey)){
             distances.set(nbKey, newCost);
             if(isEnemyCombatTarget) continue;
@@ -1279,90 +1284,45 @@
       }
     }
     return distances;
-  }
-
-  let _reachableCache = { cacheKey: null, data: null };
-  function getReachableCached(startHex, actingPlayer){
+  };
+  Game.Movement.reachableCached = function reachableCached(startHex, actingPlayer){
     if(!startHex) return new Map();
-    const cacheKey = key(startHex.q, startHex.r) + '|' + actingPlayer + '|' + zocEnabled + '|' + maxMovementPoints;
-    if(_reachableCache.cacheKey === cacheKey) return _reachableCache.data;
-    const data = getReachableHexes(startHex, actingPlayer);
-    _reachableCache = { cacheKey, data };
+    const cacheKey = Game.Utils.key(startHex.q, startHex.r) + '|' + actingPlayer + '|' + Game.Config.settings.zocEnabled + '|' + Game.Config.settings.maxMovementPoints;
+    if(Game.State.reachableCache.cacheKey === cacheKey) return Game.State.reachableCache.data;
+    const data = Game.Movement.reachable(startHex, actingPlayer);
+    Game.State.reachableCache = { cacheKey, data };
     return data;
-  }
+  };
 
-  function calcIncomeForPlayer(pid){
-    const stats = getPlayerIncomeAndUpkeep(pid);
-    return stats.net;
-  }
-
-  function ownedHexCount(pid){
-    let n=0;
-    game.hexes.forEach(h=>{ if(h.owner===pid) n++; });
-    return n;
-  }
-
-  function triggerMoveAnimation(from, to, unitData, callback){
-    flyingUnits.push({
-      fromQ: from.q, fromR: from.r,
-      toQ: to.q, toR: to.r,
-      owner: unitData.owner,
-      strength: unitData.strength,
-      progress: 0,
-    });
-    
-    const startTime = performance.now();
-    const duration = 280;
-
-    function animateStep(currentTime){
-      const elapsed = currentTime - startTime;
-      const p = Math.min(1, elapsed / duration);
-      const eased = 1 - Math.pow(1 - p, 3);
-      
-      if(flyingUnits.length > 0) flyingUnits[flyingUnits.length - 1].progress = eased;
-      render();
-
-      if(p < 1){
-        requestAnimationFrame(animateStep);
-      } else {
-        flyingUnits.pop();
-        if(callback) callback();
+  // ==========================================================================
+  // Game.Combat — attack/defense math and move-or-attack resolution
+  // ==========================================================================
+  Game.Combat = {};
+  Game.Combat.adjacentSupport = function adjacentSupport(hex, owner, combatTargetHex = null){
+    let support = 0;
+    Game.Map.neighbors(hex).forEach(nb => {
+      if (nb === combatTargetHex) return;
+      if (nb.unit && nb.unit.owner === owner) {
+        support += nb.unit.strength;
       }
-    }
-    requestAnimationFrame(animateStep);
-  }
-
-  function triggerDestructionAnimation(hex, unitData, callback){
-    destroyingUnits.push({
-      q: hex.q, r: hex.r,
-      owner: unitData.owner,
-      strength: unitData.strength,
-      progress: 0
     });
-
-    const startTime = performance.now();
-    const duration = 380;
-
-    function animateStep(currentTime){
-      const elapsed = currentTime - startTime;
-      const p = Math.min(1, elapsed / duration);
-      
-      if(destroyingUnits.length > 0) destroyingUnits[destroyingUnits.length - 1].progress = p;
-      render();
-
-      if(p < 1){
-        requestAnimationFrame(animateStep);
-      } else {
-        destroyingUnits.pop();
-        if(callback) callback();
-      }
-    }
-    requestAnimationFrame(animateStep);
-  }
-
-  // Combat/movement resolution — exposed as Game.Combat.moveOrAttack.
-  function moveOrAttack(from, to, actingPlayer, skipAnim = false, cb){
-    const TERRAIN = getTerrainDefs();
+    return support;
+  };
+  Game.Combat.attackerData = function attackerData(fromHex, toHex, attackerPid){
+    if(!fromHex || !fromHex.unit) return { base: 0, support: 0, total: 0 };
+    const base = fromHex.unit.strength;
+    const support = Game.Combat.adjacentSupport(toHex, attackerPid, fromHex);
+    return { base, support, total: base + support };
+  };
+  Game.Combat.defenderData = function defenderData(toHex, fromHex, defenderPid){
+    const base = toHex.unit ? toHex.unit.strength : 0;
+    const TERRAIN = Game.Config.terrainDefs();
+    const defBonus = TERRAIN[toHex.terrain].defense + (toHex.capital ? Game.Config.CAPITAL_BONUS_DEFENSE : 0);
+    const support = (defenderPid !== null && toHex.unit) ? Game.Combat.adjacentSupport(toHex, defenderPid, fromHex) : 0;
+    return { base, defBonus, support, total: base + defBonus + support };
+  };
+  Game.Combat.moveOrAttack = function moveOrAttack(from, to, actingPlayer, skipAnim = false, cb){
+    const TERRAIN = Game.Config.terrainDefs();
     if(TERRAIN[to.terrain].impassable) return false;
     if(!from.unit || from.unit.owner!==actingPlayer || from.unit.hasMoved) return false;
 
@@ -1371,16 +1331,16 @@
 
     if(from.occupiedBy === actingPlayer){
       from.occupiedBy = null;
-      logMsg(`Оккупация с клетки (${from.q}, ${from.r}) снята ввиду отступления.`);
+      Game.UI.log(`Оккупация с клетки (${from.q}, ${from.r}) снята ввиду отступления.`);
     }
 
     if(to.owner === actingPlayer && to.unit !== null && to.unit.owner === actingPlayer){
       if(!skipAnim){
-        triggerMoveAnimation(from, to, unitCopy, ()=>{
+        Game.Render.animateMove(from, to, unitCopy, ()=>{
           to.unit.strength += unitCopy.strength;
           to.unit.hasMoved = true;
           if(to.occupiedBy !== null) to.occupiedBy = null;
-          playSound('recruit');
+          Game.Audio.play('recruit');
           if(cb) cb('merged');
         });
       } else {
@@ -1394,11 +1354,11 @@
 
     if(to.unit !== null && to.unit.owner !== actingPlayer){
       const mockAttackerHex = { q: from.q, r: from.r, unit: unitCopy };
-      const attData = getAttackerCombatData(mockAttackerHex, to, actingPlayer);
-      const def = getDefenderCombatData(to, mockAttackerHex, to.unit.owner);
+      const attData = Game.Combat.attackerData(mockAttackerHex, to, actingPlayer);
+      const def = Game.Combat.defenderData(to, mockAttackerHex, to.unit.owner);
       const winner = attData.total > def.total;
 
-      playSound('combat');
+      Game.Audio.play('combat');
 
       const resolveCaptureOutcome = ()=>{
         to.unit = unitCopy;
@@ -1413,19 +1373,19 @@
           to.occupiedBy = actingPlayer;
         } else {
           to.occupiedBy = actingPlayer;
-          applyRaidLoot(to, actingPlayer);
+          Game.Map.applyRaidLoot(to, actingPlayer);
           outcome = 'raided';
         }
         return outcome;
       };
 
       if(!skipAnim){
-        triggerMoveAnimation(from, to, unitCopy, ()=>{
+        Game.Render.animateMove(from, to, unitCopy, ()=>{
           if(winner){
             const outcome = resolveCaptureOutcome();
             if(cb) cb(outcome);
           } else {
-            triggerDestructionAnimation(to, unitCopy, ()=>{
+            Game.Render.animateDestruction(to, unitCopy, ()=>{
               if(cb) cb('lost');
             });
           }
@@ -1459,16 +1419,16 @@
           outcome = 'occupied';
         } else {
           to.occupiedBy = actingPlayer;
-          applyRaidLoot(to, actingPlayer);
+          Game.Map.applyRaidLoot(to, actingPlayer);
           outcome = 'raided';
         }
         return outcome;
       };
 
       if(!skipAnim){
-        triggerMoveAnimation(from, to, unitCopy, ()=>{
+        Game.Render.animateMove(from, to, unitCopy, ()=>{
           const outcome = resolveMoveOutcome();
-          playSound(outcome === 'occupied' || outcome === 'neutral_siege' ? 'occupy' : (outcome === 'raided' ? 'occupy' : 'move'));
+          Game.Audio.play(outcome === 'occupied' || outcome === 'neutral_siege' ? 'occupy' : (outcome === 'raided' ? 'occupy' : 'move'));
           if(cb) cb(outcome);
         });
       } else {
@@ -1478,98 +1438,14 @@
     }
 
     return false;
-  }
+  };
 
-  // ---------------------------------------------------------------------
-  // Game.Input — translates clicks/hover into selection & orders.
-  // ---------------------------------------------------------------------
-  function selectHex(h){
-    if(game.over) return;
-    playSound('click');
-    const prevSelected = game.selected;
-
-    if(prevSelected === h && h && h.capital && h.unit && h.unit.owner === 0){
-      h.unitHasFocus = !h.unitHasFocus;
-      activeRegionId = h.unitHasFocus ? null : h.regionId;
-      render(); updatePanel();
-      return;
-    }
-
-    if(prevSelected && prevSelected.unit && prevSelected.unit.owner === 0 && !prevSelected.unit.hasMoved && prevSelected !== h){
-      const isArmyFocused = !prevSelected.capital || prevSelected.unitHasFocus;
-      if (isArmyFocused) {
-        const reachable = getReachableHexes(prevSelected, 0);
-        if(reachable.has(key(h.q, h.r))){
-          moveOrAttack(prevSelected, h, 0, false, (result)=>{
-            if(result === 'captured'){
-              logMsg(`Победа в бою на (${h.q}, ${h.r})! Враг разбит.`);
-            } else if(result === 'raided'){
-              logMsg(`Рейд на (${h.q}, ${h.r}) удался — враг разбит.`);
-            } else if(result === 'lost'){
-              logMsg(`Атака на (${h.q}, ${h.r}) провалилась. Наш отряд уничтожен.`);
-            } else if(result === 'merged'){
-              logMsg(`Отряды объединены на (${h.q}, ${h.r}).`);
-            } else if(result === 'neutral_siege'){
-              logMsg(`Отряд вошел в нейтральную область (${h.q}, ${h.r}). Захват завершится на следующий ход.`);
-            } else if(result === 'occupied'){
-              logMsg(`Отряд начал ОСАДУ вражеской СТОЛИЦЫ (${h.q}, ${h.r}).`);
-            }
-            game.selected = null;
-            activeRegionId = null;
-            render(); updatePanel(); checkGameOver();
-          });
-          game.selected = null;
-          activeRegionId = null;
-          render(); updatePanel();
-          return;
-        }
-      }
-    }
-
-    if(h && h.capital && h.unit && h.unit.owner === 0){
-      game.selected = h;
-      h.unitHasFocus = false;
-      activeRegionId = h.regionId;
-      render(); updatePanel();
-      return;
-    }
-
-    if(h && h.unit && h.unit.owner === 0){
-      game.selected = h;
-      h.unitHasFocus = true;
-      activeRegionId = null;
-      render(); updatePanel();
-      return;
-    }
-
-    if(h && h.capital && h.owner === 0){
-      if(prevSelected === h){
-        game.selected = null;
-        activeRegionId = null;
-      } else {
-        game.selected = h;
-        activeRegionId = h.regionId;
-      }
-      render(); updatePanel();
-      return;
-    }
-
-    if(prevSelected === h){
-      game.selected = null;
-      activeRegionId = null;
-    } else {
-      game.selected = h;
-      activeRegionId = h ? h.regionId : null;
-    }
-    render(); updatePanel();
-  }
-
-  // ---------------------------------------------------------------------
-  // Game.Turns / Game.AI — turn flow (upkeep, income, siege resolution)
-  // and the opponent AI. Untouched simulation logic, exposed as facades.
-  // ---------------------------------------------------------------------
-  function startPlayerTurn(pid){
-    game.hexes.forEach(h => {
+  // ==========================================================================
+  // Game.Turns — per-player turn flow, win/lose checks
+  // ==========================================================================
+  Game.Turns = {};
+  Game.Turns.startPlayerTurn = function startPlayerTurn(pid){
+    Game.State.match.hexes.forEach(h => {
       if(!h.capital || h.occupiedBy === null) return;
       
       const isOccupiedByPid = (h.occupiedBy === pid);
@@ -1588,17 +1464,17 @@
             h.occupiedBy = null;
             h.siegeTurnCount = 0;
             if(isNeutralCapital){
-              logMsg(`🏳️ Нейтральная область #${h.regionId} полностью покорена фракцией «${game.players[occupierPid].name}»!`);
+              Game.UI.log(`🏳️ Нейтральная область #${h.regionId} полностью покорена фракцией «${Game.State.match.players[occupierPid].name}»!`);
             } else {
-              logMsg(`👑 Фракция «${game.players[occupierPid].name}» ЗАХВАТИЛА СТОЛИЦУ (${h.q}, ${h.r})! Вся область переходит под контроль.`);
+              Game.UI.log(`👑 Фракция «${Game.State.match.players[occupierPid].name}» ЗАХВАТИЛА СТОЛИЦУ (${h.q}, ${h.r})! Вся область переходит под контроль.`);
             }
-            claimRegionAllHexes(h.regionId, occupierPid);
+            Game.Map.claimRegion(h.regionId, occupierPid);
           }
         } else {
           if(!isNeutralCapital){
             h.occupiedBy = null;
             h.siegeTurnCount = 0;
-            logMsg(`Осада столицы (${h.q}, ${h.r}) снята в начале хода.`);
+            Game.UI.log(`Осада столицы (${h.q}, ${h.r}) снята в начале хода.`);
           } else if(h.unit && h.unit.owner !== occupierPid){
             h.occupiedBy = null;
             h.siegeTurnCount = 0;
@@ -1607,7 +1483,7 @@
       }
     });
 
-    game.hexes.forEach(h => {
+    Game.State.match.hexes.forEach(h => {
       if(h.occupiedBy !== null && h.owner !== null && h.capital && h.owner !== h.occupiedBy){
         if(!(h.unit && h.unit.owner === h.occupiedBy)){
           h.occupiedBy = null;
@@ -1616,46 +1492,99 @@
       }
     });
 
-    game.hexes.forEach(h => {
+    Game.State.match.hexes.forEach(h => {
       if(h.unit && h.unit.owner === pid){
         h.unit.hasMoved = false;
       }
     });
 
-    const p = game.players[pid];
+    const p = Game.State.match.players[pid];
     if(p.alive){
-      const stats = getPlayerIncomeAndUpkeep(pid);
+      const stats = Game.Map.incomeAndUpkeep(pid);
       p.gold += stats.net;
       if(p.gold < 0) {
         p.gold = 0;
-        logMsg(`⚠️ У фракции «${p.name}» финансовый кризис! Доходы (${stats.income}💰) не покрывают содержание войск (-${stats.upkeep}💰).`);
+        Game.UI.log(`⚠️ У фракции «${p.name}» финансовый кризис! Доходы (${stats.income}💰) не покрывают содержание войск (-${stats.upkeep}💰).`);
       } else {
-        logMsg(`📊 Фракция «${p.name}»: доход ${stats.income}💰, содержание войск -${stats.upkeep}💰 (итого: ${stats.net >= 0 ? '+' : ''}${stats.net}💰).`);
+        Game.UI.log(`📊 Фракция «${p.name}»: доход ${stats.income}💰, содержание войск -${stats.upkeep}💰 (итого: ${stats.net >= 0 ? '+' : ''}${stats.net}💰).`);
       }
     }
-  }
+  };
+  Game.Turns.finalizeTurnCycle = function finalizeTurnCycle(){
+    Game.State.match.round++;
+    Game.Turns.startPlayerTurn(0);
 
-  function startAiTurnSequence(){
-    if(game.over || isAiRunning) return;
-    isAiRunning = true;
-    game.selected = null;
-    activeRegionId = null;
-    updatePanel();
-    logMsg(`Ход противников... ИИ совершает манёвры.`);
+    const roundLabel = document.getElementById('roundLabel');
+    if(roundLabel) roundLabel.textContent = 'Ход ' + Game.State.match.round;
+
+    Game.Turns.checkGameOver();
+    Game.State.isAiRunning = false;
+    Game.Render.draw(); Game.UI.updatePanel();
+    Game.UI.log(`Раунд ${Game.State.match.round} начался. Ваши войска готовы к приказам.`);
+  };
+  Game.Turns.checkGameOver = function checkGameOver(){
+    Game.State.match.players.forEach(p=>{
+      if(p.alive && Game.Map.ownedHexCount(p.id)===0) {
+        p.alive = false;
+        Game.State.match.hexes.forEach(h => {
+          if(h.unit && h.unit.owner === p.id){
+            h.unit = null;
+          }
+          if(h.occupiedBy === p.id){
+            h.occupiedBy = null;
+          }
+        });
+        Game.UI.log(`Фракция «${p.name}» выбыла из войны. Ее оставшиеся войска рассеялись.`);
+      }
+    });
+    const alive = Game.State.match.players.filter(p=>p.alive);
+    if(!Game.State.match.players[0].alive){
+      Game.Turns.endGame(false, 'Ваши владения захвачены. Королевство пало.');
+    } else if(alive.length===1 && alive[0].id===0){
+      Game.Audio.play('victory');
+      Game.Turns.endGame(true, 'Все соперники разгромлены. Вы истинный правитель континента!');
+    }
+  };
+  Game.Turns.endGame = function endGame(won, text){
+    Game.State.match.over = true;
+    const overlay = document.getElementById('overlay');
+    if(overlay){
+      overlay.style.display='flex';
+      const titleEl = document.getElementById('overlayTitle');
+      if(titleEl){
+        titleEl.textContent = won ? 'Великая Победа' : 'Поражение';
+        titleEl.style.color = won ? 'var(--gold)' : 'var(--danger)';
+      }
+      document.getElementById('overlayText').textContent = text;
+    }
+  };
+
+  // ==========================================================================
+  // Game.AI — computer-controlled faction turns
+  // ==========================================================================
+  Game.AI = {};
+  Game.AI.runTurnSequence = function runTurnSequence(){
+    if(Game.State.match.over || Game.State.isAiRunning) return;
+    Game.State.isAiRunning = true;
+    Game.State.match.selected = null;
+    Game.State.activeRegionId = null;
+    Game.UI.updatePanel();
+    Game.UI.log(`Ход противников... ИИ совершает манёвры.`);
 
     let aiFactions = [];
-    for(let pid=1; pid<game.players.length; pid++){
-      if(game.players[pid].alive) aiFactions.push(pid);
+    for(let pid=1; pid<Game.State.match.players.length; pid++){
+      if(Game.State.match.players[pid].alive) aiFactions.push(pid);
     }
 
     function runNextAi(index){
       if(index >= aiFactions.length){
-        finalizeTurnCycle();
+        Game.Turns.finalizeTurnCycle();
         return;
       }
       const pid = aiFactions[index];
-      startPlayerTurn(pid);
-      runSingleAiFaction(pid, ()=>{
+      Game.UI.showAiTurnBanner(Game.State.match.players[pid]);
+      Game.Turns.startPlayerTurn(pid);
+      Game.AI.runFaction(pid, ()=>{
         setTimeout(()=>{
           runNextAi(index + 1);
         }, 120);
@@ -1665,22 +1594,21 @@
     setTimeout(()=>{
       runNextAi(0);
     }, 200);
-  }
-
-  function runSingleAiFaction(pid, onDone){
-    const p = game.players[pid];
+  };
+  Game.AI.runFaction = function runFaction(pid, onDone){
+    const p = Game.State.match.players[pid];
     if(!p.alive || !p.gold){
       if(onDone) onDone();
       return;
     }
-    const all = Array.from(game.hexes.values());
+    const all = Array.from(Game.State.match.hexes.values());
 
-    const emptyOwnedCapitals = all.filter(h => h.owner === pid && h.capital && !h.unit && h.occupiedBy === null && !isRegionOccupiedBy(h.regionId, pid));
+    const emptyOwnedCapitals = all.filter(h => h.owner === pid && h.capital && !h.unit && h.occupiedBy === null && !Game.Map.isRegionOccupiedBy(h.regionId, pid));
     let recruits = 0;
-    for(let i=0; i<emptyOwnedCapitals.length && recruits < 2 && p.gold >= RECRUIT_COST; i++){
+    for(let i=0; i<emptyOwnedCapitals.length && recruits < 2 && p.gold >= Game.Config.RECRUIT_COST; i++){
       const h = emptyOwnedCapitals[i];
-      p.gold -= RECRUIT_COST;
-      h.unit = { owner: pid, strength: INITIAL_STRENGTH, hasMoved: true };
+      p.gold -= Game.Config.RECRUIT_COST;
+      h.unit = { owner: pid, strength: Game.Config.INITIAL_STRENGTH, hasMoved: true };
       recruits++;
     }
 
@@ -1714,19 +1642,19 @@
       }
       consecutiveIdle = 0;
 
-      const reachable = getReachableHexes(h, pid); 
+      const reachable = Game.Movement.reachable(h, pid); 
       let bestTarget = null;
       let bestScore = -999;
 
       reachable.forEach((cost, kStr)=>{
-        const targetHex = game.hexes.get(kStr);
+        const targetHex = Game.State.match.hexes.get(kStr);
         if(!targetHex || targetHex === h) return;
 
         let score = 0;
         if(targetHex.unit && targetHex.unit.owner !== pid){
           const mockAttackerHex = { q: h.q, r: h.r, unit: h.unit };
-          const att = getAttackerCombatData(mockAttackerHex, targetHex, pid);
-          const def = getDefenderCombatData(targetHex, mockAttackerHex, targetHex.unit.owner);
+          const att = Game.Combat.attackerData(mockAttackerHex, targetHex, pid);
+          const def = Game.Combat.defenderData(targetHex, mockAttackerHex, targetHex.unit.owner);
           if(att.total > def.total){
             score += targetHex.capital ? 250 : 50;
           } else {
@@ -1747,7 +1675,7 @@
       });
 
       if(bestTarget){
-        moveOrAttack(h, bestTarget, pid, false, (res)=>{
+        Game.Combat.moveOrAttack(h, bestTarget, pid, false, (res)=>{
           if(bestTarget.capital && bestTarget.occupiedBy !== null){
             bestTarget.siegeTurnCount = 0;
           }
@@ -1759,334 +1687,115 @@
       }
     }
     processNextUnit();
-  }
+  };
 
-  function finalizeTurnCycle(){
-    game.round++;
-    startPlayerTurn(0);
+  // ==========================================================================
+  // Game.Render — canvas setup, camera, hex-geometry/projection,
+  // all draw* routines, and the animation queues
+  // ==========================================================================
+  Game.Render = {
+    // DOM/canvas handles (see setup()).
+    canvas: null,
+    ctx: null,
+    staticCanvas: null,
+    staticCtx: null,
+    staticDirty: true,
+    version: 0,
 
-    const roundLabel = document.getElementById('roundLabel');
-    if(roundLabel) roundLabel.textContent = 'Ход ' + game.round;
+    // Камера (полёт "птичьим взглядом" над картой): pan + zoom. camera.x/y/zoom
+    // describe the single ctx.setTransform(...) that render() uses to turn WORLD
+    // coordinates (the ones pixelForHex/projectFlat compute) into buffer pixels.
+    // Every pointer/keyboard handler must use exactly this same transform in
+    // reverse (bufferToWorld), or clicks drift from what's drawn.
+    camera: { x: 0, y: 0, zoom: 1.0 },
 
-    checkGameOver();
-    isAiRunning = false;
-    render(); updatePanel();
-    logMsg(`Раунд ${game.round} начался. Ваши войска готовы к приказам.`);
-  }
+    // World-pixel size of the map (see resize()) — used to center/fit the
+    // camera and as the perspective vanishing point (mapPixelW/2), independent
+    // of canvas size (which is now full-viewport).
+    mapPixelW: 0,
+    mapPixelH: 0,
+    devicePixelRatio: 1,
 
-  function checkGameOver(){
-    game.players.forEach(p=>{
-      if(p.alive && ownedHexCount(p.id)===0) {
-        p.alive = false;
-        game.hexes.forEach(h => {
-          if(h.unit && h.unit.owner === p.id){
-            h.unit = null;
-          }
-          if(h.occupiedBy === p.id){
-            h.occupiedBy = null;
-          }
-        });
-        logMsg(`Фракция «${p.name}» выбыла из войны. Ее оставшиеся войска рассеялись.`);
-      }
-    });
-    const alive = game.players.filter(p=>p.alive);
-    if(!game.players[0].alive){
-      endGame(false, 'Ваши владения захвачены. Королевство пало.');
-    } else if(alive.length===1 && alive[0].id===0){
-      playSound('victory');
-      endGame(true, 'Все соперники разгромлены. Вы истинный правитель континента!');
-    }
-  }
+    hoveredHex: null,
+    flyingUnits: [],
+    destroyingUnits: [],
 
-  function endGame(won, text){
-    game.over = true;
-    const overlay = document.getElementById('overlay');
-    if(overlay){
-      overlay.style.display='flex';
-      const titleEl = document.getElementById('overlayTitle');
-      if(titleEl){
-        titleEl.textContent = won ? 'Великая Победа' : 'Поражение';
-        titleEl.style.color = won ? 'var(--gold)' : 'var(--danger)';
-      }
-      document.getElementById('overlayText').textContent = text;
-    }
-  }
+    // Perspective-scale range, computed once per map (see perspectiveScale()).
+    perspRange: { min: 0, max: 0, ready: false },
 
-  // ---------------------------------------------------------------------
-  // Game.Render — canvas setup, hex<->pixel math and the draw loop.
-  // Untouched (per request: the map's visual rendering is not to change).
-  // ---------------------------------------------------------------------
-  // ---------------------------------------------------------------------
-  // Камера: перевод между "координатами буфера канваса" (то, что реально
-  // приходит в клиентских событиях мыши/тача) и "мировыми" координатами
-  // карты (в которых работают pixelForHex/projectFlatPoint). Один источник
-  // истины для обоих направлений — рендер и хит-тест НИКОГДА не расходятся.
-  // ---------------------------------------------------------------------
-  function clientToBuffer(evt){
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
+    // Hover memoization so onHover() can skip redundant tooltip/redraw work.
+    lastHover: { hex: undefined, version: -1 },
+
+    // Pointer pan/pinch-zoom state (see onPointerDown/Move/Up).
+    pointer: {
+      active: new Map(),
+      isPanning: false, didDrag: false,
+      panStartBuffer: null, panStartCamera: null, panStartClient: null,
+      pinchStartDist: 0, pinchStartZoom: 1, pinchStartMid: null, pinchStartCamera: null
+    },
+
+    // Keyboard pan state (WASD / arrows).
+    pan: { keys: new Set(), rafId: null },
+
+    // Туман войны: Set из "q,r"-ключей гексов, видимых игроку-человеку
+    // (id:0) прямо сейчас — пересчитывается в начале каждого draw() (см.
+    // updateVisibility()/Game.Config.FOG_OF_WAR_RADIUS).
+    visible: null
+  };
+
+  Game.Render.toPixel = function toPixel(q,r){
+    const x = Game.Config.settings.hexSize * Math.sqrt(3) * (q + r/2);
+    const y = Game.Config.settings.hexSize * 1.5 * r;
+    return {x,y};
+  };
+  Game.Render.projectFlat = function projectFlat(flatX, flatY){
+    const scale = Game.Render.perspectiveScale(flatY);
+    // ВАЖНО: центр схождения перспективы по X — это центр КАРТЫ (Game.Render.mapPixelW/2),
+    // а не центр холста. Раньше холст был размером ровно с карту, так что оба
+    // центра случайно совпадали; теперь холст — это весь вьюпорт (карта рисуется
+    // в мировых координатах, а на экран её переносит Game.Render.camera-transform в Game.Render.draw()),
+    // поэтому центр обязан браться из геометрии самой карты.
+    const centerX = Game.Render.mapPixelW ? Game.Render.mapPixelW / 2 : flatX;
     return {
-      x: (evt.clientX - rect.left) * scaleX,
-      y: (evt.clientY - rect.top) * scaleY
+      x: centerX + (flatX - centerX) * scale,
+      y: flatY * scale * Game.Config.TILT_FACTOR, // Добавлен учет масштаба перспективы для высоты
+      scale
     };
-  }
-  function bufferToWorld(pt){
-    return { x: (pt.x - camera.x) / camera.zoom, y: (pt.y - camera.y) / camera.zoom };
-  }
-  function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
-
-  // Не даём карте полностью "улететь" за пределы экрана при панорамировании —
-  // всегда оставляем хотя бы небольшой нахлёст карты с вьюпортом.
-  function clampCamera(){
-    if(!canvas || !mapPixelW || !mapPixelH) return;
-    const mapW = mapPixelW * camera.zoom, mapH = mapPixelH * camera.zoom;
-    const padX = Math.min(canvas.width * 0.4, 320);
-    const padY = Math.min(canvas.height * 0.4, 320);
-    let minX = canvas.width - mapW - padX, maxX = padX;
-    if(minX > maxX){ const mid = (minX + maxX) / 2; minX = maxX = mid; }
-    camera.x = clamp(camera.x, minX, maxX);
-    let minY = canvas.height - mapH - padY, maxY = padY;
-    if(minY > maxY){ const mid = (minY + maxY) / 2; minY = maxY = mid; }
-    camera.y = clamp(camera.y, minY, maxY);
-  }
-
-  // Зум с фиксированной "опорной" точкой в координатах буфера канваса —
-  // при масштабировании карта под этой точкой (например, под курсором) не
-  // "уезжает" в сторону.
-  function zoomBy(factor, anchorBuffer){
-    if(!canvas) return;
-    const anchor = anchorBuffer || { x: canvas.width / 2, y: canvas.height / 2 };
-    const oldZoom = camera.zoom;
-    const newZoom = clamp(oldZoom * factor, MIN_ZOOM, MAX_ZOOM);
-    if(newZoom === oldZoom) return;
-    camera.x = anchor.x - (anchor.x - camera.x) * (newZoom / oldZoom);
-    camera.y = anchor.y - (anchor.y - camera.y) * (newZoom / oldZoom);
-    camera.zoom = newZoom;
-    clampCamera();
-    render();
-  }
-
-  // Вписывает всю карту в текущий вьюпорт по центру — исходное положение
-  // "птичьего полёта" и то, к чему возвращает кнопка ⤢.
-  function fitCameraToMap(){
-    if(!canvas || !mapPixelW || !mapPixelH) return;
-    const margin = 0.92;
-    const z = clamp(Math.min(canvas.width / mapPixelW, canvas.height / mapPixelH) * margin, MIN_ZOOM, MAX_ZOOM);
-    camera.zoom = z;
-    camera.x = (canvas.width - mapPixelW * z) / 2;
-    camera.y = (canvas.height - mapPixelH * z) / 2;
-  }
-
-  // --- Панорамирование мышью/тачем (Pointer Events объединяют оба) --------
-  const activePointers = new Map();
-  let isPanning = false, didDrag = false;
-  let panStartBuffer = null, panStartCamera = null, panStartClient = null;
-  let pinchStartDist = 0, pinchStartZoom = 1, pinchStartMid = null, pinchStartCamera = null;
-
-  function pointerDist(a, b){ return Math.hypot(a.x - b.x, a.y - b.y); }
-
-  function onPointerDown(evt){
-    canvas.setPointerCapture(evt.pointerId);
-    activePointers.set(evt.pointerId, { x: evt.clientX, y: evt.clientY });
-
-    if(activePointers.size === 1){
-      isPanning = true;
-      didDrag = false;
-      panStartBuffer = clientToBuffer(evt);
-      panStartCamera = { x: camera.x, y: camera.y };
-      panStartClient = { x: evt.clientX, y: evt.clientY };
-    } else if(activePointers.size === 2){
-      isPanning = false;
-      const pts = Array.from(activePointers.values());
-      pinchStartDist = pointerDist(pts[0], pts[1]) || 1;
-      pinchStartZoom = camera.zoom;
-      pinchStartCamera = { x: camera.x, y: camera.y };
-      pinchStartMid = clientToBuffer({ clientX: (pts[0].x + pts[1].x) / 2, clientY: (pts[0].y + pts[1].y) / 2 });
-    }
-  }
-
-  function onPointerMove(evt){
-    if(!activePointers.has(evt.pointerId)){
-      onCanvasHover(evt);
-      return;
-    }
-    activePointers.set(evt.pointerId, { x: evt.clientX, y: evt.clientY });
-
-    if(activePointers.size >= 2){
-      const pts = Array.from(activePointers.values());
-      const dist = pointerDist(pts[0], pts[1]) || 1;
-      const newZoom = clamp(pinchStartZoom * (dist / pinchStartDist), MIN_ZOOM, MAX_ZOOM);
-      camera.x = pinchStartMid.x - (pinchStartMid.x - pinchStartCamera.x) * (newZoom / pinchStartZoom);
-      camera.y = pinchStartMid.y - (pinchStartMid.y - pinchStartCamera.y) * (newZoom / pinchStartZoom);
-      camera.zoom = newZoom;
-      clampCamera();
-      render();
-      return;
-    }
-
-    if(isPanning && panStartBuffer){
-      if(!didDrag && Math.hypot(evt.clientX - panStartClient.x, evt.clientY - panStartClient.y) > 4){
-        didDrag = true;
-        canvas.classList.add('dragging');
-      }
-      if(didDrag){
-        const buf = clientToBuffer(evt);
-        camera.x = panStartCamera.x + (buf.x - panStartBuffer.x);
-        camera.y = panStartCamera.y + (buf.y - panStartBuffer.y);
-        clampCamera();
-        hoveredHex = null;
-        render();
-      }
-    }
-  }
-
-  function onPointerUp(evt){
-    const wasPanning = isPanning && activePointers.has(evt.pointerId);
-    activePointers.delete(evt.pointerId);
-
-    if(activePointers.size === 0){
-      canvas.classList.remove('dragging');
-      if(wasPanning && !didDrag){
-        const h = hexAtEvent(evt);
-        if(h) selectHex(h);
-      }
-      isPanning = false;
-      panStartBuffer = null;
-      didDrag = false;
-    } else if(activePointers.size === 1){
-      // Отпустили один из двух пальцев при щипке — переходим обратно в pan
-      // от оставшегося пальца, без "скачка" камеры.
-      const [remaining] = activePointers.values();
-      isPanning = true;
-      didDrag = true;
-      panStartBuffer = clientToBuffer({ clientX: remaining.x, clientY: remaining.y });
-      panStartCamera = { x: camera.x, y: camera.y };
-      panStartClient = { x: remaining.x, y: remaining.y };
-    }
-  }
-
-  // --- Клавиатурное панорамирование (WASD / стрелки) — довершает ощущение
-  // "птичьего полёта" над картой для тех, кто предпочитает клавиатуру. -----
-  const _panKeys = new Set();
-  const PAN_KEY_MAP = { 'w':[0,-1], 'ц':[0,-1], 'arrowup':[0,-1], 's':[0,1], 'ы':[0,1], 'arrowdown':[0,1],
-                         'a':[-1,0], 'ф':[-1,0], 'arrowleft':[-1,0], 'd':[1,0], 'в':[1,0], 'arrowright':[1,0] };
-  let _panRafId = null;
-  function keyPanStep(){
-    if(_panKeys.size === 0){ _panRafId = null; return; }
-    let dx = 0, dy = 0;
-    _panKeys.forEach(k => { const v = PAN_KEY_MAP[k]; if(v){ dx += v[0]; dy += v[1]; } });
-    if(dx || dy){
-      const len = Math.hypot(dx, dy) || 1;
-      const speed = 14 / camera.zoom * (canvas ? canvas.width / 1200 + 0.6 : 1);
-      camera.x -= (dx / len) * speed;
-      camera.y -= (dy / len) * speed;
-      clampCamera();
-      render();
-    }
-    _panRafId = requestAnimationFrame(keyPanStep);
-  }
-  function initCameraKeyboard(){
-    window.addEventListener('keydown', (e) => {
-      const tag = (e.target && e.target.tagName || '').toLowerCase();
-      if(tag === 'input' || tag === 'select' || tag === 'textarea') return;
-      const k = e.key.toLowerCase();
-      if(!PAN_KEY_MAP[k]) return;
-      _panKeys.add(k);
-      if(_panRafId === null) _panRafId = requestAnimationFrame(keyPanStep);
-    });
-    window.addEventListener('keyup', (e) => { _panKeys.delete(e.key.toLowerCase()); });
-    window.addEventListener('blur', () => { _panKeys.clear(); });
-  }
-
-  function setupCanvas(){
-    canvas = document.getElementById('board');
-
-    if(!canvas) return;
-    ctx = canvas.getContext('2d');
-
-    staticMapCanvas = document.createElement('canvas');
-    staticCtx = staticMapCanvas.getContext('2d');
-
-    resizeCanvas();
-
-    canvas.addEventListener('pointerdown', onPointerDown);
-    canvas.addEventListener('pointermove', onPointerMove);
-    window.addEventListener('pointerup', onPointerUp);
-    window.addEventListener('pointercancel', onPointerUp);
-
-    canvas.addEventListener('mouseleave', ()=>{
-      if(activePointers.size > 0) return; // не сбрасываем hover прямо посреди drag/pinch
-      hoveredHex = null;
-      updateTooltipHTML(null);
-      render();
-    });
-
-    canvas.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      const buf = clientToBuffer(e);
-      const zoomSpeed = 1.12;
-      const factor = e.deltaY > 0 ? 1 / zoomSpeed : zoomSpeed;
-      zoomBy(factor, buf);
-    }, { passive: false });
-
-    initCameraKeyboard();
-  }
-
-  function resizeCanvas(){
-    if(!canvas || !game) return;
-    const hexList = Array.from(game.hexes.values());
-    const pts = hexList.map(h=>axialToPixel(h.q,h.r));
-    const minX = Math.min(...pts.map(p=>p.x)) - hexSize * 1.6;
-    const maxX = Math.max(...pts.map(p=>p.x)) + hexSize * 1.6;
-    const minY = Math.min(...pts.map(p=>p.y)) - hexSize * 1.6;
-    const maxY = Math.max(...pts.map(p=>p.y)) + hexSize * 1.6;
-
-    canvas.dataset.offx = -minX;
-    canvas.dataset.offy = -minY;
-
-    // Мировые габариты карты (см. mapPixelW/mapPixelH) — независимы от
-    // размера холста, который теперь всегда равен размеру вьюпорта.
-    mapPixelW = maxX - minX;
-    // Контент по вертикали сжимается на TILT_FACTOR внутри projectFlatPoint,
-    // поэтому и мировую высоту карты уменьшаем на тот же множитель — иначе
-    // снизу остаётся пустая полоса ровно в (1 - TILT_FACTOR) высоты карты.
-    mapPixelH = (maxY - minY) * TILT_FACTOR;
-
-    // Диапазон плоской Y — в ТОЙ ЖЕ системе координат (offset уже применён), что и
-    // flatCenterForHex()/hexCornerFlat(), которыми пользуется projectFlatPoint().
-    const flatYs = pts.map(p => p.y - minY);
-    _persMinFlatY = Math.min(...flatYs);
-    _persMaxFlatY = Math.max(...flatYs);
-    _persRangeReady = true;
-
-    // Канвас теперь — полноэкранный буфер (карта на весь экран), а не "холст
-    // ровно по размеру карты": позиционирование/масштаб карты внутри него
-    // задаёт camera-transform в render(). Буфер считаем в физических пикселях
-    // (devicePixelRatio, но не выше 2x — экономим память/время на очень
-    // больших картах и densely-pixel экранах).
-    devicePixelRatioUsed = Math.min(window.devicePixelRatio || 1, 2);
-    const viewW = canvas.clientWidth || window.innerWidth;
-    const viewH = canvas.clientHeight || window.innerHeight;
-    canvas.width = Math.max(1, Math.round(viewW * devicePixelRatioUsed));
-    canvas.height = Math.max(1, Math.round(viewH * devicePixelRatioUsed));
-
-    isStaticLayerDirty = true;
-    fitCameraToMap();
-  }
-  function pixelForHex(h){
+  };
+  Game.Render.flatCenter = function flatCenter(h){
+    const p = Game.Render.toPixel(h.q, h.r);
+    const offX = Game.Render.canvas && Game.Render.canvas.dataset && Game.Render.canvas.dataset.offx ? parseFloat(Game.Render.canvas.dataset.offx) : 0;
+    const offY = Game.Render.canvas && Game.Render.canvas.dataset && Game.Render.canvas.dataset.offy ? parseFloat(Game.Render.canvas.dataset.offy) : 0;
+    return { x: p.x + offX, y: p.y + offY };
+  };
+  Game.Render.cornerFlat = function cornerFlat(h, i){
+    const c = Game.Render.flatCenter(h);
+    const angle = Math.PI/180 * (60*i - 30);
+    const rEff = Game.Config.settings.hexSize * 1.02;
+    return { x: c.x + rEff * Math.cos(angle), y: c.y + rEff * Math.sin(angle) };
+  };
+  Game.Render.corner = function corner(h, i){
+    const fc = Game.Render.cornerFlat(h, i);
+    return Game.Render.projectFlat(fc.x, fc.y);
+  };
+  Game.Render.perspectiveScale = function perspectiveScale(flatY){
+    if(!Game.Render.perspRange.ready || Game.Render.perspRange.max === Game.Render.perspRange.min) return 1;
+    let t = (flatY - Game.Render.perspRange.min) / (Game.Render.perspRange.max - Game.Render.perspRange.min); // 0 = дальний край (верх), 1 = ближний (низ)
+    if(t < 0) t = 0; else if(t > 1) t = 1; // на случай запаса/паддинга за пределами карты
+    return Game.Config.PERSPECTIVE_FAR_SCALE + t * (1 - Game.Config.PERSPECTIVE_FAR_SCALE);
+  };
+  Game.Render.pixelForHex = function pixelForHex(h){
     // Центр гекса проецируется той же единой функцией, что и его углы
-    // (projectFlatPoint) — гарантирует, что юниты/столицы/текст, которые
-    // рисуются в pixelForHex-точке, остаются точно в центре перспективно
+    // (Game.Render.projectFlat) — гарантирует, что юниты/столицы/текст, которые
+    // рисуются в Game.Render.pixelForHex-точке, остаются точно в центре перспективно
     // искажённого шестиугольника, а не "уезжают" относительно его формы.
     // Возвращаемая точка — в МИРОВЫХ координатах карты; экранные пиксели
-    // получаются из неё через camera-transform, который ставит render().
-    const c = flatCenterForHex(h);
-    const proj = projectFlatPoint(c.x, c.y);
-    return { x: proj.x, y: proj.y, hexSize: hexSize * proj.scale, scale: proj.scale };
-  }
-
-  function cubeRound(qf, rf){
+    // получаются из неё через Game.Render.camera-transform, который ставит Game.Render.draw().
+    const c = Game.Render.flatCenter(h);
+    const proj = Game.Render.projectFlat(c.x, c.y);
+    return { x: proj.x, y: proj.y, hexSize: Game.Config.settings.hexSize * proj.scale, scale: proj.scale };
+  };
+  Game.Render.cubeRound = function cubeRound(qf, rf){
     let xf = qf, zf = rf, yf = -xf - zf;
     let rx = Math.round(xf), ry = Math.round(yf), rz = Math.round(zf);
     const xDiff = Math.abs(rx-xf), yDiff = Math.abs(ry-yf), zDiff = Math.abs(rz-zf);
@@ -2094,179 +1803,112 @@
     else if(yDiff > zDiff) ry = -rx-rz;
     else rz = -rx-ry;
     return { q: rx, r: rz };
-  }
-
-  function hexAtEvent(evt){
-    if(!canvas || !game) return null;
+  };
+  Game.Render.hexAtEvent = function hexAtEvent(evt){
+    if(!Game.Render.canvas || !Game.State.match) return null;
     // Клиентские координаты -> буфер канваса (учитывает CSS-масштаб/DPR) ->
     // мировые координаты карты (отменяет камеру: pan+zoom). Это ТОЧНОЕ
-    // обращение той трансформации, что render() задаёт через ctx.setTransform,
+    // обращение той трансформации, что Game.Render.draw() задаёт через Game.Render.ctx.setTransform,
     // так что попадание в гекс остаётся точным при любом зуме/сдвиге камеры.
-    const world = bufferToWorld(clientToBuffer(evt));
+    const world = Game.Render.bufferToWorld(Game.Render.clientToBuffer(evt));
 
-    const offX = canvas.dataset.offx ? parseFloat(canvas.dataset.offx) : 0;
-    const offY = canvas.dataset.offy ? parseFloat(canvas.dataset.offy) : 0;
+    const offX = Game.Render.canvas.dataset.offx ? parseFloat(Game.Render.canvas.dataset.offx) : 0;
+    const offY = Game.Render.canvas.dataset.offy ? parseFloat(Game.Render.canvas.dataset.offy) : 0;
 
-    // pixelForHex ещё и сжимает X по перспективе (perspectiveScaleForFlatY),
-    // а не только Y (TILT_FACTOR) — точное обратное преобразование зависело бы от
+    // Game.Render.pixelForHex ещё и сжимает X по перспективе (Game.Render.perspectiveScale),
+    // а не только Y (Game.Config.TILT_FACTOR) — точное обратное преобразование зависело бы от
     // r искомого гекса, который мы как раз ищем. Поэтому: сперва грубая оценка
     // БЕЗ перспективы (ей достаточно точности, чтобы попасть в нужный гекс или его
-    // соседа), а затем уточнение по РЕАЛЬНЫМ мировым координатам через pixelForHex —
+    // соседа), а затем уточнение по РЕАЛЬНЫМ мировым координатам через Game.Render.pixelForHex —
     // так клики остаются точными даже на сильно "уехавших" по перспективе дальних рядах.
     const mx = world.x - offX;
-    const my = world.y / TILT_FACTOR - offY;
+    const my = world.y / Game.Config.TILT_FACTOR - offY;
 
-    const qf = (Math.sqrt(3)/3 * mx - 1/3 * my) / hexSize;
-    const rf = (2/3 * my) / hexSize;
-    const { q, r } = cubeRound(qf, rf);
+    const qf = (Math.sqrt(3)/3 * mx - 1/3 * my) / Game.Config.settings.hexSize;
+    const rf = (2/3 * my) / Game.Config.settings.hexSize;
+    const { q, r } = Game.Render.cubeRound(qf, rf);
 
-    let best = game.hexes.get(key(q,r)) || null;
+    let best = Game.State.match.hexes.get(Game.Utils.key(q,r)) || null;
     let bestD = best ? distSqScreen(best, world.x, world.y) : Infinity;
-    for(const [dq,dr] of DIRS){
-      const cand = game.hexes.get(key(q+dq, r+dr));
+    for(const [dq,dr] of Game.Config.DIRS){
+      const cand = Game.State.match.hexes.get(Game.Utils.key(q+dq, r+dr));
       if(!cand) continue;
       const d = distSqScreen(cand, world.x, world.y);
       if(d < bestD){ bestD = d; best = cand; }
     }
-    if(!best || bestD > hexSize*hexSize*1.3) return null;
+    if(!best || bestD > Game.Config.settings.hexSize*Game.Config.settings.hexSize*1.3) return null;
     return best;
 
     function distSqScreen(h, x, y){
-      const p = pixelForHex(h);
+      const p = Game.Render.pixelForHex(h);
       return (p.x-x)*(p.x-x) + (p.y-y)*(p.y-y);
     }
-  }
-
-  function updateTooltipHTML(h){
-    const tip = document.getElementById('fixedTooltip');
-    if(!tip) return;
-    if(!h){
-      tip.innerHTML = '<span style="color:var(--text-muted)">Наведите или выберите гекс для информации...</span>';
-      return;
-    }
-
-    const TERRAIN = getTerrainDefs();
-    const t = TERRAIN[h.terrain];
-    let txt = t.impassable ? `<b>${t.label}</b>` : `<b>${t.label}</b> · Доход: ${h.occupiedBy!==null?0:t.yield}💰`;
-    if(h.owner!==null) txt += ` · Владелец: ${game.players[h.owner].name}`;
-    if(h.occupiedBy!==null) txt += h.capital
-      ? ` <br><span style="color:#e2b753;">👑 ОСАДА СТОЛИЦЫ: ${game.players[h.occupiedBy].name}</span>`
-      : ` <br><span style="color:#e2b753;">⚔️ РЕЙД: ${game.players[h.occupiedBy].name}</span>`;
-    if(h.capital) txt += ' <br>👑 СТОЛИЦА ОБЛАСТИ';
-    
-    if(h.unit){
-      const supp = getAdjacentSupport(h, h.unit.owner);
-      txt += ` <br>🛡️ Отряд: сила ${h.unit.strength}${supp>0?` (+${supp} поддержка = ${h.unit.strength+supp})`:''}`;
-      if(h.unit.hasMoved) txt += ' [ход завершён]';
-    }
-
-    const sel = game.selected;
-    if(sel && sel.unit && sel.unit.owner===0 && !sel.unit.hasMoved && sel!==h && !t.impassable){
-      const reachable = getReachableCached(sel, 0);
-      if(reachable.has(key(h.q, h.r))){
-        const attData = getAttackerCombatData(sel, h, 0);
-        const defData = getDefenderCombatData(h, sel, h.unit ? h.unit.owner : (h.owner !== null ? h.owner : null));
-        const win = attData.total > defData.total;
-        
-        txt += ` | <b style="color:${win?'#86efac':'#fca5a5'};">Атака: ${win?'ПОБЕДА':'ПОРАЖЕНИЕ'}</b><br>`;
-        txt += `<span style="font-size:11px; color:var(--text-muted);">⚔️ Атк: ${attData.base} база`;
-        if(attData.support > 0) txt += ` + ${attData.support} поддержка`;
-        txt += ` = <b>${attData.total}</b> | 🛡️ Защ: ${defData.base} база`;
-        if(defData.defBonus > 0) txt += ` + ${defData.defBonus} местность/столица`;
-        if(defData.support > 0) txt += ` + ${defData.support} поддержка`;
-        txt += ` = <b>${defData.total}</b></span>`;
-      }
-    }
-    tip.innerHTML = txt;
-  }
-
-  let _lastHoverHex = undefined;
-  let _lastHoverRenderVersion = -1;
-
-  function onCanvasHover(evt){
-    const h = hexAtEvent(evt);
-    if(h === _lastHoverHex && renderVersion === _lastHoverRenderVersion) return;
-    
-    hoveredHex = h;
-    updateTooltipHTML(h);
-    render();
-    _lastHoverHex = h; _lastHoverRenderVersion = renderVersion;
-  }
-
-  // Индексы верхних трёх углов гекса (i=5 — макушка, i=4/i=0 — верхние "плечи",
-  // см. hexCornerFlat). Используются, чтобы приподнимать контур обрезки вверх и
-  // пропускать нависающий арт (гора, крона дерева) поверх верхних соседей —
-  // см. overflowTop в hexPath() и artOverflowTop в drawHexTerrain().
-  const HEX_TOP_CORNER_INDICES = [4, 5, 0];
-
-  // ВАЖНО: принимает сам гекс h (с .q,.r), а НЕ уже спроецированную точку p.
-  // Каждый угол проецируется отдельно через projectedHexCorner(h,i), которая
-  // внутри вызывает единую projectFlatPoint() от координат именно этого угла —
-  // поэтому у соседних гексов общий угол всегда совпадает пиксель-в-пиксель
-  // (щелей между рядами нет), а сам гекс перестаёт быть правильным
-  // шестиугольником: верхние углы, будучи дальше от камеры, получают меньший
-  // масштаб, чем нижние — визуально гекс сужается кверху, как и должно быть
-  // при настоящем перспективном наклоне доски.
-  function hexPath(h, targetCtx, overflowTop){
+  };
+  Game.Render.hexPath = function hexPath(h, targetCtx, overflowTop){
     targetCtx.beginPath();
     for(let i=0;i<6;i++){
-      const c = projectedHexCorner(h, i);
+      const c = Game.Render.corner(h, i);
       let cy = c.y;
       // Приподнимаем только верхние три угла — контур превращается из ровного
       // шестиугольника в шестиугольник с "домиком" сверху. Клип по бокам и снизу
       // остаётся строгим (соседи слева/справа/снизу не перекрываются), а сверху
       // появляется запас на overflowTop пикселей для нависающих деталей картинки.
-      if(overflowTop && HEX_TOP_CORNER_INDICES.includes(i)) cy -= overflowTop;
+      if(overflowTop && Game.Config.HEX_TOP_CORNER_INDICES.includes(i)) cy -= overflowTop;
       if(i===0) targetCtx.moveTo(c.x,cy); else targetCtx.lineTo(c.x,cy);
     }
     targetCtx.closePath();
-  }
-
-  function drawOccupiedHatch(h, colorStr){
-    const p = pixelForHex(h);
-    ctx.save();
-    hexPath(h, ctx);
-    ctx.clip();
-    ctx.strokeStyle = colorStr;
-    ctx.lineWidth = 2;
-    ctx.globalAlpha = 0.45;
+  };
+  Game.Render.drawOccupiedHatch = function drawOccupiedHatch(h, colorStr){
+    const p = Game.Render.pixelForHex(h);
+    Game.Render.ctx.save();
+    Game.Render.hexPath(h, Game.Render.ctx);
+    Game.Render.ctx.clip();
+    Game.Render.ctx.strokeStyle = colorStr;
+    Game.Render.ctx.lineWidth = 2;
+    Game.Render.ctx.globalAlpha = 0.45;
     const sz = p.hexSize * 1.5;
     for(let x = p.x - sz; x <= p.x + sz; x += 6){
-      ctx.beginPath();
-      ctx.moveTo(x, p.y - sz);
-      ctx.lineTo(x + sz, p.y + sz);
-      ctx.stroke();
+      Game.Render.ctx.beginPath();
+      Game.Render.ctx.moveTo(x, p.y - sz);
+      Game.Render.ctx.lineTo(x + sz, p.y + sz);
+      Game.Render.ctx.stroke();
     }
-    ctx.restore();
-  }
-
-  let renderVersion = 0;
-
-  function drawHexTerrain(h){
-    const TERRAIN = getTerrainDefs();
-    const p = pixelForHex(h);
+    Game.Render.ctx.restore();
+  };
+  // NB: в исходном файле здесь стоял вызов неопределённой функции
+  // getTerritoryColor(h) — переключатель "Полная окраска владений" в
+  // настройках приводил к падению рендера. Заодно чиню: если гекс кому-то
+  // принадлежит — красим его цветом фракции-владельца, иначе — как обычно.
+  Game.Render.territoryColor = function territoryColor(h, fallbackColor){
+    if(h.owner === null) return fallbackColor;
+    const owner = Game.State.match.players[h.owner];
+    return owner ? owner.color : fallbackColor;
+  };
+  Game.Render.drawTerrain = function drawTerrain(h){
+    const TERRAIN = Game.Config.terrainDefs();
+    const p = Game.Render.pixelForHex(h);
     const terrainType = h.terrain;
     const def = TERRAIN[terrainType];
-    const variants = (_terrainImages[terrainType] || []).filter(Boolean);
+    const variants = (Game.Config._images[terrainType] || []).filter(Boolean);
 
     // Если для этого террейна загружены картинки — рисуем одну из них
-    // (вариант выбирается стабильно по координатам гекса, см. pickTerrainVariant).
+    // (вариант выбирается стабильно по координатам гекса, см. Game.Config.terrainVariant).
     if (variants.length) {
-      const img = pickTerrainVariant(h, variants);
+      const img = Game.Config.terrainVariant(h, variants);
 
       // Насколько верх картинки может вылезти за пределы гекса вверх (в пикселях,
       // с учётом перспективного размера ИМЕННО этого гекса — p.hexSize).
       const overflowTop = (def.artOverflowTop || 0) * p.hexSize;
 
-      staticCtx.save();
-      hexPath(h, staticCtx, overflowTop); // контур гекса с "бугром" вверх под нависающий арт
-      staticCtx.clip();                   // обрезаем по бокам/снизу строго, сверху — с запасом
+      Game.Render.staticCtx.save();
+      Game.Render.hexPath(h, Game.Render.staticCtx, overflowTop); // контур гекса с "бугром" вверх под нависающий арт
+      Game.Render.staticCtx.clip();                   // обрезаем по бокам/снизу строго, сверху — с запасом
 
       // Саму картинку рисуем увеличенной и сдвинутой вверх на overflowTop, чтобы то,
       // что нарисовано в её верхней части (вершина горы, кроны леса), физически
       // оказалось выше границы гекса и легло поверх верхнего соседа — отсюда и
-      // ощущение глубины. Порядок отрисовки по рядам (см. hexesByDepth() и
-      // updateStaticLayer()) гарантирует, что дальний сосед уже нарисован и корректно
+      // ощущение глубины. Порядок отрисовки по рядам (см. Game.Render.hexesByDepth() и
+      // Game.Render.updateStaticLayer()) гарантирует, что дальний сосед уже нарисован и корректно
       // перекрывается.
       //
       // Небольшой запас по ширине (PAD): контур клипа теперь настоящая трапеция —
@@ -2275,160 +1917,157 @@
       // бы не дотягивать до расширенных нижних углов и оставлять прозрачную щель.
       const PAD = 1.18;
       const size = p.hexSize * 2 * PAD;
-      staticCtx.drawImage(img, p.x - size/2, p.y - size/2 - overflowTop, size, size + overflowTop);
+      Game.Render.staticCtx.drawImage(img, p.x - size/2, p.y - size/2 - overflowTop, size, size + overflowTop);
 
-      staticCtx.restore();
+      Game.Render.staticCtx.restore();
     } else {
       // Запасной вариант со сплошным цветом, если картинки нет
-      hexPath(h, staticCtx);
-      staticCtx.fillStyle = territoryFillMode ? getTerritoryColor(h) : def.color;
-      staticCtx.fill();
+      Game.Render.hexPath(h, Game.Render.staticCtx);
+      Game.Render.staticCtx.fillStyle = Game.Config.settings.territoryFillMode ? Game.Render.territoryColor(h, def.color) : def.color;
+      Game.Render.staticCtx.fill();
     }
-  }
-  function drawRegionHighlight(h) {
+  };
+  Game.Render.drawRegionHighlight = function drawRegionHighlight(h) {
     for(let i=0; i<6; i++){
-      const [dq, dr] = EDGE_DIRS[i];
-      const nb = game.hexes.get(key(h.q + dq, h.r + dr));
+      const [dq, dr] = Game.Config.EDGE_DIRS[i];
+      const nb = Game.State.match.hexes.get(Game.Utils.key(h.q + dq, h.r + dr));
       if(!nb || nb.regionId !== h.regionId){
-        const c1 = projectedHexCorner(h, i);
-        const c2 = projectedHexCorner(h, (i+1)%6);
-        staticCtx.beginPath();
-        staticCtx.moveTo(c1.x, c1.y);
-        staticCtx.lineTo(c2.x, c2.y);
-        staticCtx.lineWidth = 0.9;
-        staticCtx.strokeStyle = 'rgba(8, 14, 9, 0.35)';
-        staticCtx.stroke();
+        const c1 = Game.Render.corner(h, i);
+        const c2 = Game.Render.corner(h, (i+1)%6);
+        Game.Render.staticCtx.beginPath();
+        Game.Render.staticCtx.moveTo(c1.x, c1.y);
+        Game.Render.staticCtx.lineTo(c2.x, c2.y);
+        Game.Render.staticCtx.lineWidth = 0.9;
+        Game.Render.staticCtx.strokeStyle = 'rgba(8, 14, 9, 0.35)';
+        Game.Render.staticCtx.stroke();
       }
     }
-  }
-  function drawActiveRegion (h) {
-    if(h.regionId === activeRegionId){
-      hexPath(h, ctx);
-      ctx.fillStyle = 'rgba(212, 162, 76, 0.22)';
-      ctx.fill();
+  };
+  Game.Render.drawActiveRegion = function drawActiveRegion(h) {
+    if(h.regionId === Game.State.activeRegionId){
+      Game.Render.hexPath(h, Game.Render.ctx);
+      Game.Render.ctx.fillStyle = 'rgba(212, 162, 76, 0.22)';
+      Game.Render.ctx.fill();
     }
-  }
-  function drawSiegeHatch (h) {
+  };
+  Game.Render.drawSiegeHatch = function drawSiegeHatch(h) {
     if(h.capital){
-      const regHexes = Array.from(game.hexes.values()).filter(x => x.regionId === h.regionId);
+      const regHexes = Array.from(Game.State.match.hexes.values()).filter(x => x.regionId === h.regionId);
       regHexes.forEach(rh => {
-        drawOccupiedHatch(rh, game.players[h.occupiedBy].color);
+        Game.Render.drawOccupiedHatch(rh, Game.State.match.players[h.occupiedBy].color);
       });
     }
-  }
-  function drawReachable (h) {
-    const enemyReachable = getReachableCached(h, h.unit.owner);
+  };
+  Game.Render.drawReachable = function drawReachable(h) {
+    const enemyReachable = Game.Movement.reachableCached(h, h.unit.owner);
     enemyReachable.forEach((cost, kStr)=>{
-      const n = game.hexes.get(kStr);
+      const n = Game.State.match.hexes.get(kStr);
       if(!n) return;
-      hexPath(n, ctx);
-      ctx.fillStyle = 'rgba(239, 68, 68, 0.22)';
-      ctx.fill();
+      Game.Render.hexPath(n, Game.Render.ctx);
+      Game.Render.ctx.fillStyle = 'rgba(239, 68, 68, 0.22)';
+      Game.Render.ctx.fill();
     });
-  }
-
-  function drawPlayerReachable (h) {
+  };
+  Game.Render.drawPlayerReachable = function drawPlayerReachable(h) {
     if(h.unit.hasMoved || !h.unitHasFocus) return;
-    const reachable = getReachableCached(h, 0);
+    const reachable = Game.Movement.reachableCached(h, 0);
     reachable.forEach((cost, kStr)=>{
-      if(kStr === key(h.q, h.r)) return;
-      const n = game.hexes.get(kStr);
+      if(kStr === Game.Utils.key(h.q, h.r)) return;
+      const n = Game.State.match.hexes.get(kStr);
       if(!n) return;
       let fillStyle = 'rgba(59, 130, 246, 0.32)';
       let win = true;
       if(n.unit && n.unit.owner !== 0){
-        const att = getAttackerCombatData(h, n, 0);
-        const def = getDefenderCombatData(n, h, n.unit.owner);
+        const att = Game.Combat.attackerData(h, n, 0);
+        const def = Game.Combat.defenderData(n, h, n.unit.owner);
         win = att.total > def.total;
         fillStyle = win ? 'rgba(74, 222, 128, 0.4)' : 'rgba(239, 68, 68, 0.4)';
       }
-      hexPath(n, ctx);
-      ctx.fillStyle = fillStyle;
-      ctx.fill();
+      Game.Render.hexPath(n, Game.Render.ctx);
+      Game.Render.ctx.fillStyle = fillStyle;
+      Game.Render.ctx.fill();
     });
-  }
-  
-  function drawZoc (h) {
-    const TERRAIN = getTerrainDefs();
-    neighbors(h).forEach(nb => {
+  };
+  Game.Render.drawZoc = function drawZoc(h) {
+    const TERRAIN = Game.Config.terrainDefs();
+    Game.Map.neighbors(h).forEach(nb => {
       if(!TERRAIN[nb.terrain].impassable){
-        hexPath(nb, ctx);
-        ctx.fillStyle = 'rgba(212,162,76,0.18)';
-        ctx.fill();
+        Game.Render.hexPath(nb, Game.Render.ctx);
+        Game.Render.ctx.fillStyle = 'rgba(212,162,76,0.18)';
+        Game.Render.ctx.fill();
       }
     });
-  }
-  function drawUnit (h) {
-    const p = pixelForHex(h);
+  };
+  Game.Render.drawUnit = function drawUnit(h) {
+    const p = Game.Render.pixelForHex(h);
     const hs = p.hexSize; // размер юнита следует перспективному размеру его гекса
-    const uColor = game.players[h.unit.owner].color;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y + hs * 0.2, hs * 0.36, 0, Math.PI * 2);
-    ctx.fillStyle = uColor;
-    ctx.fill();
-    ctx.lineWidth = 1.8;
-    ctx.strokeStyle = '#101712';
-    ctx.stroke();
+    const uColor = Game.State.match.players[h.unit.owner].color;
+    Game.Render.ctx.beginPath();
+    Game.Render.ctx.arc(p.x, p.y + hs * 0.2, hs * 0.36, 0, Math.PI * 2);
+    Game.Render.ctx.fillStyle = uColor;
+    Game.Render.ctx.fill();
+    Game.Render.ctx.lineWidth = 1.8;
+    Game.Render.ctx.strokeStyle = '#101712';
+    Game.Render.ctx.stroke();
 
     if(h.unit.hasMoved){
-      ctx.beginPath();
-      ctx.arc(p.x + hs * 0.22, p.y, 3 * p.scale, 0, Math.PI * 2);
-      ctx.fillStyle = '#94a3b8';
-      ctx.fill();
+      Game.Render.ctx.beginPath();
+      Game.Render.ctx.arc(p.x + hs * 0.22, p.y, 3 * p.scale, 0, Math.PI * 2);
+      Game.Render.ctx.fillStyle = '#94a3b8';
+      Game.Render.ctx.fill();
     }
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold ' + Math.max(8, Math.round(11 * p.scale)) + 'px ' + getComputedStyle(document.body).fontFamily;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(h.unit.strength, p.x, p.y + hs * 0.2);
-  }
-  function drawHexBorder(h){
-    hexPath(h, staticCtx);
-    staticCtx.lineWidth = 0.9;
-    staticCtx.strokeStyle = 'rgba(0,0,0,0.32)';
-    staticCtx.stroke();
-  }
-  function drawFactionBorders(h) {
-    const color = game.players[h.owner].color;
+    Game.Render.ctx.fillStyle = '#ffffff';
+    Game.Render.ctx.font = 'bold ' + Math.max(8, Math.round(11 * p.scale)) + 'px ' + getComputedStyle(document.body).fontFamily;
+    Game.Render.ctx.textAlign = 'center';
+    Game.Render.ctx.textBaseline = 'middle';
+    Game.Render.ctx.fillText(h.unit.strength, p.x, p.y + hs * 0.2);
+  };
+  Game.Render.drawHexBorder = function drawHexBorder(h){
+    Game.Render.hexPath(h, Game.Render.staticCtx);
+    Game.Render.staticCtx.lineWidth = 0.9;
+    Game.Render.staticCtx.strokeStyle = 'rgba(0,0,0,0.32)';
+    Game.Render.staticCtx.stroke();
+  };
+  Game.Render.drawFactionBorders = function drawFactionBorders(h) {
+    const color = Game.State.match.players[h.owner].color;
 
-    ctx.save();
+    Game.Render.ctx.save();
 
-    ctx.beginPath();
+    Game.Render.ctx.beginPath();
     for (let i = 0; i < 6; i++) {
-      const c = projectedHexCorner(h, i);
-      if (i === 0) ctx.moveTo(c.x, c.y);
-      else ctx.lineTo(c.x, c.y);
+      const c = Game.Render.corner(h, i);
+      if (i === 0) Game.Render.ctx.moveTo(c.x, c.y);
+      else Game.Render.ctx.lineTo(c.x, c.y);
     }
-    ctx.closePath();
-    ctx.clip();
+    Game.Render.ctx.closePath();
+    Game.Render.ctx.clip();
 
     const corners = [];
     for (let i = 0; i < 6; i++) {
-      corners.push(projectedHexCorner(h, i));
+      corners.push(Game.Render.corner(h, i));
     }
 
-    ctx.lineWidth = 6 * camera.zoom;
-    ctx.strokeStyle = color;
-    ctx.lineCap = 'square'; 
-    ctx.beginPath();
+    Game.Render.ctx.lineWidth = 6 / (Game.Render.camera.zoom/1.2);
+    Game.Render.ctx.strokeStyle = color;
+    Game.Render.ctx.lineCap = 'square'; 
+    Game.Render.ctx.beginPath();
 
     let hasEdges = false;
 
     for (let i = 0; i < 6; i++) {
-      const [dq, dr] = EDGE_DIRS[i];
-      const nb = game.hexes.get(key(h.q + dq, h.r + dr));
+      const [dq, dr] = Game.Config.EDGE_DIRS[i];
+      const nb = Game.State.match.hexes.get(Game.Utils.key(h.q + dq, h.r + dr));
       
       if (!nb || nb.owner !== h.owner) {
         let c1 = corners[i];
         let c2 = corners[(i + 1) % 6];
 
-        // 4. Удлиняем каждый отрезок в обе стороны, чтобы они заходили друг за друга на углах
         const dx = c2.x - c1.x;
         const dy = c2.y - c1.y;
         const len = Math.sqrt(dx * dx + dy * dy);
         
         if (len > 0) {
-          const extend = 4 * camera.zoom; // Запас на перекрытие стыка
+          const extend = 4 * Game.Render.camera.zoom;
           const ux = (dx / len) * extend;
           const uy = (dy / len) * extend;
 
@@ -2436,181 +2075,587 @@
           c2 = { x: c2.x + ux, y: c2.y + uy };
         }
 
-        ctx.moveTo(c1.x, c1.y);
-        ctx.lineTo(c2.x, c2.y);
+        Game.Render.ctx.moveTo(c1.x, c1.y);
+        Game.Render.ctx.lineTo(c2.x, c2.y);
         hasEdges = true;
       }
     }
 
     if (hasEdges) {
-      ctx.stroke();
+      Game.Render.ctx.stroke();
     }
 
-    ctx.restore();
-  }
-  function drawCapital(h){
-    const p = pixelForHex(h);
-    staticCtx.beginPath();
-    staticCtx.arc(p.x, p.y - p.hexSize * 0.38, 3.5 * p.scale, 0, Math.PI * 2);
-    staticCtx.fillStyle = h.owner !== null ? game.players[h.owner].color : '#d4a24c';
-    staticCtx.fill();
-    staticCtx.lineWidth = 1.5;
-    staticCtx.strokeStyle = '#101712';
-    staticCtx.stroke();
-  }
-  function drawSelected(h){
-    hexPath(h, ctx);
-    ctx.lineWidth = 1.8;
-    ctx.strokeStyle = '#f4eedb';
-    ctx.stroke();
-  }
-  function drawHovered(h){
-    hexPath(h, ctx);
-    ctx.fillStyle = 'rgba(255,255,255,0.32)';
-    ctx.fill();
-  }
+    Game.Render.ctx.restore();
+  };
+  Game.Render.drawCapital = function drawCapital(h){
+    const p = Game.Render.pixelForHex(h);
+    Game.Render.staticCtx.beginPath();
+    Game.Render.staticCtx.arc(p.x, p.y - p.hexSize * 0.38, 3.5 * p.scale, 0, Math.PI * 2);
+    Game.Render.staticCtx.fillStyle = h.owner !== null ? Game.State.match.players[h.owner].color : '#d4a24c';
+    Game.Render.staticCtx.fill();
+    Game.Render.staticCtx.lineWidth = 1.5;
+    Game.Render.staticCtx.strokeStyle = '#101712';
+    Game.Render.staticCtx.stroke();
+  };
+  Game.Render.drawSelected = function drawSelected(h){
+    Game.Render.hexPath(h, Game.Render.ctx);
+    Game.Render.ctx.lineWidth = 1.8;
+    Game.Render.ctx.strokeStyle = '#f4eedb';
+    Game.Render.ctx.stroke();
+  };
+  Game.Render.drawHovered = function drawHovered(h){
+    Game.Render.hexPath(h, Game.Render.ctx);
+    Game.Render.ctx.fillStyle = 'rgba(255,255,255,0.32)';
+    Game.Render.ctx.fill();
+  };
+  Game.Render.drawFlyingUnits = function drawFlyingUnits(){
+    const offX = Game.Render.canvas.dataset.offx ? parseFloat(Game.Render.canvas.dataset.offx) : 0;
+    const offY = Game.Render.canvas.dataset.offy ? parseFloat(Game.Render.canvas.dataset.offy) : 0;
 
-  function drawFlyingUnits(){
-    const offX = canvas.dataset.offx ? parseFloat(canvas.dataset.offx) : 0;
-    const offY = canvas.dataset.offy ? parseFloat(canvas.dataset.offy) : 0;
-
-    flyingUnits.forEach(fu => {
-      const fromP = axialToPixel(fu.fromQ, fu.fromR);
-      const toP = axialToPixel(fu.toQ, fu.toR);
+    Game.Render.flyingUnits.forEach(fu => {
+      const fromP = Game.Render.toPixel(fu.fromQ, fu.fromR);
+      const toP = Game.Render.toPixel(fu.toQ, fu.toR);
 
       // Интерполируем в ПЛОСКИХ (до наклона/перспективы) координатах — ровно
-      // так же, как это делает hexCornerFlat()/flatCenterForHex() для
+      // так же, как это делает Game.Render.cornerFlat()/Game.Render.flatCenter() для
       // статичных гексов — и лишь затем проецируем через ЕДИНУЮ
-      // projectFlatPoint(). Раньше здесь просто умножали на TILT_FACTOR и
-      // игнорировали perspectiveScaleForFlatY(), поэтому летящий юнит двигался
+      // Game.Render.projectFlat(). Раньше здесь просто умножали на Game.Config.TILT_FACTOR и
+      // игнорировали Game.Render.perspectiveScale(), поэтому летящий юнит двигался
       // по прямой, а не по той же перспективно-искажённой дуге, что рисуют
       // сами гексы — сейчас он "приезжает" точно в центр гекса-цели.
       const flatX = fromP.x + (toP.x - fromP.x) * fu.progress + offX;
       const flatY = fromP.y + (toP.y - fromP.y) * fu.progress + offY;
-      const proj = projectFlatPoint(flatX, flatY);
-      const r = hexSize * proj.scale;
+      const proj = Game.Render.projectFlat(flatX, flatY);
+      const r = Game.Config.settings.hexSize * proj.scale;
 
-      ctx.beginPath();
-      ctx.arc(proj.x, proj.y, r * 0.38, 0, Math.PI * 2);
-      ctx.fillStyle = game.players[fu.owner].color;
-      ctx.fill();
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = '#ffffff';
-      ctx.stroke();
+      Game.Render.ctx.beginPath();
+      Game.Render.ctx.arc(proj.x, proj.y, r * 0.38, 0, Math.PI * 2);
+      Game.Render.ctx.fillStyle = Game.State.match.players[fu.owner].color;
+      Game.Render.ctx.fill();
+      Game.Render.ctx.lineWidth = 2;
+      Game.Render.ctx.strokeStyle = '#ffffff';
+      Game.Render.ctx.stroke();
 
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold ' + Math.max(8, Math.round(11 * proj.scale)) + 'px ' + getComputedStyle(document.body).fontFamily;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(fu.strength, proj.x, proj.y);
+      Game.Render.ctx.fillStyle = '#ffffff';
+      Game.Render.ctx.font = 'bold ' + Math.max(8, Math.round(11 * proj.scale)) + 'px ' + getComputedStyle(document.body).fontFamily;
+      Game.Render.ctx.textAlign = 'center';
+      Game.Render.ctx.textBaseline = 'middle';
+      Game.Render.ctx.fillText(fu.strength, proj.x, proj.y);
     });
-  }
-  function drawDestroyingUnits(){
-    destroyingUnits.forEach(du => {
-      const p = pixelForHex(du);
-      ctx.save();
-      ctx.globalAlpha = Math.max(0, 1 - du.progress);
-      ctx.beginPath();
-      ctx.arc(p.x, p.y + p.hexSize * 0.2, p.hexSize * (0.36 + du.progress * 0.4), 0, Math.PI * 2);
-      ctx.fillStyle = '#ef4444';
-      ctx.fill();
-      ctx.restore();
+  };
+  Game.Render.drawDestroyingUnits = function drawDestroyingUnits(){
+    Game.Render.destroyingUnits.forEach(du => {
+      const p = Game.Render.pixelForHex(du);
+      Game.Render.ctx.save();
+      Game.Render.ctx.globalAlpha = Math.max(0, 1 - du.progress);
+      Game.Render.ctx.beginPath();
+      Game.Render.ctx.arc(p.x, p.y + p.hexSize * 0.2, p.hexSize * (0.36 + du.progress * 0.4), 0, Math.PI * 2);
+      Game.Render.ctx.fillStyle = '#ef4444';
+      Game.Render.ctx.fill();
+      Game.Render.ctx.restore();
     });
-  }
-
-  function updateStaticLayer() {
+  };
+  Game.Render.updateStaticLayer = function updateStaticLayer() {
     // Статический слой (террейн/сетка/границы регионов) рисуется ОДИН РАЗ в
-    // мировых координатах карты (mapPixelW×mapPixelH), а не в размере
-    // полноэкранного буфера канваса — camera-transform в render() сам
-    // растягивает/двигает этот слой на экран через drawImage(staticMapCanvas).
-    staticMapCanvas.width = Math.max(1, Math.ceil(mapPixelW));
-    staticMapCanvas.height = Math.max(1, Math.ceil(mapPixelH));
-    staticCtx.clearRect(0, 0, staticMapCanvas.width, staticMapCanvas.height);
+    // мировых координатах карты (Game.Render.mapPixelW×Game.Render.mapPixelH), а не в размере
+    // полноэкранного буфера канваса — Game.Render.camera-transform в Game.Render.draw() сам
+    // растягивает/двигает этот слой на экран через drawImage(Game.Render.staticCanvas).
+    Game.Render.staticCanvas.width = Math.max(1, Math.ceil(Game.Render.mapPixelW));
+    Game.Render.staticCanvas.height = Math.max(1, Math.ceil(Game.Render.mapPixelH));
+    Game.Render.staticCtx.clearRect(0, 0, Game.Render.staticCanvas.width, Game.Render.staticCanvas.height);
     // ВАЖНО: рисуем в порядке "художника" — дальние ряды (меньший r) раньше ближних
-    // (больший r), см. hexesByDepth(). game.hexes.forEach() отдаёт хексы в порядке
+    // (больший r), см. Game.Render.hexesByDepth(). Game.State.match.hexes.forEach() отдаёт хексы в порядке
     // вставки (по q, затем r), что раньше было не важно, но теперь картинка одного
     // гекса может специально вылезать вверх за его границы (artOverflowTop) и должна
     // ложиться ПОВЕРХ уже нарисованного дальнего соседа — иначе глубина не сработает
     // или сработает наоборот.
-    hexesByDepth().forEach(h => {
-      drawHexTerrain(h);
-      if(h.regionId !== null) drawRegionHighlight(h);
-      if (showGrid) drawHexBorder(h);
+    Game.Render.hexesByDepth().forEach(h => {
+      Game.Render.drawTerrain(h);
+      if(h.regionId !== null) Game.Render.drawRegionHighlight(h);
+      // Кайма карты — сплошная рамка без сетки поверх, чтобы не выглядела
+      // как игровые гексы.
+      if (Game.Config.settings.showGrid && h.terrain !== 'border') Game.Render.drawHexBorder(h);
     });
-    isStaticLayerDirty = false;
-  }
+    Game.Render.staticDirty = false;
+  };
+  Game.Render.hexesByDepth = function hexesByDepth(){
+    return Array.from(Game.State.match.hexes.values()).sort((a,b)=> a.r - b.r);
+  };
+  Game.Render.setup = function setup(){
+    Game.Render.canvas = document.getElementById('board');
 
-  // game.hexes — это Map, обходится в порядке вставки (создаётся по q, затем r —
-  // см. newGame), а не в порядке "глубины" сцены. Пока тилта не было, порядок
-  // отрисовки был не важен: гексы не перекрывали друг друга. С наклоном же юниты,
-  // столицы и т.п. могут визуально выходить за пределы своего гекса и должны
-  // рисоваться по правилу художника — сначала дальние (меньший r), затем ближние
-  // (больший r), чтобы близкие перекрывали дальние, а не наоборот.
-  // y в axialToPixel зависит только от r, так что сортировки по r достаточно.
-  function hexesByDepth(){
-    return Array.from(game.hexes.values()).sort((a,b)=> a.r - b.r);
-  }
-  function render(){
-    if(!ctx || !canvas) return;
-    renderVersion++;
-    ctx.clearRect(0,0,canvas.width,canvas.height);
+    if(!Game.Render.canvas) return;
+    Game.Render.ctx = Game.Render.canvas.getContext('2d');
 
-    ctx.resetTransform();
-    ctx.setTransform(camera.zoom, 0, 0, camera.zoom, camera.x, camera.y);
+    Game.Render.staticCanvas = document.createElement('canvas');
+    Game.Render.staticCtx = Game.Render.staticCanvas.getContext('2d');
 
-    // Layer: static (террейн/сетка/границы регионов, кэшируются в staticMapCanvas)
-    if (isStaticLayerDirty) updateStaticLayer();
-    ctx.drawImage(staticMapCanvas, 0, 0);
+    Game.Render.resize();
 
-    const depthOrder = hexesByDepth();
+    Game.Render.canvas.addEventListener('pointerdown', Game.Input.onPointerDown);
+    Game.Render.canvas.addEventListener('pointermove', Game.Input.onPointerMove);
+    window.addEventListener('pointerup', Game.Input.onPointerUp);
+    window.addEventListener('pointercancel', Game.Input.onPointerUp);
 
-    // Layer 0: границы фракций, подсветка активной области, штриховка осады
+    Game.Render.canvas.addEventListener('mouseleave', ()=>{
+      if(Game.Render.pointer.active.size > 0) return; // не сбрасываем hover прямо посреди drag/pinch
+      Game.Render.hoveredHex = null;
+      Game.UI.updateTooltip(null);
+      Game.Render.draw();
+    });
+
+    Game.Render.canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const buf = Game.Render.clientToBuffer(e);
+      const zoomSpeed = 1.12;
+      const factor = e.deltaY > 0 ? 1 / zoomSpeed : zoomSpeed;
+      Game.Render.zoomBy(factor, buf);
+    }, { passive: false });
+
+    Game.Render.initKeyboardPan();
+  };
+  Game.Render.resize = function resize(){
+    if(!Game.Render.canvas || !Game.State.match) return;
+    const hexList = Array.from(Game.State.match.hexes.values());
+    const pts = hexList.map(h=>Game.Render.toPixel(h.q,h.r));
+    const minX = Math.min(...pts.map(p=>p.x)) - Game.Config.settings.hexSize * 1.6;
+    const maxX = Math.max(...pts.map(p=>p.x)) + Game.Config.settings.hexSize * 1.6;
+    const minY = Math.min(...pts.map(p=>p.y)) - Game.Config.settings.hexSize * 1.6;
+    const maxY = Math.max(...pts.map(p=>p.y)) + Game.Config.settings.hexSize * 1.6;
+
+    Game.Render.canvas.dataset.offx = -minX;
+    Game.Render.canvas.dataset.offy = -minY;
+
+    // Мировые габариты карты (см. Game.Render.mapPixelW/Game.Render.mapPixelH) — независимы от
+    // размера холста, который теперь всегда равен размеру вьюпорта.
+    Game.Render.mapPixelW = maxX - minX;
+    // Контент по вертикали сжимается на Game.Config.TILT_FACTOR внутри Game.Render.projectFlat,
+    // поэтому и мировую высоту карты уменьшаем на тот же множитель — иначе
+    // снизу остаётся пустая полоса ровно в (1 - Game.Config.TILT_FACTOR) высоты карты.
+    Game.Render.mapPixelH = (maxY - minY) * Game.Config.TILT_FACTOR;
+
+    // Диапазон плоской Y — в ТОЙ ЖЕ системе координат (offset уже применён), что и
+    // Game.Render.flatCenter()/Game.Render.cornerFlat(), которыми пользуется Game.Render.projectFlat().
+    const flatYs = pts.map(p => p.y - minY);
+    Game.Render.perspRange.min = Math.min(...flatYs);
+    Game.Render.perspRange.max = Math.max(...flatYs);
+    Game.Render.perspRange.ready = true;
+
+    // Канвас теперь — полноэкранный буфер (карта на весь экран), а не "холст
+    // ровно по размеру карты": позиционирование/масштаб карты внутри него
+    // задаёт Game.Render.camera-transform в Game.Render.draw(). Буфер считаем в физических пикселях
+    // (devicePixelRatio, но не выше 2x — экономим память/время на очень
+    // больших картах и densely-pixel экранах).
+    Game.Render.devicePixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+    const viewW = Game.Render.canvas.clientWidth || window.innerWidth;
+    const viewH = Game.Render.canvas.clientHeight || window.innerHeight;
+    Game.Render.canvas.width = Math.max(1, Math.round(viewW * Game.Render.devicePixelRatio));
+    Game.Render.canvas.height = Math.max(1, Math.round(viewH * Game.Render.devicePixelRatio));
+
+    Game.Render.staticDirty = true;
+    Game.Render.fitToMap();
+  };
+  // Туман войны: гекс видим, если он в радиусе Game.Config.FOG_OF_WAR_RADIUS
+  // от любого владения/юнита игрока-человека (id:0), либо сам ему
+  // принадлежит/занят им. Кайма карты (terrain 'border') видна всегда — это
+  // декоративная рамка, а не игровая территория.
+  Game.Render.updateVisibility = function updateVisibility(){
+    const radius = Game.Config.FOG_OF_WAR_RADIUS;
+    const sources = [];
+    Game.State.match.hexes.forEach(h=>{
+      if(h.terrain === 'border') return;
+      if(h.owner === 0 || h.occupiedBy === 0 || (h.unit && h.unit.owner === 0)) sources.push(h);
+    });
+
+    const visible = new Set();
+    Game.State.match.hexes.forEach(h=>{
+      if(h.terrain === 'border'){ visible.add(Game.Utils.key(h.q,h.r)); return; }
+      for(let i=0;i<sources.length;i++){
+        if(Game.Utils.hexDist(h, sources[i]) <= radius){
+          visible.add(Game.Utils.key(h.q,h.r));
+          break;
+        }
+      }
+    });
+    Game.Render.visible = visible;
+  };
+  Game.Render.drawFog = function drawFog(h){
+    Game.Render.hexPath(h, Game.Render.ctx);
+    Game.Render.ctx.fillStyle = 'rgba(4, 6, 4, 0.62)';
+    Game.Render.ctx.fill();
+  };
+  Game.Render.draw = function draw(){
+    if(!Game.Render.ctx || !Game.Render.canvas) return;
+    Game.Render.version++;
+    Game.Render.ctx.clearRect(0,0,Game.Render.canvas.width,Game.Render.canvas.height);
+
+    Game.Render.ctx.resetTransform();
+    Game.Render.ctx.setTransform(Game.Render.camera.zoom, 0, 0, Game.Render.camera.zoom, Game.Render.camera.x, Game.Render.camera.y);
+
+    // Layer: static (террейн/сетка/границы регионов, кэшируются в Game.Render.staticCanvas)
+    if (Game.Render.staticDirty) Game.Render.updateStaticLayer();
+    Game.Render.ctx.drawImage(Game.Render.staticCanvas, 0, 0);
+
+    Game.Render.updateVisibility();
+    const visible = Game.Render.visible;
+
+    const depthOrder = Game.Render.hexesByDepth();
+
+    // Layer 0: границы фракций, подсветка активной области, штриховка осады —
+    // только на видимых гексах (под туманом войны чужие владения/осады не
+    // показываем).
     depthOrder.forEach(h=>{
-      if(h.owner !== null) drawFactionBorders(h) 
-      if (activeRegionId !== null) drawActiveRegion(h);
-      if (h.occupiedBy !== null) drawSiegeHatch(h);
+      if(!visible.has(Game.Utils.key(h.q, h.r))) return;
+      if(h.owner !== null) Game.Render.drawFactionBorders(h) 
+      if (Game.State.activeRegionId !== null) Game.Render.drawActiveRegion(h);
+      if (h.occupiedBy !== null) Game.Render.drawSiegeHatch(h);
+    });
+
+    // Layer fog: затемняем всё, что вне тумана войны — поверх границ/штриховки,
+    // но под юнитами (юниты там всё равно не рисуются, см. Layer 2).
+    depthOrder.forEach(h=>{
+      if(!visible.has(Game.Utils.key(h.q, h.r))) Game.Render.drawFog(h);
     });
 
     //Layer 1
-    const hh = hoveredHex;
-    const sh = game.selected;
+    const hh = Game.Render.hoveredHex;
+    const sh = Game.State.match.selected;
 
     if(hh){
-      drawHovered(hh)
-      if(hh.unit && hh.unit.owner !== 0) drawReachable(hh)
-      //if(hh.unit && zocEnabled) drawZoc(hh)
+      Game.Render.drawHovered(hh)
+      if(hh.unit && hh.unit.owner !== 0 && visible.has(Game.Utils.key(hh.q, hh.r))) Game.Render.drawReachable(hh)
+      //if(hh.unit && Game.Config.settings.zocEnabled) Game.Render.drawZoc(hh)
     }
     if(sh){
-      drawSelected(sh)
-      if(sh.unit && sh.unit.owner===0 && !game.over) drawPlayerReachable(sh)
+      Game.Render.drawSelected(sh)
+      if(sh.unit && sh.unit.owner===0 && !Game.State.match.over) Game.Render.drawPlayerReachable(sh)
     }
-    //Layer 2
+    //Layer 2 — юниты/столицы тоже скрыты в тумане войны
     depthOrder.forEach(h => {
-      if (h.unit) drawUnit(h);
-      if(h.capital) drawCapital(h);
+      if(!visible.has(Game.Utils.key(h.q, h.r))) return;
+      if (h.unit) Game.Render.drawUnit(h);
+      if(h.capital) Game.Render.drawCapital(h);
     });
 
-    drawFlyingUnits();
-    drawDestroyingUnits();
-    ctx.resetTransform();
-  }
+    Game.Render.drawFlyingUnits();
+    Game.Render.drawDestroyingUnits();
+    Game.Render.ctx.resetTransform();
+  };
+  Game.Render.animateMove = function animateMove(from, to, unitData, callback){
+    Game.Render.flyingUnits.push({
+      fromQ: from.q, fromR: from.r,
+      toQ: to.q, toR: to.r,
+      owner: unitData.owner,
+      strength: unitData.strength,
+      progress: 0,
+    });
+    
+    const startTime = performance.now();
+    const duration = 280;
 
-  // ---------------------------------------------------------------------
-  // Game.UI — side panel rendering (player list, selection card, action
-  // buttons) and top-level DOM event wiring. This is the layer this pass
-  // focuses on improving visually; exposed as Game.UI below.
-  // ---------------------------------------------------------------------
-  function updatePanel(){
+    function animateStep(currentTime){
+      const elapsed = currentTime - startTime;
+      const p = Math.min(1, elapsed / duration);
+      const eased = 1 - Math.pow(1 - p, 3);
+      
+      if(Game.Render.flyingUnits.length > 0) Game.Render.flyingUnits[Game.Render.flyingUnits.length - 1].progress = eased;
+      Game.Render.draw();
+
+      if(p < 1){
+        requestAnimationFrame(animateStep);
+      } else {
+        Game.Render.flyingUnits.pop();
+        if(callback) callback();
+      }
+    }
+    requestAnimationFrame(animateStep);
+  };
+  Game.Render.animateDestruction = function animateDestruction(hex, unitData, callback){
+    Game.Render.destroyingUnits.push({
+      q: hex.q, r: hex.r,
+      owner: unitData.owner,
+      strength: unitData.strength,
+      progress: 0
+    });
+
+    const startTime = performance.now();
+    const duration = 380;
+
+    function animateStep(currentTime){
+      const elapsed = currentTime - startTime;
+      const p = Math.min(1, elapsed / duration);
+      
+      if(Game.Render.destroyingUnits.length > 0) Game.Render.destroyingUnits[Game.Render.destroyingUnits.length - 1].progress = p;
+      Game.Render.draw();
+
+      if(p < 1){
+        requestAnimationFrame(animateStep);
+      } else {
+        Game.Render.destroyingUnits.pop();
+        if(callback) callback();
+      }
+    }
+    requestAnimationFrame(animateStep);
+  };
+  Game.Render.clientToBuffer = function clientToBuffer(evt){
+    const rect = Game.Render.canvas.getBoundingClientRect();
+    const scaleX = Game.Render.canvas.width / rect.width;
+    const scaleY = Game.Render.canvas.height / rect.height;
+    return {
+      x: (evt.clientX - rect.left) * scaleX,
+      y: (evt.clientY - rect.top) * scaleY
+    };
+  };
+  Game.Render.bufferToWorld = function bufferToWorld(pt){
+    return { x: (pt.x - Game.Render.camera.x) / Game.Render.camera.zoom, y: (pt.y - Game.Render.camera.y) / Game.Render.camera.zoom };
+  };
+  Game.Render.clampCamera = function clampCamera(){
+    if(!Game.Render.canvas || !Game.Render.mapPixelW || !Game.Render.mapPixelH) return;
+    const mapW = Game.Render.mapPixelW * Game.Render.camera.zoom, mapH = Game.Render.mapPixelH * Game.Render.camera.zoom;
+    const padX = Math.min(Game.Render.canvas.width * 0.4, 320);
+    const padY = Math.min(Game.Render.canvas.height * 0.4, 320);
+    let minX = Game.Render.canvas.width - mapW - padX, maxX = padX;
+    if(minX > maxX){ const mid = (minX + maxX) / 2; minX = maxX = mid; }
+    Game.Render.camera.x = Game.Utils.clamp(Game.Render.camera.x, minX, maxX);
+    let minY = Game.Render.canvas.height - mapH - padY, maxY = padY;
+    if(minY > maxY){ const mid = (minY + maxY) / 2; minY = maxY = mid; }
+    Game.Render.camera.y = Game.Utils.clamp(Game.Render.camera.y, minY, maxY);
+  };
+  Game.Render.zoomBy = function zoomBy(factor, anchorBuffer){
+    if(!Game.Render.canvas) return;
+    const anchor = anchorBuffer || { x: Game.Render.canvas.width / 2, y: Game.Render.canvas.height / 2 };
+    const oldZoom = Game.Render.camera.zoom;
+    const newZoom = Game.Utils.clamp(oldZoom * factor, Game.Config.MIN_ZOOM, Game.Config.MAX_ZOOM);
+    if(newZoom === oldZoom) return;
+    Game.Render.camera.x = anchor.x - (anchor.x - Game.Render.camera.x) * (newZoom / oldZoom);
+    Game.Render.camera.y = anchor.y - (anchor.y - Game.Render.camera.y) * (newZoom / oldZoom);
+    Game.Render.camera.zoom = newZoom;
+    Game.Render.clampCamera();
+    Game.Render.draw();
+  };
+  Game.Render.fitToMap = function fitToMap(){
+    if(!Game.Render.canvas || !Game.Render.mapPixelW || !Game.Render.mapPixelH) return;
+    const margin = 0.92;
+    const z = Game.Utils.clamp(Math.min(Game.Render.canvas.width / Game.Render.mapPixelW, Game.Render.canvas.height / Game.Render.mapPixelH) * margin, Game.Config.MIN_ZOOM, Game.Config.MAX_ZOOM);
+    Game.Render.camera.zoom = z;
+    Game.Render.camera.x = (Game.Render.canvas.width - Game.Render.mapPixelW * z) / 2;
+    Game.Render.camera.y = (Game.Render.canvas.height - Game.Render.mapPixelH * z) / 2;
+  };
+  Game.Render.pointerDist = function pointerDist(a, b){ return Math.hypot(a.x - b.x, a.y - b.y); };
+  Game.Render.keyPanStep = function keyPanStep(){
+    if(Game.Render.pan.keys.size === 0){ Game.Render.pan.rafId = null; return; }
+    let dx = 0, dy = 0;
+    Game.Render.pan.keys.forEach(k => { const v = Game.Config.PAN_KEY_MAP[k]; if(v){ dx += v[0]; dy += v[1]; } });
+    if(dx || dy){
+      const len = Math.hypot(dx, dy) || 1;
+      const speed = 14 / Game.Render.camera.zoom * (Game.Render.canvas ? Game.Render.canvas.width / 1200 + 0.6 : 1);
+      Game.Render.camera.x -= (dx / len) * speed;
+      Game.Render.camera.y -= (dy / len) * speed;
+      Game.Render.clampCamera();
+      Game.Render.draw();
+    }
+    Game.Render.pan.rafId = requestAnimationFrame(Game.Render.keyPanStep);
+  };
+  Game.Render.initKeyboardPan = function initKeyboardPan(){
+    window.addEventListener('keydown', (e) => {
+      const tag = (e.target && e.target.tagName || '').toLowerCase();
+      if(tag === 'input' || tag === 'select' || tag === 'textarea') return;
+      const k = e.key.toLowerCase();
+      if(!Game.Config.PAN_KEY_MAP[k]) return;
+      Game.Render.pan.keys.add(k);
+      if(Game.Render.pan.rafId === null) Game.Render.pan.rafId = requestAnimationFrame(Game.Render.keyPanStep);
+    });
+    window.addEventListener('keyup', (e) => { Game.Render.pan.keys.delete(e.key.toLowerCase()); });
+    window.addEventListener('blur', () => { Game.Render.pan.keys.clear(); });
+  };
+
+  // ==========================================================================
+  // Game.Input — pointer / touch / keyboard handling and hex selection
+  // ==========================================================================
+  Game.Input = {};
+  Game.Input.selectHex = function selectHex(h){
+    if(Game.State.match.over) return;
+    if(h && h.terrain === 'border') return; // кайма карты не кликабельна
+    Game.Audio.play('click');
+    const prevSelected = Game.State.match.selected;
+
+    if(prevSelected === h && h && h.capital && h.unit && h.unit.owner === 0){
+      h.unitHasFocus = !h.unitHasFocus;
+      Game.State.activeRegionId = h.unitHasFocus ? null : h.regionId;
+      Game.Render.draw(); Game.UI.updatePanel();
+      return;
+    }
+
+    if(prevSelected && prevSelected.unit && prevSelected.unit.owner === 0 && !prevSelected.unit.hasMoved && prevSelected !== h){
+      const isArmyFocused = !prevSelected.capital || prevSelected.unitHasFocus;
+      if (isArmyFocused) {
+        const reachable = Game.Movement.reachable(prevSelected, 0);
+        if(reachable.has(Game.Utils.key(h.q, h.r))){
+          Game.Combat.moveOrAttack(prevSelected, h, 0, false, (result)=>{
+            if(result === 'captured'){
+              Game.UI.log(`Победа в бою на (${h.q}, ${h.r})! Враг разбит.`);
+            } else if(result === 'raided'){
+              Game.UI.log(`Рейд на (${h.q}, ${h.r}) удался — враг разбит.`);
+            } else if(result === 'lost'){
+              Game.UI.log(`Атака на (${h.q}, ${h.r}) провалилась. Наш отряд уничтожен.`);
+            } else if(result === 'merged'){
+              Game.UI.log(`Отряды объединены на (${h.q}, ${h.r}).`);
+            } else if(result === 'neutral_siege'){
+              Game.UI.log(`Отряд вошел в нейтральную область (${h.q}, ${h.r}). Захват завершится на следующий ход.`);
+            } else if(result === 'occupied'){
+              Game.UI.log(`Отряд начал ОСАДУ вражеской СТОЛИЦЫ (${h.q}, ${h.r}).`);
+            }
+            Game.State.match.selected = null;
+            Game.State.activeRegionId = null;
+            Game.Render.draw(); Game.UI.updatePanel(); Game.Turns.checkGameOver();
+          });
+          Game.State.match.selected = null;
+          Game.State.activeRegionId = null;
+          Game.Render.draw(); Game.UI.updatePanel();
+          return;
+        }
+      }
+    }
+
+    if(h && h.capital && h.unit && h.unit.owner === 0){
+      Game.State.match.selected = h;
+      h.unitHasFocus = false;
+      Game.State.activeRegionId = h.regionId;
+      Game.Render.draw(); Game.UI.updatePanel();
+      return;
+    }
+
+    if(h && h.unit && h.unit.owner === 0){
+      Game.State.match.selected = h;
+      h.unitHasFocus = true;
+      Game.State.activeRegionId = null;
+      Game.Render.draw(); Game.UI.updatePanel();
+      return;
+    }
+
+    if(h && h.capital && h.owner === 0){
+      if(prevSelected === h){
+        Game.State.match.selected = null;
+        Game.State.activeRegionId = null;
+      } else {
+        Game.State.match.selected = h;
+        Game.State.activeRegionId = h.regionId;
+      }
+      Game.Render.draw(); Game.UI.updatePanel();
+      return;
+    }
+
+    if(prevSelected === h){
+      Game.State.match.selected = null;
+      Game.State.activeRegionId = null;
+    } else {
+      Game.State.match.selected = h;
+      Game.State.activeRegionId = h ? h.regionId : null;
+    }
+    Game.Render.draw(); Game.UI.updatePanel();
+  };
+  Game.Input.onHover = function onHover(evt){
+    const h = Game.Render.hexAtEvent(evt);
+    if(h === Game.Render.lastHover.hex && Game.Render.version === Game.Render.lastHover.version) return;
+    
+    Game.Render.hoveredHex = h;
+    Game.UI.updateTooltip(h);
+    Game.Render.draw();
+    Game.Render.lastHover.hex = h; Game.Render.lastHover.version = Game.Render.version;
+  };
+  Game.Input.onPointerDown = function onPointerDown(evt){
+    Game.Render.canvas.setPointerCapture(evt.pointerId);
+    Game.Render.pointer.active.set(evt.pointerId, { x: evt.clientX, y: evt.clientY });
+
+    if(Game.Render.pointer.active.size === 1){
+      Game.Render.pointer.isPanning = true;
+      Game.Render.pointer.didDrag = false;
+      Game.Render.pointer.panStartBuffer = Game.Render.clientToBuffer(evt);
+      Game.Render.pointer.panStartCamera = { x: Game.Render.camera.x, y: Game.Render.camera.y };
+      Game.Render.pointer.panStartClient = { x: evt.clientX, y: evt.clientY };
+    } else if(Game.Render.pointer.active.size === 2){
+      Game.Render.pointer.isPanning = false;
+      const pts = Array.from(Game.Render.pointer.active.values());
+      Game.Render.pointer.pinchStartDist = Game.Render.pointerDist(pts[0], pts[1]) || 1;
+      Game.Render.pointer.pinchStartZoom = Game.Render.camera.zoom;
+      Game.Render.pointer.pinchStartCamera = { x: Game.Render.camera.x, y: Game.Render.camera.y };
+      Game.Render.pointer.pinchStartMid = Game.Render.clientToBuffer({ clientX: (pts[0].x + pts[1].x) / 2, clientY: (pts[0].y + pts[1].y) / 2 });
+    }
+  };
+  Game.Input.onPointerMove = function onPointerMove(evt){
+    if(!Game.Render.pointer.active.has(evt.pointerId)){
+      Game.Input.onHover(evt);
+      return;
+    }
+    Game.Render.pointer.active.set(evt.pointerId, { x: evt.clientX, y: evt.clientY });
+
+    if(Game.Render.pointer.active.size >= 2){
+      const pts = Array.from(Game.Render.pointer.active.values());
+      const dist = Game.Render.pointerDist(pts[0], pts[1]) || 1;
+      const newZoom = Game.Utils.clamp(Game.Render.pointer.pinchStartZoom * (dist / Game.Render.pointer.pinchStartDist), Game.Config.MIN_ZOOM, Game.Config.MAX_ZOOM);
+      Game.Render.camera.x = Game.Render.pointer.pinchStartMid.x - (Game.Render.pointer.pinchStartMid.x - Game.Render.pointer.pinchStartCamera.x) * (newZoom / Game.Render.pointer.pinchStartZoom);
+      Game.Render.camera.y = Game.Render.pointer.pinchStartMid.y - (Game.Render.pointer.pinchStartMid.y - Game.Render.pointer.pinchStartCamera.y) * (newZoom / Game.Render.pointer.pinchStartZoom);
+      Game.Render.camera.zoom = newZoom;
+      Game.Render.clampCamera();
+      Game.Render.draw();
+      return;
+    }
+
+    if(Game.Render.pointer.isPanning && Game.Render.pointer.panStartBuffer){
+      if(!Game.Render.pointer.didDrag && Math.hypot(evt.clientX - Game.Render.pointer.panStartClient.x, evt.clientY - Game.Render.pointer.panStartClient.y) > 4){
+        Game.Render.pointer.didDrag = true;
+        Game.Render.canvas.classList.add('dragging');
+      }
+      if(Game.Render.pointer.didDrag){
+        const buf = Game.Render.clientToBuffer(evt);
+        Game.Render.camera.x = Game.Render.pointer.panStartCamera.x + (buf.x - Game.Render.pointer.panStartBuffer.x);
+        Game.Render.camera.y = Game.Render.pointer.panStartCamera.y + (buf.y - Game.Render.pointer.panStartBuffer.y);
+        Game.Render.clampCamera();
+        Game.Render.hoveredHex = null;
+        Game.Render.draw();
+      }
+    }
+  };
+  Game.Input.onPointerUp = function onPointerUp(evt){
+    const wasPanning = Game.Render.pointer.isPanning && Game.Render.pointer.active.has(evt.pointerId);
+    Game.Render.pointer.active.delete(evt.pointerId);
+
+    if(Game.Render.pointer.active.size === 0){
+      Game.Render.canvas.classList.remove('dragging');
+      if(wasPanning && !Game.Render.pointer.didDrag){
+        const h = Game.Render.hexAtEvent(evt);
+        if(h) Game.Input.selectHex(h);
+      }
+      Game.Render.pointer.isPanning = false;
+      Game.Render.pointer.panStartBuffer = null;
+      Game.Render.pointer.didDrag = false;
+    } else if(Game.Render.pointer.active.size === 1){
+      // Отпустили один из двух пальцев при щипке — переходим обратно в pan
+      // от оставшегося пальца, без "скачка" камеры.
+      const [remaining] = Game.Render.pointer.active.values();
+      Game.Render.pointer.isPanning = true;
+      Game.Render.pointer.didDrag = true;
+      Game.Render.pointer.panStartBuffer = Game.Render.clientToBuffer({ clientX: remaining.x, clientY: remaining.y });
+      Game.Render.pointer.panStartCamera = { x: Game.Render.camera.x, y: Game.Render.camera.y };
+      Game.Render.pointer.panStartClient = { x: remaining.x, y: remaining.y };
+    }
+  };
+
+  // ==========================================================================
+  // Game.UI — DOM panel/tooltip/legend/log rendering + control wiring
+  // ==========================================================================
+  Game.UI = {};
+  Game.UI.updatePanel = function updatePanel(){
     const pList = document.getElementById('playerList');
     if(pList){
-      pList.innerHTML = game.players.map(p => {
-        const stats = getPlayerIncomeAndUpkeep(p.id);
+      pList.innerHTML = Game.State.match.players.map(p => {
+        const stats = Game.Map.incomeAndUpkeep(p.id);
         return `
         <div class="playerRow ${!p.alive ? 'dead' : ''} ${p.id===0 ? 'activePlayer' : ''}">
           <div class="swatch" style="background:${p.color}"></div>
           <div class="playerName">${p.name} <span style="font-size:10px; color:var(--text-muted); display:block;">Доход: +${stats.income} | Расх: -${stats.upkeep}</span></div>
           <div class="playerGold">${p.gold}💰 (${(stats.income - stats.upkeep)})</div>
-          <div class="playerHexes">${ownedHexCount(p.id)} г.</div>
+          <div class="playerHexes">${Game.Map.ownedHexCount(p.id)} г.</div>
         </div>
       `;
       }).join('');
@@ -2620,26 +2665,26 @@
     const acts = document.getElementById('actionButtons');
     if(!info || !acts) return;
 
-    const sel = game.selected;
+    const sel = Game.State.match.selected;
     if(!sel){
       info.innerHTML = '<span class="placeholder">Выберите гекс для отдачи приказов</span>';
       acts.innerHTML = '';
       return;
     }
 
-    const TERRAIN = getTerrainDefs();
+    const TERRAIN = Game.Config.terrainDefs();
     const t = TERRAIN[sel.terrain];
     let html = `<b>${t.label}</b> (q:${sel.q}, r:${sel.r})`;
-    if(sel.owner!==null) html += `<br>Владелец: ${game.players[sel.owner].name}`;
+    if(sel.owner!==null) html += `<br>Владелец: ${Game.State.match.players[sel.owner].name}`;
     if(sel.capital) html += `<br><span style="color:var(--gold);">👑 Столица области #${sel.regionId}</span>`;
     
     let actHtml = '';
     if(sel.unit){
-      html += `<br><span style="color:#60a5fa;">🛡️ Отряд фракции ${game.players[sel.unit.owner].name} (сила: ${sel.unit.strength})</span>`;
+      html += `<br><span style="color:#60a5fa;">🛡️ Отряд фракции ${Game.State.match.players[sel.unit.owner].name} (сила: ${sel.unit.strength})</span>`;
     }
     info.innerHTML = html;
 
-    const regionIsOccupied = isRegionOccupiedBy(sel.regionId, 0);
+    const regionIsOccupied = Game.Map.isRegionOccupiedBy(sel.regionId, 0);
 
     if(sel.capital && sel.unit && sel.unit.owner === 0){
       actHtml += `<div style="background:rgba(212,162,76,0.08); border:1px solid var(--gold-dim); padding:8px; border-radius:4px; margin-bottom:8px;">
@@ -2654,20 +2699,20 @@
     }
 
     const isCapitalFocused = sel.capital && sel.owner === 0 && (!sel.unit || !sel.unitHasFocus);
-    if(isCapitalFocused && !game.over && sel.occupiedBy === null && !sel.unit){
+    if(isCapitalFocused && !Game.State.match.over && sel.occupiedBy === null && !sel.unit){
       if(regionIsOccupied){
         actHtml += `<div style="font-size:11px; color:var(--danger); margin-top:6px; margin-bottom:6px;">⚠️ Область оккупирована! Найм войск заблокирован.</div>`;
       } else {
-        actHtml += `<button id="recruitBtn" type="button">Найнять отряд (${RECRUIT_COST}💰)</button>`;
+        actHtml += `<button id="recruitBtn" type="button">Найнять отряд (${Game.Config.RECRUIT_COST}💰)</button>`;
       }
     }
     
     const isUnitInCapital = sel.capital && sel.unit && sel.unit.owner === 0 && sel.owner === 0;
-    if(isUnitInCapital && !game.over && game.players[0].gold >= REINFORCE_COST){
+    if(isUnitInCapital && !Game.State.match.over && Game.State.match.players[0].gold >= Game.Config.REINFORCE_COST){
       if(regionIsOccupied){
         actHtml += `<div style="font-size:11px; color:var(--danger); margin-top:6px; margin-bottom:6px;">⚠️ Текущая область оккупирована! Усиление войск заблокировано.</div>`;
       } else {
-        actHtml += `<button id="reinforceBtn" type="button">Усилить отряд (${REINFORCE_COST}💰)</button>`;
+        actHtml += `<button id="reinforceBtn" type="button">Усилить отряд (${Game.Config.REINFORCE_COST}💰)</button>`;
       }
     }
     acts.innerHTML = actHtml;
@@ -2677,8 +2722,8 @@
       selCapBtn.onclick = (e) => {
         e.stopPropagation();
         sel.unitHasFocus = false;
-        activeRegionId = sel.regionId;
-        render(); updatePanel();
+        Game.State.activeRegionId = sel.regionId;
+        Game.Render.draw(); Game.UI.updatePanel();
       };
     }
 
@@ -2687,8 +2732,8 @@
       selArmyBtn.onclick = (e) => {
         e.stopPropagation();
         sel.unitHasFocus = true;
-        activeRegionId = null;
-        render(); updatePanel();
+        Game.State.activeRegionId = null;
+        Game.Render.draw(); Game.UI.updatePanel();
       };
     }
 
@@ -2696,12 +2741,12 @@
     if(recBtn){
       recBtn.onclick = (e)=>{
         e.stopPropagation();
-        if(game.players[0].gold >= RECRUIT_COST && !sel.unit && !isRegionOccupiedBy(sel.regionId, 0)){
-          game.players[0].gold -= RECRUIT_COST;
+        if(Game.State.match.players[0].gold >= Game.Config.RECRUIT_COST && !sel.unit && !Game.Map.isRegionOccupiedBy(sel.regionId, 0)){
+          Game.State.match.players[0].gold -= Game.Config.RECRUIT_COST;
           sel.unit = { owner: 0, strength: 1, hasMoved: true };
-          playSound('recruit');
-          logMsg(`Найман новый отряд на (${sel.q}, ${sel.r}) [ожидает следующего хода для движения].`);
-          render(); updatePanel();
+          Game.Audio.play('recruit');
+          Game.UI.log(`Найман новый отряд на (${sel.q}, ${sel.r}) [ожидает следующего хода для движения].`);
+          Game.Render.draw(); Game.UI.updatePanel();
         }
       };
     }
@@ -2710,38 +2755,115 @@
     if(reinBtn){
       reinBtn.onclick = (e)=>{
         e.stopPropagation();
-        if(game.players[0].gold >= REINFORCE_COST && sel.unit && sel.unit.owner===0 && !isRegionOccupiedBy(sel.regionId, 0)){
-          game.players[0].gold -= REINFORCE_COST;
+        if(Game.State.match.players[0].gold >= Game.Config.REINFORCE_COST && sel.unit && sel.unit.owner===0 && !Game.Map.isRegionOccupiedBy(sel.regionId, 0)){
+          Game.State.match.players[0].gold -= Game.Config.REINFORCE_COST;
           sel.unit.strength += 1;
-          playSound('recruit');
-          logMsg(`Отряд на (${sel.q}, ${sel.r}) усилен.`);
-          render(); updatePanel();
+          Game.Audio.play('recruit');
+          Game.UI.log(`Отряд на (${sel.q}, ${sel.r}) усилен.`);
+          Game.Render.draw(); Game.UI.updatePanel();
         }
       };
     }
-  }
+  };
+  Game.UI.updateTooltip = function updateTooltip(h){
+    const tip = document.getElementById('fixedTooltip');
+    if(!tip) return;
+    if(!h){
+      tip.innerHTML = '<span style="color:var(--text-muted)">Наведите или выберите гекс для информации...</span>';
+      return;
+    }
 
-  function initUIEvents(){
+    const TERRAIN = Game.Config.terrainDefs();
+    const t = TERRAIN[h.terrain];
+    let txt = t.impassable ? `<b>${t.label}</b>` : `<b>${t.label}</b> · Доход: ${h.occupiedBy!==null?0:t.yield}💰`;
+    if(h.owner!==null) txt += ` · Владелец: ${Game.State.match.players[h.owner].name}`;
+    if(h.occupiedBy!==null) txt += h.capital
+      ? ` <br><span style="color:#e2b753;">👑 ОСАДА СТОЛИЦЫ: ${Game.State.match.players[h.occupiedBy].name}</span>`
+      : ` <br><span style="color:#e2b753;">⚔️ РЕЙД: ${Game.State.match.players[h.occupiedBy].name}</span>`;
+    if(h.capital) txt += ' <br>👑 СТОЛИЦА ОБЛАСТИ';
+    
+    if(h.unit){
+      const supp = Game.Combat.adjacentSupport(h, h.unit.owner);
+      txt += ` <br>🛡️ Отряд: сила ${h.unit.strength}${supp>0?` (+${supp} поддержка = ${h.unit.strength+supp})`:''}`;
+      if(h.unit.hasMoved) txt += ' [ход завершён]';
+    }
+
+    const sel = Game.State.match.selected;
+    if(sel && sel.unit && sel.unit.owner===0 && !sel.unit.hasMoved && sel!==h && !t.impassable){
+      const reachable = Game.Movement.reachableCached(sel, 0);
+      if(reachable.has(Game.Utils.key(h.q, h.r))){
+        const attData = Game.Combat.attackerData(sel, h, 0);
+        const defData = Game.Combat.defenderData(h, sel, h.unit ? h.unit.owner : (h.owner !== null ? h.owner : null));
+        const win = attData.total > defData.total;
+        
+        txt += ` | <b style="color:${win?'#86efac':'#fca5a5'};">Атака: ${win?'ПОБЕДА':'ПОРАЖЕНИЕ'}</b><br>`;
+        txt += `<span style="font-size:11px; color:var(--text-muted);">⚔️ Атк: ${attData.base} база`;
+        if(attData.support > 0) txt += ` + ${attData.support} поддержка`;
+        txt += ` = <b>${attData.total}</b> | 🛡️ Защ: ${defData.base} база`;
+        if(defData.defBonus > 0) txt += ` + ${defData.defBonus} местность/столица`;
+        if(defData.support > 0) txt += ` + ${defData.support} поддержка`;
+        txt += ` = <b>${defData.total}</b></span>`;
+      }
+    }
+    tip.innerHTML = txt;
+  };
+  Game.UI.updateLegend = function updateLegend(){
+    const TERRAIN = Game.Config.terrainDefs();
+    const grid = document.getElementById('legendGridContainer');
+    if(!grid) return;
+    grid.innerHTML = `
+      <div class="legendItem"><div class="legendSwatch" style="background:${TERRAIN.plains.color}"></div>Равнина (2💰)</div>
+      <div class="legendItem"><div class="legendSwatch" style="background:${TERRAIN.forest.color}"></div>Лес (1💰, +1д)</div>
+      <div class="legendItem"><div class="legendSwatch" style="background:${TERRAIN.hills.color}"></div>Холмы (1💰, +1д)</div>
+      <div class="legendItem"><div class="legendSwatch" style="background:${TERRAIN.goldmine.color}"></div>Рудник (4💰)</div>
+      <div class="legendItem"><div class="legendSwatch" style="background:${TERRAIN.mountains.color}"></div>Хребет</div>
+      <div class="legendItem"><div class="legendSwatch" style="background:${TERRAIN.water.color}"></div>Вода</div>
+    `;
+  };
+  // Плашка "сейчас ходит..." сверху экрана, пока идёт ход ИИ-фракции (см.
+  // Game.AI.runTurnSequence()) — как баннер смены хода в Total War.
+  Game.UI.showAiTurnBanner = function showAiTurnBanner(player){
+    const el = document.getElementById('aiTurnBanner');
+    if(!el || !player) return;
+    el.querySelector('.swatch').style.background = player.color;
+    el.querySelector('.label').textContent = `Ходит: ${player.name}`;
+    el.classList.add('visible');
+  };
+  Game.UI.hideAiTurnBanner = function hideAiTurnBanner(){
+    const el = document.getElementById('aiTurnBanner');
+    if(!el) return;
+    el.classList.remove('visible');
+  };
+  Game.UI.log = function log(text){
+    if(!Game.State.match) return;
+    Game.State.match.log.push(text);
+    if(Game.State.match.log.length>60) Game.State.match.log.shift();
+    const el = document.getElementById('log');
+    if(el) {
+      el.innerHTML = Game.State.match.log.slice().reverse().map(m=>`<div>${m}</div>`).join('');
+    }
+  };
+  Game.UI.initEvents = function initEvents(){
     document.getElementById('newGameBtn').onclick = () => {
-      newGame(Date.now());
-      resizeCanvas();
-      render();
-      updatePanel();
+      Game.Map.create(Date.now());
+      Game.Render.resize();
+      Game.Render.draw();
+      Game.UI.updatePanel();
     };
     document.getElementById('panelToggle').onclick = () => {
       document.getElementById('panel').classList.toggle("visible");
     };
 
-    document.getElementById('zoomInBtn').onclick = () => zoomBy(1.25);
-    document.getElementById('zoomOutBtn').onclick = () => zoomBy(0.8);
-    document.getElementById('centerViewBtn').onclick = () => { fitCameraToMap(); render(); };
+    document.getElementById('zoomInBtn').onclick = () => Game.Render.zoomBy(1.25);
+    document.getElementById('zoomOutBtn').onclick = () => Game.Render.zoomBy(0.8);
+    document.getElementById('centerViewBtn').onclick = () => { Game.Render.fitToMap(); Game.Render.draw(); };
 
     document.getElementById('restartBtn').onclick = () => {
       document.getElementById('overlay').style.display='none';
-      newGame(Date.now());
-      resizeCanvas();
-      render();
-      updatePanel();
+      Game.Map.create(Date.now());
+      Game.Render.resize();
+      Game.Render.draw();
+      Game.UI.updatePanel();
     };
 
     document.getElementById('audioToggleBtn').onclick = () => {
@@ -2750,179 +2872,89 @@
     };
 
     document.getElementById('endTurnBtn').onclick = () => {
-      if(game.over || isAiRunning) return;
-      game.selected = null;
-      activeRegionId = null;
-      startAiTurnSequence();
+      if(Game.State.match.over || Game.State.isAiRunning) return;
+      Game.State.match.selected = null;
+      Game.State.activeRegionId = null;
+      Game.AI.runTurnSequence();
     };
 
     document.getElementById('mapSizeSelect').onchange = (e) => {
-      mapRadius = parseInt(e.target.value);
-      newGame(Date.now());
-      resizeCanvas();
-      render();
-      updatePanel();
+      Game.Config.settings.mapRadius = parseInt(e.target.value);
+      Game.Map.create(Date.now());
+      Game.Render.resize();
+      Game.Render.draw();
+      Game.UI.updatePanel();
     };
 
     document.getElementById('regionSizeSelect').onchange = (e) => {
-      regionSizeMode = e.target.value;
-      newGame(Date.now());
-      resizeCanvas();
-      render();
-      updatePanel();
+      Game.Config.settings.regionSizeMode = e.target.value;
+      Game.Map.create(Date.now());
+      Game.Render.resize();
+      Game.Render.draw();
+      Game.UI.updatePanel();
     };
 
     document.getElementById('moveRangeSelect').onchange = (e) => {
-      maxMovementPoints = parseInt(e.target.value);
-      render();
+      Game.Config.settings.maxMovementPoints = parseInt(e.target.value);
+      Game.Render.draw();
     };
 
     document.getElementById('hexSizeRange').oninput = (e) => {
-      hexSize = parseInt(e.target.value);
-      resizeCanvas();
-      render();
+      Game.Config.settings.hexSize = parseInt(e.target.value);
+      Game.Render.resize();
+      Game.Render.draw();
     };
 
     document.getElementById('gridToggleCheck').onchange = (e) => {
-      showGrid = e.target.checked;
-      isStaticLayerDirty = true;
-      render();
+      Game.Config.settings.showGrid = e.target.checked;
+      Game.Render.staticDirty = true;
+      Game.Render.draw();
     };
 
     document.getElementById('territoryFillCheck').onchange = (e) => {
-      territoryFillMode = e.target.checked;
-      isStaticLayerDirty = true;
-      render();
+      Game.Config.settings.territoryFillMode = e.target.checked;
+      Game.Render.staticDirty = true;
+      Game.Render.draw();
     };
 
     document.getElementById('factionsCountSelect').onchange = (e) => {
-      factionsCount = parseInt(e.target.value);
-      newGame(Date.now());
-      resizeCanvas();
-      render();
-      updatePanel();
+      Game.Config.settings.factionsCount = parseInt(e.target.value);
+      Game.Map.create(Date.now());
+      Game.Render.resize();
+      Game.Render.draw();
+      Game.UI.updatePanel();
     };
 
     document.getElementById('themeSelect').onchange = (e) => {
-      currentTheme = e.target.value;
-      render();
+      Game.Config.settings.currentTheme = e.target.value;
+      Game.Render.draw();
     }; 
 
     document.getElementById('zocSelect').onchange = (e) => {
-      zocEnabled = (e.target.value === 'on');
-      render();
+      Game.Config.settings.zocEnabled = (e.target.value === 'on');
+      Game.Render.draw();
     };
 
     let _resizeDebounce = null;
     window.addEventListener('resize', () => {
       clearTimeout(_resizeDebounce);
       _resizeDebounce = setTimeout(() => {
-        resizeCanvas();
-        render();
+        Game.Render.resize();
+        Game.Render.draw();
       }, 80);
     });
-  }
+  };
 
   // ==========================================================================
-  // Public Game namespace — a professional, discoverable facade over the
-  // engine above. Nothing here changes behaviour: every entry is a direct
-  // reference to the exact same function/state that already existed, just
-  // grouped by responsibility (map generation, combat math, AI, rendering,
-  // turn flow, UI) instead of being one flat list of globals. This keeps the
-  // battle-tested map/gameplay code completely untouched while giving the
-  // codebase real structure, e.g. Game.Map.create(), Game.AI.runFaction(),
-  // Game.Turns.checkGameOver(), Game.UI.updatePanel().
+  // Bootstrap
   // ==========================================================================
-  Game.Config = {
-    get hexSize(){ return hexSize; },
-    get showGrid(){ return showGrid; },
-    get territoryFillMode(){ return territoryFillMode; },
-    get currentTheme(){ return currentTheme; },
-    get zocEnabled(){ return zocEnabled; },
-    get mapRadius(){ return mapRadius; },
-    get maxMovementPoints(){ return maxMovementPoints; },
-    get regionSizeMode(){ return regionSizeMode; },
-    get factionsCount(){ return factionsCount; },
-    THEMES, RECRUIT_COST, REINFORCE_COST, INITIAL_STRENGTH,
-    CAPITAL_BONUS_GOLD, CAPITAL_BONUS_DEFENSE,
-    terrainDefs: getTerrainDefs
-  };
-
-  Game.State = {
-    get current(){ return game; },
-    get selected(){ return game ? game.selected : null; },
-    get isAiRunning(){ return isAiRunning; },
-    get camera(){ return camera; }
-  };
-
-  Game.Map = {
-    create: newGame,
-    neighbors,
-    claimRegion: claimRegionAllHexes,
-    ownedHexCount,
-    incomeAndUpkeep: getPlayerIncomeAndUpkeep,
-    isRegionOccupiedBy,
-    applyRaidLoot
-  };
-
-  Game.Movement = {
-    inEnemyZoC,
-    reachable: getReachableHexes,
-    reachableCached: getReachableCached
-  };
-
-  Game.Combat = {
-    adjacentSupport: getAdjacentSupport,
-    attackerData: getAttackerCombatData,
-    defenderData: getDefenderCombatData,
-    moveOrAttack
-  };
-
-  Game.Turns = {
-    startPlayerTurn,
-    finalizeTurnCycle,
-    checkGameOver,
-    endGame
-  };
-
-  Game.AI = {
-    runTurnSequence: startAiTurnSequence,
-    runFaction: runSingleAiFaction
-  };
-
-  Game.Render = {
-    setup: setupCanvas,
-    resize: resizeCanvas,
-    draw: render,
-    pixelForHex,
-    hexAtEvent,
-    zoomBy,
-    fitCameraToMap
-  };
-
-  Game.Input = {
-    selectHex,
-    onCanvasHover,
-    onPointerDown,
-    onPointerMove,
-    onPointerUp
-  };
-
-  Game.UI = {
-    updatePanel,
-    updateTooltip: updateTooltipHTML,
-    updateLegend: updateLegendDOM,
-    log: logMsg,
-    initEvents: initUIEvents
-  };
-
   window.onload = function(){
-    loadTerrainAssets(() => {
-      initUIEvents();
-      newGame(12345);
-      setupCanvas();
-      render();
-      updatePanel();
+    Game.Config.loadAssets(() => {
+      Game.UI.initEvents();
+      Game.Map.create(12345);
+      Game.Render.setup();
+      Game.Render.draw();
+      Game.UI.updatePanel();
     });
   };
 
