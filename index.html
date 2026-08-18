@@ -571,7 +571,7 @@
                 <option value="parchment">Пергамент</option>
               </select>
             </label>
-            <label style="grid-column: span 2;">Масштаб гексов: <input type="range" id="hexSizeRange" min="16" max="32" value="22"></label>
+            <label style="grid-column: span 2;">Масштаб гексов: <input type="range" id="hexSizeRange" min="16" max="32" value="32"></label>
             <label class="checkboxLabel" style="grid-column: span 2;">
               <input type="checkbox" id="gridToggleCheck" checked> Показать сетку
             </label>
@@ -803,33 +803,19 @@
     groups.capital = { default: ['assets/capital.png'] };
     groups.unit = { default: ['assets/unit.png'] };
 
-    // Переходы между соседними гексами ("автотайлинг"): для КАЖДОЙ пары
-    // (террейн этого гекса → террейн соседа) и КАЖДОГО из 6 направлений
-    // можно положить отдельную картинку — см. подробный комментарий у
-    // Game.Render.drawTerrain() ниже про то, как именно выбирается нужный
-    // файл и что означает "направление".
-    //
-    // Схема имени файла (ничего создавать заранее не нужно — то, чего нет,
-    // просто тихо пропускается, ничего не ломается):
-    //   assets/edge/<террейн>_<направление 0-5>.png                — общий
-    //     "край" этого террейна в эту сторону (на любой ДРУГОЙ террейн)
-    //   assets/edge/<террейн>_<террейн-соседа>_<направление 0-5>.png — art
-    //     именно для ЭТОЙ пары террейнов в эту сторону (перекрывает общий
-    //     вариант, если есть). Тот же приём работает и когда сосед —
-    //     террейн ТОГО ЖЕ типа (это и есть ваш пример "лес рядом с лесом") —
-    //     просто положите assets/edge/forest_forest_2.png, к примеру.
-    groups.edge = {};
-    const terrainKeys = Object.keys(TERRAIN).filter(k => k !== 'border');
-    terrainKeys.forEach(t1 => {
-      for (let dir = 0; dir < 6; dir++) {
-        groups.edge[`${t1}_${dir}`] = [`assets/edge/${t1}_${dir}.png`];
-      }
-      console.log(groups.edge)
-      terrainKeys.forEach(t2 => {
-        for (let dir = 0; dir < 6; dir++) {
-          groups.edge[`${t1}_${t2}_${dir}`] = [`assets/edge/${t1}_${t2}_${dir}.png`];
-        }
-      });
+    // Точные "паттерны соседей" для террейна — см. Game.Config.TERRAIN_PATTERN_FILES
+    // и подробное описание схемы имён прямо там, а сам подбор картинки —
+    // в Game.Render.drawTerrain()/terrainPatternKeyFor() ниже. В отличие от
+    // terrain/capital/unit это НЕ комбинаторный перебор путей (совпадений
+    // могло бы быть астрономически много) — грузится только то, что
+    // разработчик явно перечислил как существующий файл.
+    groups.pattern = {};
+    Game.Config.TERRAIN_PATTERN_FILES.forEach(filename => {
+      
+      const key = Game.Assets.patternKeyFromFilename(filename);
+      
+      groups.pattern[key] = groups.pattern[key] || [];
+      groups.pattern[key].push('assets/patterns/' + filename);
     });
 
     return groups;
@@ -864,12 +850,7 @@
           const img = new Image();
           img.onload = () => { Game.Assets.images[group][key][idx] = img; onSlotDone(); };
           img.onerror = () => {
-            // 'edge' — это сотни ЗАВЕДОМО опциональных комбинаций (см.
-            // manifest()); отсутствие конкретного файла — норма, а не
-            // ошибка, поэтому для этой категории в консоль не пишем.
-            if (group !== 'edge') {
-              console.warn(`Не удалось загрузить ассет [${group}/${key}]:`, src);
-            }
+            console.warn(`Не удалось загрузить ассет [${group}/${key}]:`, src);
             onSlotDone();
           };
           img.src = src;
@@ -883,10 +864,94 @@
   // террейна (Game.Config.terrainVariant), теперь общая для всех категорий.
   // Возвращает null, если для этого ключа ничего не загружено — вызывающий
   // код (drawCapital/drawUnit/drawTerrain) в этом случае рисует как раньше.
-  Game.Assets.variant = function variant(group, key, entity){
-    const arr = ((Game.Assets.images[group] || {})[key] || []).filter(Boolean);
-    if(!arr.length) return null;
-    return arr[Game.Utils.hashHexIndex(entity.q, entity.r, arr.length)];
+  Game.Assets.variant = function variant(group, key, entity) {
+      const imagesGroup = Game.Assets.images[group] || {};
+      
+      // 1. Проверяем точное совпадение
+      let arr = (imagesGroup[key] || []).filter(Boolean);
+      
+      // 2. Если точного нет, урезаем ключ по дефисам, игнорируя те, что внутри скобок [...]
+      if (!arr.length && key.includes('-')) {
+          // Регулярное выражение ищет дефис, за которым НЕ следует закрывающая скобка раньше открывающей
+          // Простой и надежный способ: разбиваем по дефисам, но собираем обратно то, что разорвалось внутри [...]
+          const rawParts = key.split('-');
+          const parts = [];
+          
+          let temp = '';
+          for (const part of rawParts) {
+              if (temp) {
+                  temp += '-' + part;
+              } else {
+                  temp = part;
+              }
+              
+              // Считаем баланс скобок, чтобы понять, закрылся ли блок [...]
+              const openCount = (temp.match(/\[/g) || []).length;
+              const closeCount = (temp.match(/\]/g) || []).length;
+              
+              if (openCount === closeCount) {
+                  parts.push(temp);
+                  temp = '';
+              }
+          }
+          if (temp) parts.push(temp);
+
+          // Поочередно отбрасываем правые сегменты
+          while (parts.length > 1) {
+              parts.pop();
+              const subKey = parts.join('-');
+              arr = (imagesGroup[subKey] || []).filter(Boolean);
+              if (arr.length) break;
+          }
+      }
+
+      if (!arr.length) return null;
+      
+      return arr[Game.Utils.hashHexIndex(entity.q, entity.r, arr.length)];
+  };
+
+  // --------------------------------------------------------------------------
+  // "Паттерны соседей" для террейна — точное совпадение картинки под
+  // конкретную раскладку соседних гексов вместо наложения кусков друг на
+  // друга (так каждая картинка полностью авторская и ничего не перекрывает).
+  //
+  // Схема имени файла:  <террейн>-<сосед1>[<направления через дефис>]-<сосед2>[...]-....png
+  // Пример: water-plains[1-2]-hills[0].png
+  //   — это гекс ВОДЫ (базовый террейн), у которого гексы РАВНИНЫ по сторонам
+  //   1 и 2, и гекс ХОЛМОВ по стороне 0. Направления — те же индексы 0..5,
+  //   что в Game.Config.DIRS (см. Game.Map.neighborAt). Соседей С ТАКИМ ЖЕ
+  //   террейном, как у самого гекса, в скобках указывать не нужно — гекс,
+  //   полностью окружённый тем же террейном, это и есть "базовая картинка"
+  //   (обычный Game.Config.terrainVariant, как и раньше).
+  //
+  // Порядок групп в имени файла не важен — при сравнении с реальным гексом
+  // паттерн приводится к канонической форме (группы сортируются по имени
+  // террейна). Файл ищется ТОЧНЫМ совпадением полного набора направлений;
+  // если у гекса чуть другая раскладка соседей — совпадения не будет, и
+  // отрисуется обычная базовая картинка террейна (см. Game.Render.drawTerrain).
+  Game.Assets.parsePatternName = function parsePatternName(nameNoExt){
+    const firstGroupAt = nameNoExt.search(/[a-zA-Zа-яА-Я0-9]+\[/);
+    const base = (firstGroupAt === -1 ? nameNoExt : nameNoExt.slice(0, firstGroupAt)).replace(/-+$/, '');
+    const groups = {};
+    const groupRe = /([a-zA-Zа-яА-Я0-9]+)\[([0-9]+(?:-[0-9]+)*)\]/g;
+    let m;
+    while((m = groupRe.exec(nameNoExt))){
+      groups[m[1]] = m[2].split('-').map(Number).sort((a,b)=>a-b);
+    }
+    return { base, groups };
+  };
+  // Каноническая строка-ключ из {base, groups} — одна и та же что для
+  // распарсенного имени файла, что для реального гекса на карте, так что их
+  // можно сравнивать напрямую строкой.
+  Game.Assets.patternKey = function patternKey(base, groups){
+    const terrainNames = Object.keys(groups).filter(t => groups[t].length).sort();
+    const parts = terrainNames.map(t => `${t}[${groups[t].slice().sort((a,b)=>a-b).join('-')}]`);
+    return base + (parts.length ? '-' + parts.join('-') : '');
+  };
+  Game.Assets.patternKeyFromFilename = function patternKeyFromFilename(filename){
+    const nameNoExt = filename.replace(/\.[a-zA-Z0-9]+$/, '');
+    const { base, groups } = Game.Assets.parsePatternName(nameNoExt);
+    return Game.Assets.patternKey(base, groups);
   };
 
   // ==========================================================================
@@ -897,7 +962,7 @@
     // Mutable, user-adjustable settings (each one bound to a control in the
     // settings panel — see Game.UI.initEvents()).
     settings: {
-      hexSize: 28,
+      hexSize: 32,
       showGrid: true,
       territoryFillMode: false,
       currentTheme: 'classic',
@@ -924,13 +989,30 @@
     // (терраин 'border' — см. terrainDefs()). Меняется прямо здесь.
     BORDER_THICKNESS: 2,
 
+    // Явный список файлов с картинками под конкретные раскладки соседей —
+    // см. подробное описание схемы имён у Game.Assets.parsePatternName()
+    // выше. Пополняется вручную по мере того, как появляется арт; чего нет
+    // в этом списке — не запрашивается вообще (никаких лишних 404).
+    // Пример: 'water-plains[1-2]-hills[0].png' — кладите сам файл в
+    // assets/patterns/.
+    TERRAIN_PATTERN_FILES: [
+      'water-plains[1-2].png',
+      'water-plains[0-1].png',
+      'water-forest[2]-plains[3].png',
+      'water-plains[2].png',
+      'water-plains[3].png',
+      'forest-forest[1-2].png',
+      'forest-forest[3-4].png',
+      'forest-forest[0-5].png'
+    ],
+
     // Camera limits.
     MIN_ZOOM: 0.35,
     MAX_ZOOM: 4.0,
 
     // Pseudo-3D perspective tuning (see Game.Render.projectFlat/perspectiveScale).
-    TILT_FACTOR: 0.9,
-    PERSPECTIVE_STRENGTH: 0.2,
+    TILT_FACTOR: 0.85,
+    PERSPECTIVE_STRENGTH: 0,
     get PERSPECTIVE_FAR_SCALE(){ return 1 - this.PERSPECTIVE_STRENGTH; },
 
     // Hex-grid axial direction vectors.
@@ -1987,71 +2069,57 @@
     Game.Render.staticCtx.save();
     Game.Render.hexPath(h, Game.Render.staticCtx, overflowTop);
     Game.Render.staticCtx.clip();
-    const PAD = 1.18;
+    const PAD = 1;
     const size = p.hexSize * 2 * PAD;
-    Game.Render.staticCtx.drawImage(img, p.x - size/2, p.y - size/2 - overflowTop, size, size + overflowTop);
+    Game.Render.staticCtx.drawImage(img, p.x - size/2+4, p.y - size*Game.Config.TILT_FACTOR/2 - overflowTop, size-8, size*Game.Config.TILT_FACTOR + overflowTop);
     Game.Render.staticCtx.restore();
+  };
+  // Раскладка соседей текущего гекса в виде {терраин_соседа: [направления]},
+  // БЕЗ соседей с тем же террейном, что у самого гекса (см. комментарий у
+  // Game.Assets.parsePatternName выше — "везде такой же террейн" это и есть
+  // обычная базовая картинка, отдельно её описывать не нужно). Дальше
+  // сравнивается строкой с уже загруженными паттернами через
+  // Game.Assets.patternKey — совпадение должно быть ТОЧНЫМ.
+  Game.Render.terrainPatternKeyFor = function terrainPatternKeyFor(h){
+    const groups = {};
+    for(let dir = 0; dir < 6; dir++){
+      const nb = Game.Map.neighborAt(h, dir);
+      if(!nb || nb.terrain === 'border') continue;
+      (groups[nb.terrain] = groups[nb.terrain] || []).push(dir);
+    }
+    return Game.Assets.patternKey(h.terrain, groups);
   };
   Game.Render.drawTerrain = function drawTerrain(h){
     const TERRAIN = Game.Config.terrainDefs();
     const terrainType = h.terrain;
     const def = TERRAIN[terrainType];
-    const variants = ((Game.Assets.images.terrain || {})[terrainType] || []).filter(Boolean);
+    const overflowTop = (def.artOverflowTop || 0) * Game.Render.pixelForHex(h).hexSize;
 
-    // Если для этого террейна загружены картинки — рисуем одну из них
-    // (вариант выбирается стабильно по координатам гекса, см. Game.Config.terrainVariant).
+    // 1) Точное совпадение по раскладке соседей (авторская картинка на
+    //    конкретное сочетание) — если такое зарегистрировано и загрузилось.
+    const patternKey = terrainType !== 'border' ? Game.Render.terrainPatternKeyFor(h) : null;
+    const patternImg = patternKey ? Game.Assets.variant('pattern', patternKey, h) : null;
+    if (patternImg) {
+      Game.Render.drawHexImage(h, patternImg, overflowTop);
+      return;
+    }
+
+    // 2) По умолчанию — обычная картинка террейна (вариант выбирается
+    //    стабильно по координатам гекса, см. Game.Config.terrainVariant).
+    const variants = ((Game.Assets.images.terrain || {})[terrainType] || []).filter(Boolean);
     if (variants.length) {
       const img = Game.Config.terrainVariant(h, variants);
 
-      // Насколько верх картинки может вылезти за пределы гекса вверх (в пикселях,
-      // с учётом перспективного размера ИМЕННО этого гекса — p.hexSize).
-      //
-      // Саму картинку рисуем увеличенной и сдвинутой вверх на overflowTop, чтобы то,
-      // что нарисовано в её верхней части (вершина горы, кроны леса), физически
-      // оказалось выше границы гекса и легло поверх верхнего соседа — отсюда и
-      // ощущение глубины. Порядок отрисовки по рядам (см. Game.Render.hexesByDepth() и
-      // Game.Render.updateStaticLayer()) гарантирует, что дальний сосед уже нарисован и корректно
-      // перекрывается.
-      Game.Render.drawHexImage(h, img, (def.artOverflowTop || 0) * Game.Render.pixelForHex(h).hexSize);
+      // Насколько верх картинки может вылезти за пределы гекса вверх — см.
+      // подробности в комментарии выше про overflowTop/hexPath (тот же
+      // приём, что и для патернов: рисуем крупнее и сдвигаем вверх, чтобы
+      // вершины/кроны легли поверх верхнего соседа).
+      Game.Render.drawHexImage(h, img, overflowTop);
     } else {
-      // Запасной вариант со сплошным цветом, если картинки нет
+      // 3) Совсем запасной вариант со сплошным цветом, если картинки нет вообще
       Game.Render.hexPath(h, Game.Render.staticCtx);
       Game.Render.staticCtx.fillStyle = Game.Config.settings.territoryFillMode ? Game.Render.territoryColor(h, def.color) : def.color;
       Game.Render.staticCtx.fill();
-    }
-
-    Game.Render.drawTerrainEdges(h);
-  };
-  // Переходы между соседними гексами ("автотайлинг" по террейну соседа).
-  //
-  // Для каждого из 6 направлений (индекс соответствует Game.Config.DIRS —
-  // тому же порядку, в котором Game.Map.neighborAt(h, dir) достаёт соседа)
-  // смотрим на террейн соседа и ищем подходящую картинку в Game.Assets,
-  // группа 'edge' (см. полное описание схемы имён в Game.Assets.manifest()):
-  //   1) сначала САМЫЙ конкретный вариант — именно для этой пары террейнов
-  //      именно в эту сторону (работает и когда сосед — ТОТ ЖЕ террейн, это
-  //      и есть механизм "лес рядом с лесом выглядит иначе, чем лес у моря");
-  //   2) если его нет и сосед — ДРУГОЙ террейн — общий "край" этого террейна
-  //      в эту сторону (не завязан на то, что именно по соседству).
-  // Если для этого гекса вообще ничего не загружено — просто ничего не
-  // рисуется, никакой ошибки. Каждый найденный оверлей накладывается поверх
-  // уже нарисованной базовой картинки, поэтому направлений с разными
-  // соседями может быть сразу несколько — они складываются естественным
-  // образом, без комбинаторного взрыва готовых картинок "на все случаи".
-  Game.Render.drawTerrainEdges = function drawTerrainEdges(h){
-    if(h.terrain === 'border') return;
-    const TERRAIN = Game.Config.terrainDefs();
-    const def = TERRAIN[h.terrain];
-    const overflowTop = (def.artOverflowTop || 0) * Game.Render.pixelForHex(h).hexSize;
-
-    for(let dir = 0; dir < 6; dir++){
-      const nb = Game.Map.neighborAt(h, dir);
-      if(!nb || nb.terrain === 'border') continue;
-
-      const specific = Game.Assets.variant('edge', `${h.terrain}_${nb.terrain}_${dir}`, h);
-      const generic = nb.terrain !== h.terrain ? Game.Assets.variant('edge', `${h.terrain}_${dir}`, h) : null;
-      const img = specific || generic;
-      if(img) Game.Render.drawHexImage(h, img, overflowTop);
     }
   };
   Game.Render.drawRegionHighlight = function drawRegionHighlight(h) {
@@ -2190,7 +2258,7 @@
       corners.push(Game.Render.corner(h, i));
     }
 
-    Game.Render.ctx.lineWidth = 6 * Game.Render.camera.zoom;
+    Game.Render.ctx.lineWidth = 4 * Game.Render.camera.zoom;
     Game.Render.ctx.strokeStyle = color;
     Game.Render.ctx.lineCap = 'square'; 
     Game.Render.ctx.beginPath();
@@ -2461,7 +2529,7 @@
   };
   Game.Render.drawFog = function drawFog(h){
     Game.Render.hexPath(h, Game.Render.ctx);
-    Game.Render.ctx.fillStyle = 'rgba(4, 6, 4, 0.62)';
+    Game.Render.ctx.fillStyle = 'rgba(4, 6, 4, 0.22)';
     Game.Render.ctx.fill();
   };
   Game.Render.draw = function draw(){
@@ -2491,12 +2559,7 @@
       if (h.occupiedBy !== null) Game.Render.drawSiegeHatch(h);
     });
 
-    // Layer fog: затемняем всё, что вне тумана войны — поверх границ/штриховки,
-    // но под юнитами (юниты там всё равно не рисуются, см. Layer 2).
-    depthOrder.forEach(h=>{
-      if(!visible.has(Game.Utils.key(h.q, h.r))) Game.Render.drawFog(h);
-    });
-
+    
     //Layer 1
     const hh = Game.Render.hoveredHex;
     const sh = Game.State.match.selected;
@@ -2516,6 +2579,12 @@
       if (h.unit) Game.Render.drawUnit(h);
       if(h.capital) Game.Render.drawCapital(h);
     });
+    // Layer fog: затемняем всё, что вне тумана войны — поверх границ/штриховки,
+    // но под юнитами (юниты там всё равно не рисуются, см. Layer 2).
+    depthOrder.forEach(h=>{
+      if(!visible.has(Game.Utils.key(h.q, h.r))) Game.Render.drawFog(h);
+    });
+
 
     Game.Render.drawFlyingUnits();
     Game.Render.drawDestroyingUnits();
