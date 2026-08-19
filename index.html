@@ -515,9 +515,9 @@
             <label>Радиус карты:
               <select id="mapSizeSelect">
                 <option value="5">Малая (радиус 5)</option>
-                <option value="6" selected>Средняя (радиус 6)</option>
+                <option value="6" >Средняя (радиус 6)</option>
                 <option value="8">Большая (радиус 8)</option>
-                <option value="10" >Обширная (радиус 10)</option>
+                <option value="10" selected>Обширная (радиус 10)</option>
                 <option value="12" >Громадная (радиус 12)</option>
               </select>
             </label>
@@ -546,8 +546,8 @@
             <label>Базовый ход:
               <select id="moveRangeSelect">
                 <option value="1">1 гекс</option>
-                <option value="2" selected>2 гекса</option>
-                <option value="3">3 гекса</option>
+                <option value="2" >2 гекса</option>
+                <option value="3" selected>3 гекса</option>
                 <option value="100">100 гексов</option>
               </select>
             </label>
@@ -991,10 +991,10 @@
       territoryFillMode: false,
       currentTheme: 'classic',
       zocEnabled: true,
-      mapRadius: 6,
-      maxMovementPoints: 2,
+      mapRadius: 8,
+      maxMovementPoints: 3,
       regionSizeMode: 'balanced',
-      factionsCount: 4
+      factionsCount: 5
     },
 
     // Balance constants — kept exactly as designed.
