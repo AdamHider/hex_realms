@@ -1007,7 +1007,7 @@
     // Радиус тумана войны (в гексах) вокруг владений/юнитов игрока-человека
     // (id:0) — за его пределами вражеские юниты/границы/столицы не рисуются.
     // Меняется прямо здесь, в коде — отдельного UI-контрола не предусмотрено.
-    FOG_OF_WAR_RADIUS: 4,
+    FOG_OF_WAR_RADIUS: 3,
 
     // Толщина каймы непроходимых гексов, обрамляющей карту со всех сторон
     // (терраин 'border' — см. terrainDefs()). Меняется прямо здесь.
@@ -1033,37 +1033,64 @@
       'water-plains[4].png',
       'water-plains[5].png',
       'water-plains[0-1].png',
+      'water-plains[0-2].png',
       'water-plains[0-3].png',
+      'water-plains[0-4].png',
       'water-plains[0-5].png',
+
       'water-plains[1-2].png',
+      'water-plains[1-3].png',
       'water-plains[1-4].png',
+      'water-plains[1-5].png',
+
       'water-plains[2-3].png',
+      'water-plains[2-4].png',
+      'water-plains[2-5].png',
+
       'water-plains[3-4].png',
-      'water-plains[4-5].png',
       'water-plains[3-5].png',
+      
+      'water-plains[4-5].png',
       'water-plains[0-1-2].png',
       'water-plains[0-1-3].png',
       'water-plains[0-1-4].png',
       'water-plains[0-1-5].png',
       'water-plains[0-2-3].png',
-      'water-plains[0-4-5].png',
+      'water-plains[0-2-4].png',
       'water-plains[0-2-5].png',
       'water-plains[0-3-4].png',
-      'water-plains[2-3-4].png',
-      'water-plains[1-3-4].png',
+      'water-plains[0-3-5].png',
+      'water-plains[0-4-5].png',
       'water-plains[1-2-3].png',
+      'water-plains[1-2-4].png',
       'water-plains[1-2-5].png',
+      'water-plains[1-3-4].png',
+      'water-plains[1-3-5].png',
+      'water-plains[1-4-5].png',
+      'water-plains[2-3-4].png',
+      'water-plains[2-3-5].png',
+      'water-plains[2-4-5].png',
       'water-plains[3-4-5].png',
       'water-plains[0-1-2-3].png',
+      'water-plains[0-1-2-4].png',
       'water-plains[0-1-2-5].png',
+      'water-plains[0-1-3-4].png',
+      'water-plains[0-1-3-5].png',
       'water-plains[0-1-4-5].png',
+      'water-plains[0-2-3-4].png',
+      'water-plains[0-2-4-5].png',
+      'water-plains[0-2-3-5].png',
+      'water-plains[0-3-4-5].png',
       'water-plains[1-2-3-4].png',
+      'water-plains[1-2-3-5].png',
       'water-plains[1-2-4-5].png',
-      'water-plains[0-1-2-3].png',
+      'water-plains[1-3-4-5].png',
       'water-plains[2-3-4-5].png',
       'water-plains[0-1-2-3-4].png',
-      'water-plains[0-1-3-4-5].png',
+      'water-plains[0-1-2-3-5].png',
       'water-plains[0-1-2-4-5].png',
+      'water-plains[0-1-3-4-5].png',
+      'water-plains[1-2-3-4-5].png',
       'water-plains[0-1-2-3-4-5].png'
       /*'plains-plains[0-1-2-3-5]-water[4].png',
       'plains-plains[0-1-2-5]-water[3-4].png',
@@ -1092,13 +1119,13 @@
     BUILDING_DESTROY_REFUND: 5, // золото за снос постройки
 
     // Camera limits.
-    MIN_ZOOM: 0.65,
-    MAX_ZOOM: 1.5,
+    MIN_ZOOM: 0.45,
+    MAX_ZOOM: 1,
 
     // Наклон вида ("сверху под углом", см. Game.Render.applyTilt) — просто
     // равномерное сжатие карты по Y. Перспективы (сжатия по X с расстоянием
     // от центра) в игре больше нет.
-    TILT_FACTOR: 0.85,
+    TILT_FACTOR: 0.8,
 
     // Hex-grid axial direction vectors.
     DIRS: [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]],
@@ -2232,7 +2259,7 @@
     Game.Render.staticCtx.save();
     Game.Render.hexPath(h, Game.Render.staticCtx, overflowTop);
     Game.Render.staticCtx.clip();
-    const PAD = 1;
+    const PAD = 1.015;
     const size = p.hexSize * 2 * PAD;
     Game.Render.staticCtx.drawImage(img, p.x - size/2+12, p.y - size*Game.Config.TILT_FACTOR/2 - overflowTop, size-24, size*Game.Config.TILT_FACTOR + overflowTop);
     Game.Render.staticCtx.restore();
@@ -2461,7 +2488,7 @@
       corners.push(Game.Render.corner(h, i));
     }
 
-    Game.Render.ctx.lineWidth = 4 * Game.Render.camera.zoom;
+    Game.Render.ctx.lineWidth = 6 / (Game.Render.camera.zoom/1.1);
     Game.Render.ctx.strokeStyle = color;
     Game.Render.ctx.lineCap = 'square'; 
     Game.Render.ctx.beginPath();
@@ -2476,13 +2503,12 @@
         let c1 = corners[i];
         let c2 = corners[(i + 1) % 6];
 
-        // 4. Удлиняем каждый отрезок в обе стороны, чтобы они заходили друг за друга на углах
         const dx = c2.x - c1.x;
         const dy = c2.y - c1.y;
         const len = Math.sqrt(dx * dx + dy * dy);
         
         if (len > 0) {
-          const extend = 4 * Game.Render.camera.zoom; // Запас на перекрытие стыка
+          const extend = 4 * Game.Render.camera.zoom;
           const ux = (dx / len) * extend;
           const uy = (dy / len) * extend;
 
@@ -3521,7 +3547,7 @@
   window.onload = function(){
     Game.Config.loadAssets(() => {
       Game.UI.initEvents();
-      Game.Map.create(12345678);
+      Game.Map.create(123456789012345);
       Game.Render.setup();
       Game.Render.draw();
       Game.UI.updatePanel();
