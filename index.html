@@ -184,7 +184,6 @@
     min-width:0;
     max-height:210px;
     display:flex;
-    flex-direction:column;
     background:linear-gradient(180deg, #241a10 0%, #1a130c 100%);
     border:none;
     border-right:1px solid rgba(212,162,76,0.28);
@@ -509,7 +508,6 @@
 
     <div id="bottomDock">
       <div class="card">
-        <h2><span class="icon">🎯</span> Управление и Разведка</h2>
         <div id="selectedInfo"><span class="placeholder">Выберите гекс для отдачи приказов</span></div>
         <div id="actionButtons"></div>
       </div>
@@ -2516,8 +2514,8 @@
     if(img){
       // Здание — не значок в кружке, а объект, стоящий на своём террейне
       // (какая картинка — зависит от h.terrain, см. Game.Assets.manifest()).
-      const footX = p.x, footY = p.y + p.hexSize * 0.3;
-      const width = p.hexSize * 1.5, height = p.hexSize * 1.7;
+      const footX = p.x, footY = p.y + p.hexSize * 0.75;
+      const width = p.hexSize * 1.6, height = p.hexSize * 1.6;
       Game.Render.drawSpriteAt(Game.Render.ctx, img, footX, footY, width, height);
 
       // Маленький цветной флажок-маркер владельца сбоку от здания.
@@ -2835,6 +2833,8 @@
       if(!visible.has(Game.Utils.key(h.q, h.r))) return;
       if(h.owner !== null) Game.Render.drawFactionBorders(h) 
       if (Game.State.activeRegionId !== null) Game.Render.drawActiveRegion(h);
+      if(h.capital) Game.Render.drawCapital(h);
+      else if(h.building) Game.Render.drawBuilding(h);
       if (h.occupiedBy !== null) Game.Render.drawSiegeHatch(h);
     });
 
@@ -2855,8 +2855,6 @@
     //Layer 2 — юниты/столицы/постройки тоже скрыты в тумане войны
     renderList.forEach(h => {
       if(!visible.has(Game.Utils.key(h.q, h.r))) return;
-      if(h.capital) Game.Render.drawCapital(h);
-      else if(h.building) Game.Render.drawBuilding(h);
       if (h.unit) Game.Render.drawUnit(h);
     });
     // Layer fog: затемняем всё, что вне тумана войны — поверх границ/штриховки,
