@@ -515,9 +515,9 @@
             <label>Радиус карты:
               <select id="mapSizeSelect">
                 <option value="5">Малая (радиус 5)</option>
-                <option value="6" selected>Средняя (радиус 6)</option>
+                <option value="6" >Средняя (радиус 6)</option>
                 <option value="8">Большая (радиус 8)</option>
-                <option value="10" >Обширная (радиус 10)</option>
+                <option value="10" selected>Обширная (радиус 10)</option>
                 <option value="12" >Громадная (радиус 12)</option>
               </select>
             </label>
@@ -546,8 +546,8 @@
             <label>Базовый ход:
               <select id="moveRangeSelect">
                 <option value="1">1 гекс</option>
-                <option value="2" selected>2 гекса</option>
-                <option value="3">3 гекса</option>
+                <option value="2" >2 гекса</option>
+                <option value="3" selected>3 гекса</option>
                 <option value="100">100 гексов</option>
               </select>
             </label>
@@ -608,6 +608,7 @@
 
 
 <script>
+
 (function(){
   "use strict";
 
@@ -795,13 +796,36 @@
     groups.terrain = {};
     Object.keys(TERRAIN).forEach(key => { groups.terrain[key] = TERRAIN[key].imageSrc; });
 
-    // Столицы и юниты — по умолчанию один общий вариант на категорию (без
-    // деления по фракциям: цвет фракции по-прежнему рисуется под картинкой,
-    // см. Game.Render.drawCapital()/drawUnit()). Просто положите файлы по
-    // этим путям — при их отсутствии Game.Assets тихо откатится на старую
-    // отрисовку кружком, ничего не сломается.
-    groups.capital = { default: ['assets/capital.png'] };
-    groups.unit = { default: ['assets/unit.png'] };
+    // Столицы — здания, а не значок в кружке: конкретная картинка зависит от
+    // террейна, на котором стоит столица (assets/capital/<террейн>.png —
+    // дворец на равнине, деревня в холмах и т.п.), плюс общий 'default' на
+    // случай террейна без своей картинки.
+    groups.capital = {};
+    Object.keys(TERRAIN).filter(t => t !== 'border').forEach(t => {
+      groups.capital[t] = [`assets/capital/${t}.png`];
+    });
+    groups.capital.default = ['assets/capital.png'];
+
+    // Юниты — полноразмерные фигуры (генералы), а не значок в кружке.
+    // Картинка зависит от силы юнита (assets/unit/strength_<N>.png).
+    groups.unit = {};
+    for(let s = 1; s <= Game.Config.UNIT_MAX_STRENGTH_TIER; s++){
+      groups.unit['strength_' + s] = [`assets/unit/strength_${s}.png`];
+    }
+    groups.unit.default = ['assets/unit.png'];
+
+    // Постройки (фермы, лесопилки, ...) — картинка зависит от типа и уровня
+    // (assets/building/<тип>_<уровень>.png), плюс запасной вариант без
+    // уровня (assets/building/<тип>.png) на случай, если конкретный уровень
+    // не нарисован.
+    groups.building = {};
+    Object.keys(Game.Config.BUILDING_TYPES).forEach(type => {
+      const maxLevel = Game.Config.BUILDING_TYPES[type].maxLevel;
+      for(let lvl = 1; lvl <= maxLevel; lvl++){
+        groups.building[`${type}_${lvl}`] = [`assets/building/${type}_${lvl}.png`];
+      }
+      groups.building[type] = [`assets/building/${type}.png`];
+    });
 
     // Точные "паттерны соседей" для террейна — см. Game.Config.TERRAIN_PATTERN_FILES
     // и подробное описание схемы имён прямо там, а сам подбор картинки —
@@ -967,10 +991,10 @@
       territoryFillMode: false,
       currentTheme: 'classic',
       zocEnabled: true,
-      mapRadius: 6,
-      maxMovementPoints: 2,
+      mapRadius: 8,
+      maxMovementPoints: 3,
       regionSizeMode: 'balanced',
-      factionsCount: 4
+      factionsCount: 5
     },
 
     // Balance constants — kept exactly as designed.
@@ -983,7 +1007,7 @@
     // Радиус тумана войны (в гексах) вокруг владений/юнитов игрока-человека
     // (id:0) — за его пределами вражеские юниты/границы/столицы не рисуются.
     // Меняется прямо здесь, в коде — отдельного UI-контрола не предусмотрено.
-    FOG_OF_WAR_RADIUS: 4,
+    FOG_OF_WAR_RADIUS: 3,
 
     // Толщина каймы непроходимых гексов, обрамляющей карту со всех сторон
     // (терраин 'border' — см. terrainDefs()). Меняется прямо здесь.
@@ -996,6 +1020,10 @@
     // Пример: 'water-plains[1-2]-hills[0].png' — кладите сам файл в
     // assets/patterns/.
     TERRAIN_PATTERN_FILES: [
+      'forest-forest[1-2].png',
+      'forest-forest[1-4].png',
+      'forest-forest[3-4].png',
+      'forest-forest[0-5].png',
       'water-forest[1]-plains[0].png',
       'water-forest[2]-plains[3].png',
       'water-plains[0].png',
@@ -1005,37 +1033,99 @@
       'water-plains[4].png',
       'water-plains[5].png',
       'water-plains[0-1].png',
-      'water-plains[1-2].png',
-      'water-plains[2-3].png',
-      'water-plains[3-4].png',
-      'water-plains[4-5].png',
+      'water-plains[0-2].png',
+      'water-plains[0-3].png',
+      'water-plains[0-4].png',
       'water-plains[0-5].png',
-      'forest-forest[1-2].png',
-      'forest-forest[3-4].png',
-      'forest-forest[0-5].png',
+
+      'water-plains[1-2].png',
+      'water-plains[1-3].png',
+      'water-plains[1-4].png',
+      'water-plains[1-5].png',
+
+      'water-plains[2-3].png',
+      'water-plains[2-4].png',
+      'water-plains[2-5].png',
+
+      'water-plains[3-4].png',
+      'water-plains[3-5].png',
+      
+      'water-plains[4-5].png',
       'water-plains[0-1-2].png',
       'water-plains[0-1-3].png',
+      'water-plains[0-1-4].png',
       'water-plains[0-1-5].png',
-      'water-plains[0-4-5].png',
+      'water-plains[0-2-3].png',
+      'water-plains[0-2-4].png',
       'water-plains[0-2-5].png',
+      'water-plains[0-3-4].png',
+      'water-plains[0-3-5].png',
+      'water-plains[0-4-5].png',
+      'water-plains[1-2-3].png',
+      'water-plains[1-2-4].png',
+      'water-plains[1-2-5].png',
       'water-plains[1-3-4].png',
+      'water-plains[1-3-5].png',
+      'water-plains[1-4-5].png',
+      'water-plains[2-3-4].png',
+      'water-plains[2-3-5].png',
+      'water-plains[2-4-5].png',
       'water-plains[3-4-5].png',
       'water-plains[0-1-2-3].png',
+      'water-plains[0-1-2-4].png',
+      'water-plains[0-1-2-5].png',
+      'water-plains[0-1-3-4].png',
+      'water-plains[0-1-3-5].png',
+      'water-plains[0-1-4-5].png',
+      'water-plains[0-2-3-4].png',
+      'water-plains[0-2-4-5].png',
+      'water-plains[0-2-3-5].png',
+      'water-plains[0-3-4-5].png',
+      'water-plains[1-2-3-4].png',
+      'water-plains[1-2-3-5].png',
+      'water-plains[1-2-4-5].png',
+      'water-plains[1-3-4-5].png',
+      'water-plains[2-3-4-5].png',
       'water-plains[0-1-2-3-4].png',
-      'water-plains[0-1-2-3-5].png'
+      'water-plains[0-1-2-3-5].png',
+      'water-plains[0-1-2-4-5].png',
+      'water-plains[0-1-3-4-5].png',
+      'water-plains[1-2-3-4-5].png',
+      'water-plains[0-1-2-3-4-5].png'
       /*'plains-plains[0-1-2-3-5]-water[4].png',
       'plains-plains[0-1-2-5]-water[3-4].png',
       'plains-forest[2]-plains[0-1-5]-water[3-4].png'*/
     ],
 
-    // Camera limits.
-    MIN_ZOOM: 0.35,
-    MAX_ZOOM: 4.0,
+    // Сколько ступеней силы юнита имеет собственную картинку (см.
+    // Game.Assets.manifest() — assets/unit/strength_1.png .. _N.png). Юнит
+    // сильнее этого числа рисуется картинкой максимальной ступени.
+    UNIT_MAX_STRENGTH_TIER: 8,
 
-    // Pseudo-3D perspective tuning (see Game.Render.projectFlat/perspectiveScale).
-    TILT_FACTOR: 0.85,
-    PERSPECTIVE_STRENGTH: 0,
-    get PERSPECTIVE_FAR_SCALE(){ return 1 - this.PERSPECTIVE_STRENGTH; },
+    // --------------------------------------------------------------------
+    // Постройки: фермы (на равнинах), лесопилки (в лесах) и т.п. — дают
+    // дополнительное золото владельцу гекса, можно строить/сносить/улучшать
+    // (в отличие от столиц — это тоже "постройки" по сути, но базовые,
+    // единственные в своём роде на область, и их нельзя ни построить, ни
+    // снести). У каждого типа своя допустимая местность и уровни улучшения
+    // — уровень 1..maxLevel, картинка — assets/building/<тип>_<уровень>.png
+    // (см. Game.Assets.manifest()).
+    BUILDING_TYPES: {
+      farm:    { terrain: 'plains', label: 'Ферма',     icon: '🌾', incomePerLevel: 3, maxLevel: 3 },
+      sawmill: { terrain: 'forest', label: 'Лесопилка', icon: '🪵', incomePerLevel: 3, maxLevel: 3 },
+    },
+    BUILDING_COST: 10,          // цена постройки уровня 1
+    BUILDING_UPGRADE_COST: 8,   // цена улучшения на следующий уровень
+    BUILDING_DESTROY_REFUND: 5, // золото за снос постройки
+
+    // Camera limits.
+    MIN_ZOOM: 0.45,
+    MAX_ZOOM: 1,
+
+    // Наклон вида ("сверху под углом", см. Game.Render.applyTilt) — просто
+    // равномерное сжатие карты по Y. Перспективы (сжатия по X с расстоянием
+    // от центра) в игре больше нет.
+    TILT_FACTOR: 0.8,
 
     // Hex-grid axial direction vectors.
     DIRS: [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]],
@@ -1157,7 +1247,8 @@
           occupiedBy: null,
           capital: false,
           regionId: null,
-          unit: null
+          unit: null,
+          building: null
         });
       }
     }
@@ -1207,7 +1298,7 @@
           if(hexes.has(k)) continue;
           hexes.set(k, {
             q, r, terrain: 'border',
-            owner: null, occupiedBy: null, capital: false, regionId: null, unit: null
+            owner: null, occupiedBy: null, capital: false, regionId: null, unit: null, building: null
           });
         }
       }
@@ -1304,6 +1395,18 @@
       });
 
       rHexes[0].capital = true;
+
+      // Здания по умолчанию — одно на область, если местность позволяет
+      // (см. Game.Config.BUILDING_TYPES). Кандидаты — все гексы региона
+      // подходящего террейна, кроме самой столицы.
+      const buildingCandidates = rHexes.filter(h => !h.capital &&
+        Object.values(Game.Config.BUILDING_TYPES).some(bt => bt.terrain === h.terrain));
+      if(buildingCandidates.length){
+        const pick = buildingCandidates[Math.floor(rand() * buildingCandidates.length)];
+        const type = Object.keys(Game.Config.BUILDING_TYPES)
+          .find(t => Game.Config.BUILDING_TYPES[t].terrain === pick.terrain);
+        pick.building = { type, level: 1 };
+      }
     });
 
     const players = [
@@ -1395,6 +1498,9 @@
       if(h.owner === pid){
         if(h.occupiedBy === null){
           income += TERRAIN[h.terrain].yield + (h.capital ? Game.Config.CAPITAL_BONUS_GOLD : 0);
+          if(h.building){
+            income += Game.Config.BUILDING_TYPES[h.building.type].incomePerLevel * h.building.level;
+          }
         }
       }
       if(h.unit && h.unit.owner === pid){
@@ -1424,6 +1530,51 @@
     Game.State.match.players[pid].gold += loot;
     Game.UI.log(`⚔️ Рейд на (${hex.q}, ${hex.r}): захвачено ${loot}💰 добычи.`);
   };
+  // --------------------------------------------------------------------------
+  // Постройки (фермы, лесопилки, ...) — см. Game.Config.BUILDING_TYPES.
+  // Столица — НЕ обычная постройка: она не проходит через эти функции, её
+  // нельзя ни построить, ни снести (см. Game.Render.drawCapital()).
+  // --------------------------------------------------------------------------
+  // Какой тип постройки в принципе можно поставить на этот террейн (null,
+  // если ни один тип не подходит).
+  Game.Map.buildingTypeFor = function buildingTypeFor(h){
+    return Object.keys(Game.Config.BUILDING_TYPES)
+      .find(t => Game.Config.BUILDING_TYPES[t].terrain === h.terrain) || null;
+  };
+  Game.Map.canBuild = function canBuild(h, pid){
+    if(!h || h.owner !== pid || h.capital || h.building) return false;
+    if(Game.Map.isRegionOccupiedBy(h.regionId, pid)) return false;
+    return Game.Map.buildingTypeFor(h) !== null;
+  };
+  Game.Map.build = function build(h, pid){
+    if(!Game.Map.canBuild(h, pid)) return false;
+    const type = Game.Map.buildingTypeFor(h);
+    const player = Game.State.match.players[pid];
+    if(player.gold < Game.Config.BUILDING_COST) return false;
+    player.gold -= Game.Config.BUILDING_COST;
+    h.building = { type, level: 1 };
+    return true;
+  };
+  Game.Map.canUpgradeBuilding = function canUpgradeBuilding(h, pid){
+    if(!h || !h.building || h.owner !== pid) return false;
+    if(Game.Map.isRegionOccupiedBy(h.regionId, pid)) return false;
+    const bt = Game.Config.BUILDING_TYPES[h.building.type];
+    return h.building.level < bt.maxLevel;
+  };
+  Game.Map.upgradeBuilding = function upgradeBuilding(h, pid){
+    if(!Game.Map.canUpgradeBuilding(h, pid)) return false;
+    const player = Game.State.match.players[pid];
+    if(player.gold < Game.Config.BUILDING_UPGRADE_COST) return false;
+    player.gold -= Game.Config.BUILDING_UPGRADE_COST;
+    h.building.level++;
+    return true;
+  };
+  Game.Map.destroyBuilding = function destroyBuilding(h, pid){
+    if(!h || !h.building || h.owner !== pid) return false;
+    Game.State.match.players[pid].gold += Game.Config.BUILDING_DESTROY_REFUND;
+    h.building = null;
+    return true;
+  };
 
   // ==========================================================================
   // Game.Movement — zone of control + reachable-hex pathing
@@ -1436,6 +1587,10 @@
   Game.Movement.reachable = function reachable(startHex, actingPlayer){
     const TERRAIN = Game.Config.terrainDefs();
     const distances = new Map();
+    // Кто до кого дошёл первым с наименьшей стоимостью — нужно только для
+    // восстановления МАРШРУТА (см. Game.Movement.pathTo(), которым теперь
+    // пользуется анимация ходьбы юнитов по гексам, Game.Render.animatePath()).
+    const cameFrom = new Map();
     const queue = [{ hex: startHex, cost: 0 }];
     distances.set(Game.Utils.key(startHex.q, startHex.r), 0);
 
@@ -1471,6 +1626,7 @@
           const nbKey = Game.Utils.key(nb.q, nb.r);
           if(!distances.has(nbKey) || newCost < distances.get(nbKey)){
             distances.set(nbKey, newCost);
+            cameFrom.set(nbKey, current.hex);
             if(isEnemyCombatTarget) continue;
             if(newCost <= allowedMaxRange || isDirectNeighbor){
               queue.push({ hex: nb, cost: newCost });
@@ -1479,7 +1635,31 @@
         }
       }
     }
+    distances._cameFrom = cameFrom; // приватная деталь для pathTo(), см. ниже
     return distances;
+  };
+  // Восстанавливает конкретный маршрут гекс-за-гексом от startHex до destHex
+  // (оба гекса включены), используя cameFrom-указатели, накопленные при
+  // обходе в reachable() выше. Возвращает null, если destHex недостижим.
+  // Нужен для пошаговой анимации хода (см. Game.Render.animatePath()).
+  Game.Movement.pathTo = function pathTo(startHex, destHex, actingPlayer){
+    const distances = Game.Movement.reachable(startHex, actingPlayer);
+    const destKey = Game.Utils.key(destHex.q, destHex.r);
+    if(!distances.has(destKey)) return null;
+    const cameFrom = distances._cameFrom;
+    const startKey = Game.Utils.key(startHex.q, startHex.r);
+
+    const path = [destHex];
+    let curKey = destKey;
+    let guard = 0; // защита от зацикливания при повреждённых данных
+    while(curKey !== startKey && guard++ < 500){
+      const prev = cameFrom.get(curKey);
+      if(!prev) break;
+      path.push(prev);
+      curKey = Game.Utils.key(prev.q, prev.r);
+    }
+    path.reverse();
+    return path;
   };
   Game.Movement.reachableCached = function reachableCached(startHex, actingPlayer){
     if(!startHex) return new Map();
@@ -1522,6 +1702,11 @@
     if(TERRAIN[to.terrain].impassable) return false;
     if(!from.unit || from.unit.owner!==actingPlayer || from.unit.hasMoved) return false;
 
+    // Настоящий маршрут гекс-за-гексом (см. Game.Movement.pathTo()) — для
+    // анимации хода по клеткам (Game.Render.animatePath()), а не перелёта по
+    // прямой. Если почему-то не восстановился — подстраховка: прыжок напрямую.
+    const path = Game.Movement.pathTo(from, to, actingPlayer) || [from, to];
+
     const unitCopy = { ...from.unit };
     from.unit = null;
 
@@ -1532,7 +1717,7 @@
 
     if(to.owner === actingPlayer && to.unit !== null && to.unit.owner === actingPlayer){
       if(!skipAnim){
-        Game.Render.animateMove(from, to, unitCopy, ()=>{
+        Game.Render.animatePath(path, unitCopy, ()=>{
           to.unit.strength += unitCopy.strength;
           to.unit.hasMoved = true;
           if(to.occupiedBy !== null) to.occupiedBy = null;
@@ -1576,7 +1761,7 @@
       };
 
       if(!skipAnim){
-        Game.Render.animateMove(from, to, unitCopy, ()=>{
+        Game.Render.animatePath(path, unitCopy, ()=>{
           if(winner){
             const outcome = resolveCaptureOutcome();
             if(cb) cb(outcome);
@@ -1622,7 +1807,7 @@
       };
 
       if(!skipAnim){
-        Game.Render.animateMove(from, to, unitCopy, ()=>{
+        Game.Render.animatePath(path, unitCopy, ()=>{
           const outcome = resolveMoveOutcome();
           Game.Audio.play(outcome === 'occupied' || outcome === 'neutral_siege' ? 'occupy' : (outcome === 'raided' ? 'occupy' : 'move'));
           if(cb) cb(outcome);
@@ -1809,6 +1994,19 @@
       recruits++;
     }
 
+    // Постройки — ИИ строит на подходящих пустых гексах своей территории (не
+    // больше нескольких за ход, чтобы экономика не взлетала мгновенно), а
+    // если строить уже негде — вкладывается в улучшение того, что уже есть.
+    const buildCandidates = all.filter(h => Game.Map.canBuild(h, pid));
+    let built = 0;
+    for(let i=0; i<buildCandidates.length && built < 2 && p.gold >= Game.Config.BUILDING_COST; i++){
+      if(Game.Map.build(buildCandidates[i], pid)) built++;
+    }
+    const upgradeCandidates = all.filter(h => Game.Map.canUpgradeBuilding(h, pid));
+    if(upgradeCandidates.length && p.gold >= Game.Config.BUILDING_UPGRADE_COST){
+      Game.Map.upgradeBuilding(upgradeCandidates[0], pid);
+    }
+
     const aiUnits = all.filter(h => h.unit && h.unit.owner === pid && !h.unit.hasMoved);
     if(aiUnits.length === 0){
       if(onDone) onDone();
@@ -1901,7 +2099,7 @@
 
     // Камера (полёт "птичьим взглядом" над картой): pan + zoom. camera.x/y/zoom
     // describe the single ctx.setTransform(...) that render() uses to turn WORLD
-    // coordinates (the ones pixelForHex/projectFlat compute) into buffer pixels.
+    // coordinates (the ones pixelForHex/applyTilt compute) into buffer pixels.
     // Every pointer/keyboard handler must use exactly this same transform in
     // reverse (bufferToWorld), or clicks drift from what's drawn.
     camera: { x: 0, y: 0, zoom: 1.0 },
@@ -1916,9 +2114,6 @@
     hoveredHex: null,
     flyingUnits: [],
     destroyingUnits: [],
-
-    // Perspective-scale range, computed once per map (see perspectiveScale()).
-    perspRange: { min: 0, max: 0, ready: false },
 
     // Hover memoization so onHover() can skip redundant tooltip/redraw work.
     lastHover: { hex: undefined, version: -1 },
@@ -1945,19 +2140,14 @@
     const y = Game.Config.settings.hexSize * 1.5 * r;
     return {x,y};
   };
-  Game.Render.projectFlat = function projectFlat(flatX, flatY){
-    const scale = Game.Render.perspectiveScale(flatY);
-    // ВАЖНО: центр схождения перспективы по X — это центр КАРТЫ (Game.Render.mapPixelW/2),
-    // а не центр холста. Раньше холст был размером ровно с карту, так что оба
-    // центра случайно совпадали; теперь холст — это весь вьюпорт (карта рисуется
-    // в мировых координатах, а на экран её переносит Game.Render.camera-transform в Game.Render.draw()),
-    // поэтому центр обязан браться из геометрии самой карты.
-    const centerX = Game.Render.mapPixelW ? Game.Render.mapPixelW / 2 : flatX;
-    return {
-      x: centerX + (flatX - centerX) * scale,
-      y: flatY * scale * Game.Config.TILT_FACTOR, // Добавлен учет масштаба перспективы для высоты
-      scale
-    };
+  // Финальный "наклон" вида (Game.Config.TILT_FACTOR) — просто равномерное
+  // сжатие по Y, БЕЗ какой-либо перспективы (сжатия по X, зависящего от
+  // расстояния до центра карты) — её больше нет во всей игре. scale в
+  // возвращаемом объекте всегда 1: оставлен только для того, чтобы не
+  // переписывать десятки мест кода, которые ожидают такую форму объекта
+  // (`p.scale`, `proj.scale`) — по факту это уже просто константа-заглушка.
+  Game.Render.applyTilt = function applyTilt(flatX, flatY){
+    return { x: flatX, y: flatY * Game.Config.TILT_FACTOR, scale: 1 };
   };
   Game.Render.flatCenter = function flatCenter(h){
     const p = Game.Render.toPixel(h.q, h.r);
@@ -1973,24 +2163,12 @@
   };
   Game.Render.corner = function corner(h, i){
     const fc = Game.Render.cornerFlat(h, i);
-    return Game.Render.projectFlat(fc.x, fc.y);
-  };
-  Game.Render.perspectiveScale = function perspectiveScale(flatY){
-    if(!Game.Render.perspRange.ready || Game.Render.perspRange.max === Game.Render.perspRange.min) return 1;
-    let t = (flatY - Game.Render.perspRange.min) / (Game.Render.perspRange.max - Game.Render.perspRange.min); // 0 = дальний край (верх), 1 = ближний (низ)
-    if(t < 0) t = 0; else if(t > 1) t = 1; // на случай запаса/паддинга за пределами карты
-    return Game.Config.PERSPECTIVE_FAR_SCALE + t * (1 - Game.Config.PERSPECTIVE_FAR_SCALE);
+    return Game.Render.applyTilt(fc.x, fc.y);
   };
   Game.Render.pixelForHex = function pixelForHex(h){
-    // Центр гекса проецируется той же единой функцией, что и его углы
-    // (Game.Render.projectFlat) — гарантирует, что юниты/столицы/текст, которые
-    // рисуются в Game.Render.pixelForHex-точке, остаются точно в центре перспективно
-    // искажённого шестиугольника, а не "уезжают" относительно его формы.
-    // Возвращаемая точка — в МИРОВЫХ координатах карты; экранные пиксели
-    // получаются из неё через Game.Render.camera-transform, который ставит Game.Render.draw().
     const c = Game.Render.flatCenter(h);
-    const proj = Game.Render.projectFlat(c.x, c.y);
-    return { x: proj.x, y: proj.y, hexSize: Game.Config.settings.hexSize * proj.scale, scale: proj.scale };
+    const proj = Game.Render.applyTilt(c.x, c.y);
+    return { x: proj.x, y: proj.y, hexSize: Game.Config.settings.hexSize, scale: 1 };
   };
   Game.Render.cubeRound = function cubeRound(qf, rf){
     let xf = qf, zf = rf, yf = -xf - zf;
@@ -2003,26 +2181,16 @@
   };
   Game.Render.hexAtEvent = function hexAtEvent(evt){
     if(!Game.Render.canvas || !Game.State.match) return null;
-    // Клиентские координаты -> буфер канваса (учитывает CSS-масштаб/DPR) ->
-    // мировые координаты карты (отменяет камеру: pan+zoom). Это ТОЧНОЕ
-    // обращение той трансформации, что Game.Render.draw() задаёт через Game.Render.ctx.setTransform,
-    // так что попадание в гекс остаётся точным при любом зуме/сдвиге камеры.
     const world = Game.Render.bufferToWorld(Game.Render.clientToBuffer(evt));
 
     const offX = Game.Render.canvas.dataset.offx ? parseFloat(Game.Render.canvas.dataset.offx) : 0;
     const offY = Game.Render.canvas.dataset.offy ? parseFloat(Game.Render.canvas.dataset.offy) : 0;
 
-    // Game.Render.pixelForHex ещё и сжимает X по перспективе (Game.Render.perspectiveScale),
-    // а не только Y (Game.Config.TILT_FACTOR) — точное обратное преобразование зависело бы от
-    // r искомого гекса, который мы как раз ищем. Поэтому: сперва грубая оценка
-    // БЕЗ перспективы (ей достаточно точности, чтобы попасть в нужный гекс или его
-    // соседа), а затем уточнение по РЕАЛЬНЫМ мировым координатам через Game.Render.pixelForHex —
-    // так клики остаются точными даже на сильно "уехавших" по перспективе дальних рядах.
-    const mx = world.x - offX;
-    const my = world.y / Game.Config.TILT_FACTOR - offY;
+    const flatX = world.x - offX;
+    const flatY = world.y / Game.Config.TILT_FACTOR - offY;
 
-    const qf = (Math.sqrt(3)/3 * mx - 1/3 * my) / Game.Config.settings.hexSize;
-    const rf = (2/3 * my) / Game.Config.settings.hexSize;
+    const qf = (Math.sqrt(3)/3 * flatX - 1/3 * flatY) / Game.Config.settings.hexSize;
+    const rf = (2/3 * flatY) / Game.Config.settings.hexSize;
     const { q, r } = Game.Render.cubeRound(qf, rf);
 
     let best = Game.State.match.hexes.get(Game.Utils.key(q,r)) || null;
@@ -2091,7 +2259,7 @@
     Game.Render.staticCtx.save();
     Game.Render.hexPath(h, Game.Render.staticCtx, overflowTop);
     Game.Render.staticCtx.clip();
-    const PAD = 1;
+    const PAD = 1.015;
     const size = p.hexSize * 2 * PAD;
     Game.Render.staticCtx.drawImage(img, p.x - size/2+12, p.y - size*Game.Config.TILT_FACTOR/2 - overflowTop, size-24, size*Game.Config.TILT_FACTOR + overflowTop);
     Game.Render.staticCtx.restore();
@@ -2215,16 +2383,66 @@
       }
     });
   };
+  // Спрайт (постройка/юнит), НЕ обрезанный по контуру гекса — рисуется как
+  // отдельно стоящий объект: якорь — нижняя середина картинки (обычно это
+  // "подошва" здания или ступни персонажа), поэтому высокие фигуры
+  // естественно возвышаются над своим гексом, а не расплющиваются в кружок.
+  Game.Render.drawSpriteAt = function drawSpriteAt(ctx, img, cx, bottomY, width, height){
+    ctx.drawImage(img, cx - width / 2, bottomY - height, width, height);
+  };
   Game.Render.drawUnit = function drawUnit(h) {
     const p = Game.Render.pixelForHex(h);
-    const hs = p.hexSize; // размер юнита следует перспективному размеру его гекса
+    const hs = p.hexSize;
     const uColor = Game.State.match.players[h.unit.owner].color;
-    const cx = p.x, cy = p.y + hs * 0.2, r = hs * 0.36;
-    const img = Game.Assets.variant('unit', 'default', h);
+    const tier = Game.Utils.clamp(Math.round(h.unit.strength), 1, Game.Config.UNIT_MAX_STRENGTH_TIER);
+    const img = Game.Assets.variant('unit', 'strength_' + tier, h) || Game.Assets.variant('unit', 'default', h);
 
-    // Цветной кружок фракции — рисуем всегда (и без картинки, и под ней),
-    // чтобы принадлежность юнита было видно с первого взгляда независимо от
-    // того, положили вы уже арт для юнитов или ещё нет.
+    if(img){
+      // Полноразмерная фигура ("генерал") стоит на гексе — якорь у ступней.
+      const footX = p.x, footY = p.y + hs * 0.42;
+      const width = hs * 1.35, height = hs * 2.1;
+
+      // Небольшая цветная тень-подложка под ногами — принадлежность юнита
+      // фракции видно даже мельком, не разглядывая саму картинку.
+      Game.Render.ctx.beginPath();
+      Game.Render.ctx.ellipse(footX, footY, hs * 0.34, hs * 0.13, 0, 0, Math.PI * 2);
+      Game.Render.ctx.fillStyle = uColor;
+      Game.Render.ctx.globalAlpha = 0.85;
+      Game.Render.ctx.fill();
+      Game.Render.ctx.globalAlpha = 1;
+
+      Game.Render.drawSpriteAt(Game.Render.ctx, img, footX, footY, width, height);
+
+      if(h.unit.hasMoved){
+        Game.Render.ctx.beginPath();
+        Game.Render.ctx.arc(footX + hs * 0.36, footY - hs * 0.1, 3, 0, Math.PI * 2);
+        Game.Render.ctx.fillStyle = '#94a3b8';
+        Game.Render.ctx.fill();
+      }
+
+      // Подпись с числом войск — ПОД персонажем (не поверх), с тёмной
+      // подложкой для читаемости на любом фоне.
+      const labelY = footY + hs * 0.22;
+      const fontSize = Math.max(9, Math.round(12));
+      Game.Render.ctx.font = 'bold ' + fontSize + 'px ' + getComputedStyle(document.body).fontFamily;
+      Game.Render.ctx.textAlign = 'center';
+      Game.Render.ctx.textBaseline = 'middle';
+      const labelText = String(h.unit.strength);
+      const labelW = Game.Render.ctx.measureText(labelText).width;
+      Game.Render.ctx.fillStyle = 'rgba(10,14,10,0.72)';
+      Game.Render.ctx.beginPath();
+      Game.Render.ctx.roundRect ?
+        Game.Render.ctx.roundRect(footX - labelW/2 - 5, labelY - fontSize*0.6 - 2, labelW + 10, fontSize + 6, 4) :
+        Game.Render.ctx.rect(footX - labelW/2 - 5, labelY - fontSize*0.6 - 2, labelW + 10, fontSize + 6);
+      Game.Render.ctx.fill();
+      Game.Render.ctx.fillStyle = '#ffffff';
+      Game.Render.ctx.fillText(labelText, footX, labelY + 1);
+      return;
+    }
+
+    // Запасной вариант — старая отрисовка кружком, если картинки для этой
+    // ступени силы (и 'default') нет.
+    const cx = p.x, cy = p.y + hs * 0.2, r = hs * 0.36;
     Game.Render.ctx.beginPath();
     Game.Render.ctx.arc(cx, cy, r, 0, Math.PI * 2);
     Game.Render.ctx.fillStyle = uColor;
@@ -2233,24 +2451,14 @@
     Game.Render.ctx.strokeStyle = '#101712';
     Game.Render.ctx.stroke();
 
-    if(img){
-      const size = r * 1.7;
-      Game.Render.ctx.save();
-      Game.Render.ctx.beginPath();
-      Game.Render.ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      Game.Render.ctx.clip();
-      Game.Render.ctx.drawImage(img, cx - size / 2, cy - size / 2, size, size);
-      Game.Render.ctx.restore();
-    }
-
     if(h.unit.hasMoved){
       Game.Render.ctx.beginPath();
-      Game.Render.ctx.arc(p.x + hs * 0.22, p.y, 3 * p.scale, 0, Math.PI * 2);
+      Game.Render.ctx.arc(p.x + hs * 0.22, p.y, 3, 0, Math.PI * 2);
       Game.Render.ctx.fillStyle = '#94a3b8';
       Game.Render.ctx.fill();
     }
     Game.Render.ctx.fillStyle = '#ffffff';
-    Game.Render.ctx.font = 'bold ' + Math.max(8, Math.round(11 * p.scale)) + 'px ' + getComputedStyle(document.body).fontFamily;
+    Game.Render.ctx.font = 'bold 11px ' + getComputedStyle(document.body).fontFamily;
     Game.Render.ctx.textAlign = 'center';
     Game.Render.ctx.textBaseline = 'middle';
     Game.Render.ctx.fillText(h.unit.strength, p.x, p.y + hs * 0.2);
@@ -2280,7 +2488,7 @@
       corners.push(Game.Render.corner(h, i));
     }
 
-    Game.Render.ctx.lineWidth = 4 * Game.Render.camera.zoom;
+    Game.Render.ctx.lineWidth = 6 / (Game.Render.camera.zoom/1.1);
     Game.Render.ctx.strokeStyle = color;
     Game.Render.ctx.lineCap = 'square'; 
     Game.Render.ctx.beginPath();
@@ -2295,13 +2503,12 @@
         let c1 = corners[i];
         let c2 = corners[(i + 1) % 6];
 
-        // 4. Удлиняем каждый отрезок в обе стороны, чтобы они заходили друг за друга на углах
         const dx = c2.x - c1.x;
         const dy = c2.y - c1.y;
         const len = Math.sqrt(dx * dx + dy * dy);
         
         if (len > 0) {
-          const extend = 4 * Game.Render.camera.zoom; // Запас на перекрытие стыка
+          const extend = 4 * Game.Render.camera.zoom;
           const ux = (dx / len) * extend;
           const uy = (dy / len) * extend;
 
@@ -2324,12 +2531,39 @@
   Game.Render.drawCapital = function drawCapital(h){
     const p = Game.Render.pixelForHex(h);
     const color = h.owner !== null ? Game.State.match.players[h.owner].color : '#d4a24c';
-    const cx = p.x, cy = p.y - p.hexSize * 0.38, r = 3.5 * p.scale;
-    const img = Game.Assets.variant('capital', 'default', h);
-    // ИСПРАВЛЕНО: раньше рисовалось в staticCtx (кэшированный слой террейна),
-    // хотя вызывается каждый кадр из динамического Layer 2 в draw() — иконка
-    // столицы из-за этого на кадр отставала от остального рендера. Теперь,
-    // как и юниты, рисуется прямо в Game.Render.ctx.
+    const img = Game.Assets.variant('capital', h.terrain, h) || Game.Assets.variant('capital', 'default', h);
+
+    if(img){
+      // Здание — не значок в кружке, а объект, стоящий на своём террейне
+      // (какая картинка — зависит от h.terrain, см. Game.Assets.manifest()).
+      const footX = p.x, footY = p.y + p.hexSize * 0.3;
+      const width = p.hexSize * 1.5, height = p.hexSize * 1.7;
+      Game.Render.drawSpriteAt(Game.Render.ctx, img, footX, footY, width, height);
+
+      // Маленький цветной флажок-маркер владельца сбоку от здания.
+      const flagX = footX + width * 0.32, flagTopY = footY - height * 0.78, flagH = p.hexSize * 0.32;
+      Game.Render.ctx.beginPath();
+      Game.Render.ctx.moveTo(flagX, flagTopY);
+      Game.Render.ctx.lineTo(flagX, flagTopY + flagH);
+      Game.Render.ctx.lineWidth = 1.4;
+      Game.Render.ctx.strokeStyle = '#3a3226';
+      Game.Render.ctx.stroke();
+      Game.Render.ctx.beginPath();
+      Game.Render.ctx.moveTo(flagX, flagTopY);
+      Game.Render.ctx.lineTo(flagX + flagH * 0.85, flagTopY + flagH * 0.22);
+      Game.Render.ctx.lineTo(flagX, flagTopY + flagH * 0.44);
+      Game.Render.ctx.closePath();
+      Game.Render.ctx.fillStyle = color;
+      Game.Render.ctx.fill();
+      Game.Render.ctx.lineWidth = 1;
+      Game.Render.ctx.strokeStyle = '#101712';
+      Game.Render.ctx.stroke();
+      return;
+    }
+
+    // Запасной вариант — старая отрисовка кружком, если картинки нет ни для
+    // этого террейна, ни 'default'.
+    const cx = p.x, cy = p.y - p.hexSize * 0.38, r = 3.5;
     Game.Render.ctx.beginPath();
     Game.Render.ctx.arc(cx, cy, r, 0, Math.PI * 2);
     Game.Render.ctx.fillStyle = color;
@@ -2337,16 +2571,38 @@
     Game.Render.ctx.lineWidth = 1.5;
     Game.Render.ctx.strokeStyle = '#101712';
     Game.Render.ctx.stroke();
+  };
+  // Обычные постройки (фермы, лесопилки, ...) — в отличие от столицы можно
+  // построить/снести/улучшить (см. Game.Map.build/upgradeBuilding/destroyBuilding).
+  // Картинка зависит от типа И уровня (см. Game.Assets.manifest()).
+  Game.Render.drawBuilding = function drawBuilding(h){
+    if(!h.building) return;
+    const p = Game.Render.pixelForHex(h);
+    const bt = Game.Config.BUILDING_TYPES[h.building.type];
+    const img = Game.Assets.variant('building', `${h.building.type}_${h.building.level}`, h) ||
+                Game.Assets.variant('building', h.building.type, h);
 
     if(img){
-      const size = r * 1.7;
-      Game.Render.ctx.save();
-      Game.Render.ctx.beginPath();
-      Game.Render.ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      Game.Render.ctx.clip();
-      Game.Render.ctx.drawImage(img, cx - size / 2, cy - size / 2, size, size);
-      Game.Render.ctx.restore();
+      const footX = p.x, footY = p.y + p.hexSize * 0.32;
+      const width = p.hexSize * 1.3, height = p.hexSize * 1.4;
+      Game.Render.drawSpriteAt(Game.Render.ctx, img, footX, footY, width, height);
+      return;
     }
+
+    // Запасной вариант — маленький значок с иконкой типа постройки.
+    const cx = p.x, cy = p.y + p.hexSize * 0.25, r = p.hexSize * 0.24;
+    Game.Render.ctx.beginPath();
+    Game.Render.ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    Game.Render.ctx.fillStyle = '#8a7945';
+    Game.Render.ctx.fill();
+    Game.Render.ctx.lineWidth = 1.2;
+    Game.Render.ctx.strokeStyle = '#101712';
+    Game.Render.ctx.stroke();
+    Game.Render.ctx.fillStyle = '#fff';
+    Game.Render.ctx.font = Math.max(9, Math.round(r * 1.1)) + 'px sans-serif';
+    Game.Render.ctx.textAlign = 'center';
+    Game.Render.ctx.textBaseline = 'middle';
+    Game.Render.ctx.fillText(bt.icon || '?', cx, cy);
   };
   Game.Render.drawSelected = function drawSelected(h){
     Game.Render.hexPath(h, Game.Render.ctx);
@@ -2373,17 +2629,13 @@
       const fromP = Game.Render.toPixel(fu.fromQ, fu.fromR);
       const toP = Game.Render.toPixel(fu.toQ, fu.toR);
 
-      // Интерполируем в ПЛОСКИХ (до наклона/перспективы) координатах — ровно
-      // так же, как это делает Game.Render.cornerFlat()/Game.Render.flatCenter() для
-      // статичных гексов — и лишь затем проецируем через ЕДИНУЮ
-      // Game.Render.projectFlat(). Раньше здесь просто умножали на Game.Config.TILT_FACTOR и
-      // игнорировали Game.Render.perspectiveScale(), поэтому летящий юнит двигался
-      // по прямой, а не по той же перспективно-искажённой дуге, что рисуют
-      // сами гексы — сейчас он "приезжает" точно в центр гекса-цели.
+      // Интерполируем в ПЛОСКИХ (до наклона) координатах — ровно так же, как
+      // это делает Game.Render.cornerFlat()/Game.Render.flatCenter() для
+      // статичных гексов — и лишь затем применяем ЕДИНЫЙ Game.Render.applyTilt().
       const flatX = fromP.x + (toP.x - fromP.x) * fu.progress + offX;
       const flatY = fromP.y + (toP.y - fromP.y) * fu.progress + offY;
-      const proj = Game.Render.projectFlat(flatX, flatY);
-      const r = Game.Config.settings.hexSize * proj.scale;
+      const proj = Game.Render.applyTilt(flatX, flatY);
+      const r = Game.Config.settings.hexSize;
 
       Game.Render.ctx.beginPath();
       Game.Render.ctx.arc(proj.x, proj.y, r * 0.38, 0, Math.PI * 2);
@@ -2488,17 +2740,10 @@
     // Мировые габариты карты (см. Game.Render.mapPixelW/Game.Render.mapPixelH) — независимы от
     // размера холста, который теперь всегда равен размеру вьюпорта.
     Game.Render.mapPixelW = maxX - minX;
-    // Контент по вертикали сжимается на Game.Config.TILT_FACTOR внутри Game.Render.projectFlat,
+    // Контент по вертикали сжимается на Game.Config.TILT_FACTOR (см. Game.Render.applyTilt),
     // поэтому и мировую высоту карты уменьшаем на тот же множитель — иначе
     // снизу остаётся пустая полоса ровно в (1 - Game.Config.TILT_FACTOR) высоты карты.
     Game.Render.mapPixelH = (maxY - minY) * Game.Config.TILT_FACTOR;
-
-    // Диапазон плоской Y — в ТОЙ ЖЕ системе координат (offset уже применён), что и
-    // Game.Render.flatCenter()/Game.Render.cornerFlat(), которыми пользуется Game.Render.projectFlat().
-    const flatYs = pts.map(p => p.y - minY);
-    Game.Render.perspRange.min = Math.min(...flatYs);
-    Game.Render.perspRange.max = Math.max(...flatYs);
-    Game.Render.perspRange.ready = true;
 
     // Канвас теперь — полноэкранный буфер (карта на весь экран), а не "холст
     // ровно по размеру карты": позиционирование/масштаб карты внутри него
@@ -2525,7 +2770,7 @@
       if(h.terrain === 'border') return;
       if(h.owner === 0 || h.occupiedBy === 0 || (h.unit && h.unit.owner === 0)) sources.push(h);
     });
-    // Юнит игрока в полёте между гексами (см. animateMove) на миг никому не
+    // Юнит игрока в полёте между гексами (см. Game.Render._animateHop) на миг никому не
     // "принадлежит" — он уже ушёл из from.unit и ещё не встал в to.unit.
     // Без этого туман на секунду откатывается в начале хода и снова
     // раскрывается в конце. Добавляем обе точки анимации как источники обзора
@@ -2595,11 +2840,12 @@
       Game.Render.drawSelected(sh)
       if(sh.unit && sh.unit.owner===0 && !Game.State.match.over) Game.Render.drawPlayerReachable(sh)
     }
-    //Layer 2 — юниты/столицы тоже скрыты в тумане войны
+    //Layer 2 — юниты/столицы/постройки тоже скрыты в тумане войны
     depthOrder.forEach(h => {
       if(!visible.has(Game.Utils.key(h.q, h.r))) return;
-      if (h.unit) Game.Render.drawUnit(h);
       if(h.capital) Game.Render.drawCapital(h);
+      else if(h.building) Game.Render.drawBuilding(h);
+      if (h.unit) Game.Render.drawUnit(h);
     });
     // Layer fog: затемняем всё, что вне тумана войны — поверх границ/штриховки,
     // но под юнитами (юниты там всё равно не рисуются, см. Layer 2).
@@ -2612,7 +2858,7 @@
     Game.Render.drawDestroyingUnits();
     Game.Render.ctx.resetTransform();
   };
-  Game.Render.animateMove = function animateMove(from, to, unitData, callback){
+  Game.Render._animateHop = function _animateHop(from, to, unitData, duration, callback){
     Game.Render.flyingUnits.push({
       fromQ: from.q, fromR: from.r,
       toQ: to.q, toR: to.r,
@@ -2620,15 +2866,14 @@
       strength: unitData.strength,
       progress: 0,
     });
-    
+
     const startTime = performance.now();
-    const duration = 280;
 
     function animateStep(currentTime){
       const elapsed = currentTime - startTime;
       const p = Math.min(1, elapsed / duration);
       const eased = 1 - Math.pow(1 - p, 3);
-      
+
       if(Game.Render.flyingUnits.length > 0) Game.Render.flyingUnits[Game.Render.flyingUnits.length - 1].progress = eased;
       Game.Render.draw();
 
@@ -2640,6 +2885,23 @@
       }
     }
     requestAnimationFrame(animateStep);
+  };
+  // Ведёт юнита ПО ГЕКСАМ вдоль настоящего маршрута (path — массив гексов от
+  // старта до цели включительно, см. Game.Movement.pathTo()), а не по прямой.
+  // Каждый отрезок — отдельный _animateHop(); общий callback срабатывает один
+  // раз, после последнего прыжка. Долгие маршруты идут чуть быстрее за
+  // прыжок, чтобы весь ход не растягивался пропорционально числу гексов.
+  Game.Render.animatePath = function animatePath(path, unitData, callback){
+    if(!path || path.length < 2){ if(callback) callback(); return; }
+    const hopDuration = path.length > 2 ? 160 : 280;
+    let i = 0;
+    function nextHop(){
+      if(i >= path.length - 1){ if(callback) callback(); return; }
+      const from = path[i], to = path[i+1];
+      i++;
+      Game.Render._animateHop(from, to, unitData, hopDuration, nextHop);
+    }
+    nextHop();
   };
   Game.Render.animateDestruction = function animateDestruction(hex, unitData, callback){
     Game.Render.destroyingUnits.push({
@@ -2948,6 +3210,10 @@
     let html = `<b>${t.label}</b> (q:${sel.q}, r:${sel.r})`;
     if(sel.owner!==null) html += `<br>Владелец: ${Game.State.match.players[sel.owner].name}`;
     if(sel.capital) html += `<br><span style="color:var(--gold);">👑 Столица области #${sel.regionId}</span>`;
+    if(sel.building){
+      const bt = Game.Config.BUILDING_TYPES[sel.building.type];
+      html += `<br><span style="color:#8fbf6a;">${bt.icon} ${bt.label} (уровень ${sel.building.level}/${bt.maxLevel}, +${bt.incomePerLevel * sel.building.level}💰/ход)</span>`;
+    }
     
     let actHtml = '';
     if(sel.unit){
@@ -2984,6 +3250,28 @@
         actHtml += `<div style="font-size:11px; color:var(--danger); margin-top:6px; margin-bottom:6px;">⚠️ Текущая область оккупирована! Усиление войск заблокировано.</div>`;
       } else {
         actHtml += `<button id="reinforceBtn" type="button">Усилить отряд (${Game.Config.REINFORCE_COST}💰)</button>`;
+      }
+    }
+
+    // Постройки (фермы, лесопилки, ...) — доступны только на своей земле,
+    // не на столице (у неё свой отдельный статус) и не под оккупацией.
+    if(sel.owner === 0 && !sel.capital && !Game.State.match.over){
+      const buildType = Game.Map.buildingTypeFor(sel);
+      if(sel.building){
+        const bt = Game.Config.BUILDING_TYPES[sel.building.type];
+        if(regionIsOccupied){
+          actHtml += `<div style="font-size:11px; color:var(--danger); margin-top:6px; margin-bottom:6px;">⚠️ Область оккупирована! Улучшение построек заблокировано.</div>`;
+        } else if(sel.building.level < bt.maxLevel){
+          actHtml += `<button id="upgradeBuildingBtn" type="button">Улучшить ${bt.label.toLowerCase()} (${Game.Config.BUILDING_UPGRADE_COST}💰)</button>`;
+        }
+        actHtml += `<button id="destroyBuildingBtn" type="button" style="background:transparent; border:1px solid var(--danger); color:var(--danger);">Снести (+${Game.Config.BUILDING_DESTROY_REFUND}💰)</button>`;
+      } else if(buildType){
+        const bt = Game.Config.BUILDING_TYPES[buildType];
+        if(regionIsOccupied){
+          actHtml += `<div style="font-size:11px; color:var(--danger); margin-top:6px; margin-bottom:6px;">⚠️ Область оккупирована! Постройка заблокирована.</div>`;
+        } else {
+          actHtml += `<button id="buildBtn" type="button">Построить: ${bt.icon} ${bt.label} (${Game.Config.BUILDING_COST}💰)</button>`;
+        }
       }
     }
     acts.innerHTML = actHtml;
@@ -3031,6 +3319,43 @@
           sel.unit.strength += 1;
           Game.Audio.play('recruit');
           Game.UI.log(`Отряд на (${sel.q}, ${sel.r}) усилен.`);
+          Game.Render.draw(); Game.UI.updatePanel();
+        }
+      };
+    }
+
+    const buildBtn = document.getElementById('buildBtn');
+    if(buildBtn){
+      buildBtn.onclick = (e)=>{
+        e.stopPropagation();
+        if(Game.Map.build(sel, 0)){
+          Game.Audio.play('recruit');
+          const bt = Game.Config.BUILDING_TYPES[sel.building.type];
+          Game.UI.log(`${bt.icon} Построена ${bt.label.toLowerCase()} на (${sel.q}, ${sel.r}).`);
+          Game.Render.draw(); Game.UI.updatePanel();
+        }
+      };
+    }
+    const upgradeBuildingBtn = document.getElementById('upgradeBuildingBtn');
+    if(upgradeBuildingBtn){
+      upgradeBuildingBtn.onclick = (e)=>{
+        e.stopPropagation();
+        if(Game.Map.upgradeBuilding(sel, 0)){
+          Game.Audio.play('recruit');
+          const bt = Game.Config.BUILDING_TYPES[sel.building.type];
+          Game.UI.log(`${bt.icon} ${bt.label} на (${sel.q}, ${sel.r}) улучшена до уровня ${sel.building.level}.`);
+          Game.Render.draw(); Game.UI.updatePanel();
+        }
+      };
+    }
+    const destroyBuildingBtn = document.getElementById('destroyBuildingBtn');
+    if(destroyBuildingBtn){
+      destroyBuildingBtn.onclick = (e)=>{
+        e.stopPropagation();
+        const bt = sel.building ? Game.Config.BUILDING_TYPES[sel.building.type] : null;
+        if(Game.Map.destroyBuilding(sel, 0)){
+          Game.Audio.play('combat');
+          if(bt) Game.UI.log(`${bt.icon} ${bt.label} на (${sel.q}, ${sel.r}) снесена (+${Game.Config.BUILDING_DESTROY_REFUND}💰).`);
           Game.Render.draw(); Game.UI.updatePanel();
         }
       };
@@ -3222,7 +3547,7 @@
   window.onload = function(){
     Game.Config.loadAssets(() => {
       Game.UI.initEvents();
-      Game.Map.create(12345);
+      Game.Map.create(123456789012345);
       Game.Render.setup();
       Game.Render.draw();
       Game.UI.updatePanel();
