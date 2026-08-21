@@ -184,6 +184,7 @@
     min-width:0;
     max-height:210px;
     display:flex;
+    flex-direction:column;
     background:linear-gradient(180deg, #241a10 0%, #1a130c 100%);
     border:none;
     border-right:1px solid rgba(212,162,76,0.28);
@@ -508,6 +509,7 @@
 
     <div id="bottomDock">
       <div class="card">
+        <h2><span class="icon">🎯</span> Управление и Разведка</h2>
         <div id="selectedInfo"><span class="placeholder">Выберите гекс для отдачи приказов</span></div>
         <div id="actionButtons"></div>
       </div>
@@ -978,7 +980,7 @@
       showGrid: true,
       territoryFillMode: false,
       zocEnabled: true,
-      mapRadius: 12,
+      mapRadius: 6,
       maxMovementPoints: 2,
       regionSizeMode: 'balanced',
       factionsCount: 4
@@ -1226,7 +1228,7 @@
     }
 
     const all = Array.from(hexes.values());
-/*
+
     all.forEach(h => {
       if(h.terrain === 'water' || h.terrain === 'mountains'){
         const landNbs = Game.Map.neighbors(h).filter(nb => nb.terrain !== 'water' && nb.terrain !== 'mountains');
@@ -1244,7 +1246,7 @@
         }
       }
     });
-*/
+
     Game.State.match = {
       hexes, players: [],
       selected: null,
@@ -2461,49 +2463,39 @@
     Game.Render.ctx.clip();
 
     const corners = [];
+    const isBorderEdge = [];
     for (let i = 0; i < 6; i++) {
       corners.push(Game.Render.corner(h, i));
-    }
-
-    Game.Render.ctx.lineWidth = 6 / (Game.Render.camera.zoom/1.1);
-    Game.Render.ctx.strokeStyle = color;
-    Game.Render.ctx.lineCap = 'square'; 
-    Game.Render.ctx.beginPath();
-
-    let hasEdges = false;
-
-    for (let i = 0; i < 6; i++) {
       const [dq, dr] = Game.Config.EDGE_DIRS[i];
       const nb = Game.State.match.hexes.get(Game.Utils.key(h.q + dq, h.r + dr));
-      
-      if (!nb || nb.owner !== h.owner) {
-        let c1 = corners[i];
-        let c2 = corners[(i + 1) % 6];
-
-        // 4. Удлиняем каждый отрезок в обе стороны, чтобы они заходили друг за друга на углах
-        const dx = c2.x - c1.x;
-        const dy = c2.y - c1.y;
-        const len = Math.sqrt(dx * dx + dy * dy);
-        
-        if (len > 0) {
-          const extend = 4 * Game.Render.camera.zoom; // Запас на перекрытие стыка
-          const ux = (dx / len) * extend;
-          const uy = (dy / len) * extend;
-
-          c1 = { x: c1.x - ux, y: c1.y - uy };
-          c2 = { x: c2.x + ux, y: c2.y + uy };
-        }
-
-        Game.Render.ctx.moveTo(c1.x, c1.y);
-        Game.Render.ctx.lineTo(c2.x, c2.y);
-        hasEdges = true;
-      }
+      isBorderEdge.push(!nb || nb.owner !== h.owner);
     }
 
-    if (hasEdges) {
-      Game.Render.ctx.stroke();
-    }
+    if (!isBorderEdge.some(Boolean)) { Game.Render.ctx.restore(); return; }
 
+    Game.Render.ctx.lineWidth = 45.5 * Game.Render.camera.zoom;
+    Game.Render.ctx.strokeStyle = color;
+    // Скруглённые углы: соседние граничные рёбра объединяются в ОДИН
+    // непрерывный путь (а не рисуются отдельными отрезками, как раньше) —
+    // тогда canvas сам скругляет стык через lineJoin, без ручного "заступа"
+    // отрезков друг за друга (та самая причина, почему углы наплывали друг
+    // на друга у соседних государств — квадратные торцы плюс перехлёст).
+    Game.Render.ctx.lineJoin = 'round';
+    Game.Render.ctx.lineCap = 'round';
+    Game.Render.ctx.beginPath();
+
+    let started = false;
+    for (let i = 0; i < 6; i++) {
+      if (!isBorderEdge[i]) { started = false; continue; }
+      const c1 = corners[i], c2 = corners[(i + 1) % 6];
+      if (!started) { Game.Render.ctx.moveTo(c1.x, c1.y); started = true; }
+      Game.Render.ctx.lineTo(c2.x, c2.y);
+    }
+    // Замыкаем контур, если граница идёт по кругу всего гекса (все 6 рёбер) —
+    // иначе стык между последним и первым ребром останется угловатым.
+    if (isBorderEdge.every(Boolean)) Game.Render.ctx.closePath();
+
+    Game.Render.ctx.stroke();
     Game.Render.ctx.restore();
   };
   Game.Render.drawCapital = function drawCapital(h){
@@ -2514,8 +2506,8 @@
     if(img){
       // Здание — не значок в кружке, а объект, стоящий на своём террейне
       // (какая картинка — зависит от h.terrain, см. Game.Assets.manifest()).
-      const footX = p.x, footY = p.y + p.hexSize * 0.75;
-      const width = p.hexSize * 1.6, height = p.hexSize * 1.6;
+      const footX = p.x, footY = p.y + p.hexSize * 0.3;
+      const width = p.hexSize * 1.5, height = p.hexSize * 1.7;
       Game.Render.drawSpriteAt(Game.Render.ctx, img, footX, footY, width, height);
 
       // Маленький цветной флажок-маркер владельца сбоку от здания.
@@ -2833,8 +2825,6 @@
       if(!visible.has(Game.Utils.key(h.q, h.r))) return;
       if(h.owner !== null) Game.Render.drawFactionBorders(h) 
       if (Game.State.activeRegionId !== null) Game.Render.drawActiveRegion(h);
-      if(h.capital) Game.Render.drawCapital(h);
-      else if(h.building) Game.Render.drawBuilding(h);
       if (h.occupiedBy !== null) Game.Render.drawSiegeHatch(h);
     });
 
@@ -2855,6 +2845,8 @@
     //Layer 2 — юниты/столицы/постройки тоже скрыты в тумане войны
     renderList.forEach(h => {
       if(!visible.has(Game.Utils.key(h.q, h.r))) return;
+      if(h.capital) Game.Render.drawCapital(h);
+      else if(h.building) Game.Render.drawBuilding(h);
       if (h.unit) Game.Render.drawUnit(h);
     });
     // Layer fog: затемняем всё, что вне тумана войны — поверх границ/штриховки,
@@ -3533,7 +3525,7 @@
   window.onload = function(){
     Game.Config.loadAssets(() => {
       Game.UI.initEvents();
-      Game.Map.create(123456);
+      Game.Map.create(12345);
       Game.Render.setup();
       Game.Render.draw();
       Game.UI.updatePanel();

@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Полигональная карта мира с настраиваемыми параметрами и Сидом</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3-delaunay@6"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col items-center justify-center p-4">
+
+    <header class="text-center mb-4">
+        <h1 class="text-2xl font-bold tracking-tight text-emerald-400">Полигональная карта мира (Сиды и Рельеф)</h1>
+        <p class="text-xs text-slate-400 mt-1">10 зеленых биомов суши и 3 синих биома воды с настраиваемыми сидами генерации</p>
+    </header>
+
+    <div class="flex flex-col lg:flex-row gap-4 items-start justify-center max-w-6xl w-full">
+        <!-- Canvas and stats block -->
+        <div class="relative bg-slate-900 border border-slate-800 rounded-2xl p-3 shadow-2xl overflow-hidden flex flex-col items-center">
+            <canvas id="mapCanvas" width="600" height="600" class="rounded-xl cursor-crosshair bg-slate-950"></canvas>
+            
+            <div class="w-full flex flex-wrap items-center justify-between gap-3 mt-4 px-2">
+                <div id="stats" class="text-xs text-slate-300 space-x-3">
+                    <span class="inline-flex items-center"><span class="w-2.5 h-2.5 rounded-full bg-emerald-600 inline-block mr-1"></span>Суша (10 биомов)</span>
+                    <span class="inline-flex items-center"><span class="w-2.5 h-2.5 rounded-full bg-blue-600 inline-block mr-1"></span>Вода (3 биома)</span>
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="randomizeSeedAndGenerate()" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl transition">
+                        Случайный Сид 🎲
+                    </button>
+                    <button onclick="generateMap()" class="px-4 py-2 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-slate-950 font-semibold text-sm rounded-xl shadow-lg transition transform active:scale-95">
+                        Сгенерировать мир
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Controls Sidebar -->
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-2xl w-full lg:w-80 flex flex-col gap-4">
+            <h2 class="text-sm font-bold text-emerald-400 uppercase tracking-wider border-b border-slate-800 pb-2">Настройки мира</h2>
+
+            <!-- Seed Settings -->
+            <div class="flex flex-col gap-1.5 bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                <div class="flex justify-between items-center text-xs">
+                    <span class="text-slate-300 font-semibold">Сид мира (Seed):</span>
+                    <label class="flex items-center gap-1 text-[10px] text-emerald-400 cursor-pointer select-none">
+                        <input type="checkbox" id="checkRandomSeed" checked onchange="toggleSeedInput()" class="accent-emerald-500"> Авто
+                    </label>
+                </div>
+                <div class="flex gap-2">
+                    <input type="text" id="inputSeed" value="12345" disabled class="w-full bg-slate-900 border border-slate-800 text-slate-100 text-xs rounded-lg px-2 py-1 font-mono disabled:opacity-50">
+                </div>
+            </div>
+
+            <div class="flex flex-col gap-1.5">
+                <div class="flex justify-between text-xs">
+                    <span class="text-slate-300">Плотность полигонов:</span>
+                    <span id="valSites" class="text-emerald-400 font-mono">700</span>
+                </div>
+                <input type="range" id="rangeSites" min="200" max="1500" step="50" value="700" oninput="updateLabel('valSites', this.value)" class="w-full accent-emerald-500 cursor-pointer">
+            </div>
+
+            <div class="flex flex-col gap-1.5">
+                <label for="selectShape" class="text-xs text-slate-300">Тип формы континента:</label>
+                <select id="selectShape" class="bg-slate-950 border border-slate-800 text-slate-100 text-xs rounded-xl p-2.5 focus:outline-none focus:border-emerald-500 cursor-pointer">
+                    <option value="archipelago">Архипелаг / Острова</option>
+                    <option value="gameofthrones">Северное королевство (Вестерос)</option>
+                    <option value="italy">Полуостров / Сапог (Италия)</option>
+                    <option value="britain" selected>Островной массив (Британия)</option>
+                    <option value="fractured">Расколотый континент</option>
+                </select>
+            </div>
+
+            <div class="flex flex-col gap-1.5">
+                <div class="flex justify-between text-xs">
+                    <span class="text-slate-300">Шум границ (Roughness):</span>
+                    <span id="valRoughness" class="text-emerald-400 font-mono">0.55</span>
+                </div>
+                <input type="range" id="rangeRoughness" min="0.1" max="1.2" step="0.05" value="0.55" oninput="updateLabel('valRoughness', this.value)" class="w-full accent-emerald-500 cursor-pointer">
+            </div>
+
+            <div class="flex flex-col gap-1.5">
+                <div class="flex justify-between text-xs">
+                    <span class="text-slate-300">Детализация рёбер (Depth):</span>
+                    <span id="valDepth" class="text-emerald-400 font-mono">6</span>
+                </div>
+                <input type="range" id="rangeDepth" min="2" max="8" step="1" value="6" oninput="updateLabel('valDepth', this.value)" class="w-full accent-emerald-500 cursor-pointer">
+            </div>
+
+            <div class="flex flex-col gap-1.5">
+                <div class="flex justify-between text-xs">
+                    <span class="text-slate-300">Размер континентов:</span>
+                    <span id="valScale" class="text-emerald-400 font-mono">1.15</span>
+                </div>
+                <input type="range" id="rangeScale" min="0.6" max="2.0" step="0.05" value="1.15" oninput="updateLabel('valScale', this.value)" class="w-full accent-emerald-500 cursor-pointer">
+            </div>
+
+            <div class="flex flex-col gap-1.5">
+                <div class="flex justify-between text-xs">
+                    <span class="text-slate-300">Разнообразие рельефа (Шум):</span>
+                    <span id="valNoiseAmp" class="text-emerald-400 font-mono">0.22</span>
+                </div>
+                <input type="range" id="rangeNoiseAmp" min="0.0" max="0.50" step="0.02" value="0.22" oninput="updateLabel('valNoiseAmp', this.value)" class="w-full accent-emerald-500 cursor-pointer">
+            </div>
+
+            <div class="flex flex-col gap-1.5">
+                <div class="flex justify-between text-xs">
+                    <span class="text-slate-300">Уровень воды (Порог):</span>
+                    <span id="valWaterLevel" class="text-emerald-400 font-mono">0.32</span>
+                </div>
+                <input type="range" id="rangeWaterLevel" min="0.20" max="0.50" step="0.01" value="0.32" oninput="updateLabel('valWaterLevel', this.value)" class="w-full accent-emerald-500 cursor-pointer">
+            </div>
+
+            <button onclick="generateMap()" class="mt-2 w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-semibold text-sm rounded-xl shadow transition transform active:scale-95">
+                Применить и пересоздать
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const CANVAS_WIDTH = 600;
+        const CANVAS_HEIGHT = 600;
+
+        const canvas = document.getElementById('mapCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const WIDTH = CANVAS_WIDTH;
+        const HEIGHT = CANVAS_HEIGHT;
+
+        // Генератор псевдослучайных чисел на основе Сида (Park-Miller LCG)
+        let currentSeed = 12345;
+        function seededRandom() {
+            currentSeed = (currentSeed * 48271) % 2147483647;
+            return (currentSeed / 2147483647);
+        }
+
+        function toggleSeedInput() {
+            const isAuto = document.getElementById('checkRandomSeed').checked;
+            document.getElementById('inputSeed').disabled = isAuto;
+            if (isAuto) {
+                currentSeed = Math.floor(Math.random() * 1000000);
+                document.getElementById('inputSeed').value = currentSeed;
+            }
+        }
+
+        function randomizeSeedAndGenerate() {
+            document.getElementById('checkRandomSeed').checked = false;
+            document.getElementById('inputSeed').disabled = false;
+            currentSeed = Math.floor(Math.random() * 9999999) + 1;
+            document.getElementById('inputSeed').value = currentSeed;
+            generateMap();
+        }
+
+        // Конфигурация биомов с их порогами высот (elevation)
+        const WATER_BIOMES = [
+            { id: 'DEEP_OCEAN', color: '#1a2346', maxElevation: 0.15 },
+            { id: 'OCEAN', color: '#232f5e', maxElevation: 0.25 },
+            { id: 'SHALLOW', color: '#2e3d7a', maxElevation: 1.0 }
+        ];
+
+        const LAND_BIOMES = [
+            { id: 'COAST', color: '#65a30d', maxElevation: 0.38 },
+            { id: 'STEPPE', color: '#88aa55', maxElevation: 0.44 },
+            { id: 'PLAINS', color: '#679459', maxElevation: 0.50 },
+            { id: 'GRASSLAND', color: '#559944', maxElevation: 0.56 },
+            { id: 'WETLANDS', color: '#4d7c0f', maxElevation: 0.62 },
+            { id: 'WOODLAND', color: '#337755', maxElevation: 0.68 },
+            { id: 'FOREST', color: '#14532d', maxElevation: 0.76 },
+            { id: 'DENSE_FOREST', color: '#064e3b', maxElevation: 0.84 },
+            { id: 'HIGHLANDS', color: '#042f2e', maxElevation: 0.92 },
+            { id: 'PEAKS', color: '#022c22', maxElevation: Infinity }
+        ];
+
+        const BIOMES_MAP = {};
+        WATER_BIOMES.forEach(b => BIOMES_MAP[b.id] = b.color);
+        LAND_BIOMES.forEach(b => BIOMES_MAP[b.id] = b.color);
+
+        const noisyEdgeCache = new Map();
+
+        function updateLabel(id, val) {
+            document.getElementById(id).textContent = val;
+        }
+
+        // Алгоритм NoisyEdges (рекурсивное подразделение отрезка для рваных границ)
+        // depth: глубина рекурсии (определяет уровень детализации и изломанности фрактала)
+        function getNoisyLineSegments(x0, y0, x1, y1, roughness, depth) {
+            const key = `${Math.round(x0*10)},${Math.round(y0*10)}-${Math.round(x1*10)},${Math.round(y1*10)},${roughness},${depth}`;
+            const revKey = `${Math.round(x1*10)},${Math.round(y1*10)}-${Math.round(x0*10)},${Math.round(y0*10)},${roughness},${depth}`;
+            
+            if (noisyEdgeCache.has(key)) return noisyEdgeCache.get(key);
+            if (noisyEdgeCache.has(revKey)) {
+                return [...noisyEdgeCache.get(revKey)].reverse();
+            }
+
+            let points = [{x: x0, y: y0}, {x: x1, y: y1}];
+
+            for (let i = 0; i < depth; i++) {
+                const nextPoints = [];
+                for (let j = 0; j < points.length - 1; j++) {
+                    const p0 = points[j];
+                    const p1 = points[j + 1];
+                    nextPoints.push(p0);
+
+                    const mx = (p0.x + p1.x) * 0.5;
+                    const my = (p0.y + p1.y) * 0.5;
+
+                    const dx = p1.x - p0.x;
+                    const dy = p1.y - p0.y;
+                    const length = Math.hypot(dx, dy);
+
+                    const offset = (seededRandom() - 0.5) * length * roughness;
+                    const nx = -dy / length * offset;
+                    const ny = dx / length * offset;
+
+                    nextPoints.push({ x: mx + nx, y: my + ny });
+                }
+                nextPoints.push(points[points.length - 1]);
+                points = nextPoints;
+            }
+
+            noisyEdgeCache.set(key, points);
+            return points;
+        }
+
+        function generateUniformSites(numSites, width, height, iterations = 2) {
+            let sites = [];
+            for (let i = 0; i < numSites; i++) {
+                sites.push({
+                    x: seededRandom() * width,
+                    y: seededRandom() * height
+                });
+            }
+
+            for (let iter = 0; iter < iterations; iter++) {
+                const points = new Float64Array(sites.length * 2);
+                for (let i = 0; i < sites.length; i++) {
+                    points[i * 2] = sites[i].x;
+                    points[i * 2 + 1] = sites[i].y;
+                }
+
+                const delaunay = new d3.Delaunay(points);
+                const voronoi = delaunay.voronoi([0, 0, width, height]);
+
+                const newSites = [];
+                for (let i = 0; i < sites.length; i++) {
+                    const polygon = voronoi.cellPolygon(i);
+                    if (!polygon) {
+                        newSites.push(sites[i]);
+                        continue;
+                    }
+
+                    let cx = 0, cy = 0, area = 0;
+                    for (let j = 0; j < polygon.length - 1; j++) {
+                        const p1 = polygon[j];
+                        const p2 = polygon[j + 1];
+                        const cross = p1[0] * p2[1] - p2[0] * p1[1];
+                        area += cross;
+                        cx += (p1[0] + p2[0]) * cross;
+                        cy += (p1[1] + p2[1]) * cross;
+                    }
+                    area *= 0.5;
+
+                    if (Math.abs(area) > 1e-5) {
+                        cx /= (6 * area);
+                        cy /= (6 * area);
+                        cx = Math.max(10, Math.min(width - 10, cx));
+                        cy = Math.max(10, Math.min(height - 10, cy));
+                        newSites.push({ x: cx, y: cy });
+                    } else {
+                        newSites.push(sites[i]);
+                    }
+                }
+                sites = newSites;
+            }
+            return sites;
+        }
+
+        function getContinentShapeElevation(x, y, width, height, shapeType, islandScale) {
+            const nx = x / width;
+            const ny = y / height;
+            
+            const dx = (nx - 0.5) * 2.0;
+            const dy = (ny - 0.5) * 2.0;
+
+            let base = 0;
+
+            if (shapeType === 'gameofthrones') {
+                const coreY = Math.abs(dy);
+                const widthProfile = Math.max(0, 1.0 - Math.pow(coreY, 1.3) * 1.1 - Math.pow(Math.abs(dx + dy * 0.3), 1.8) * 1.5);
+                base = widthProfile * islandScale;
+                base += Math.sin(nx * Math.PI * 3.0) * 0.1;
+            } else if (shapeType === 'italy') {
+                const bootX = dx + (dy * 0.4) + 0.1;
+                const bootY = dy * 0.7;
+                const distanceBoot = Math.hypot(bootX * 1.5, bootY - 0.1);
+                base = Math.max(0, 1.0 - Math.pow(distanceBoot, 1.2) * islandScale);
+                const heel = Math.max(0, 1.0 - Math.hypot((bootX - 0.35) * 3.0, (bootY - 0.3) * 3.0));
+                base = Math.max(base, heel * 0.85);
+            } else if (shapeType === 'britain') {
+                const dist = Math.hypot(dx * 1.2, (dy + 0.1) * 1.1);
+                base = Math.max(0, 1.2 - Math.pow(dist, 1.1) * islandScale);
+                base += Math.cos(nx * Math.PI * 4.0) * Math.sin(ny * Math.PI * 4.0) * 0.15;
+            } else if (shapeType === 'archipelago') {
+                let arch = 0;
+                for (let i = 0; i < 5; i++) {
+                    const ax = ((i * 1.7) % 1.0) * 2.0 - 1.0;
+                    const ay = ((i * 2.3) % 1.0) * 2.0 - 1.0;
+                    const d = Math.hypot(dx - ax, dy - ay);
+                    arch = Math.max(arch, Math.max(0, 1.0 - d * 1.4 * islandScale));
+                }
+                base = arch;
+            } else {
+                const dist = Math.hypot(dx, dy);
+                base = 1.0 - Math.pow(dist, islandScale) * islandScale;
+                base *= (0.6 + 0.4 * Math.sin(dx * 5.0) * Math.cos(dy * 5.0));
+            }
+
+            return Math.max(0, Math.min(1.5, base));
+        }
+
+        function multiOctaveNoise(x, y, scale) {
+            let nx = x / WIDTH * scale;
+            let ny = y / HEIGHT * scale;
+            
+            let n1 = Math.sin(nx * 3.5 + 1.2) * Math.cos(ny * 3.5 - 0.8);
+            let n2 = Math.sin(nx * 7.1 - 2.4) * Math.sin(ny * 6.5 + 1.5) * 0.5;
+            let n3 = Math.cos(nx * 14.2 + 0.5) * Math.cos(ny * 13.8 - 1.1) * 0.25;
+            
+            let ridges = 1.0 - Math.abs(Math.sin(nx * 4.0 + ny * 3.0));
+            
+            return (n1 + n2 + n3 + ridges * 0.4) / 2.15;
+        }
+
+        function generateMap() {
+            const isAuto = document.getElementById('checkRandomSeed').checked;
+            if (!isAuto) {
+                const seedVal = parseInt(document.getElementById('inputSeed').value);
+                currentSeed = isNaN(seedVal) ? 12345 : seedVal;
+            }
+
+            ctx.clearRect(0, 0, WIDTH, HEIGHT);
+            noisyEdgeCache.clear();
+
+            const approxSites = parseInt(document.getElementById('rangeSites').value);
+            const roughness = parseFloat(document.getElementById('rangeRoughness').value);
+            const depth = parseInt(document.getElementById('rangeDepth').value);
+            const islandScale = parseFloat(document.getElementById('rangeScale').value);
+            const noiseAmp = parseFloat(document.getElementById('rangeNoiseAmp').value);
+            const waterLevel = parseFloat(document.getElementById('rangeWaterLevel').value);
+            const shapeType = document.getElementById('selectShape').value;
+
+            const rawSites = generateUniformSites(approxSites, WIDTH, HEIGHT, 2);
+            
+            const sites = rawSites.map((s, i) => ({
+                id: i,
+                x: s.x,
+                y: s.y,
+                elevation: 0,
+                biome: 'OCEAN',
+                isWater: true,
+                city: null
+            }));
+
+            const points = new Float64Array(sites.length * 2);
+            for (let i = 0; i < sites.length; i++) {
+                points[i * 2] = sites[i].x;
+                points[i * 2 + 1] = sites[i].y;
+            }
+
+            const delaunay = new d3.Delaunay(points);
+            const voronoi = delaunay.voronoi([0, 0, WIDTH, HEIGHT]);
+
+            sites.forEach((site, i) => {
+                const baseShape = getContinentShapeElevation(site.x, site.y, WIDTH, HEIGHT, shapeType, islandScale);
+                const terrainNoise = multiOctaveNoise(site.x, site.y, 5.5) * noiseAmp;
+                
+                site.elevation = baseShape + terrainNoise;
+
+                const isEdge = site.x < 25 || site.x > WIDTH - 25 || site.y < 25 || site.y > HEIGHT - 25;
+                if (isEdge || site.elevation < waterLevel) {
+                    site.isWater = true;
+                    if (site.elevation < 0.15) {
+                        site.biome = 'DEEP_OCEAN';
+                    } else if (site.elevation < 0.25) {
+                        site.biome = 'OCEAN';
+                    } else {
+                        site.biome = 'SHALLOW';
+                    }
+                } else {
+                    site.isWater = false;
+                    const el = site.elevation;
+                    if (el < 0.38) {
+                        site.biome = 'COAST';
+                    } else if (el < 0.44) {
+                        site.biome = 'STEPPE';
+                    } else if (el < 0.50) {
+                        site.biome = 'PLAINS';
+                    } else if (el < 0.56) {
+                        site.biome = 'GRASSLAND';
+                    } else if (el < 0.62) {
+                        site.biome = 'WETLANDS';
+                    } else if (el < 0.68) {
+                        site.biome = 'WOODLAND';
+                    } else if (el < 0.76) {
+                        site.biome = 'FOREST';
+                    } else if (el < 0.84) {
+                        site.biome = 'DENSE_FOREST';
+                    } else if (el < 0.92) {
+                        site.biome = 'HIGHLANDS';
+                    } else {
+                        site.biome = 'PEAKS';
+                    }
+                }
+            });
+
+            for (let i = 0; i < sites.length; i++) {
+                const polygon = voronoi.cellPolygon(i);
+                if (!polygon) continue;
+
+                const site = sites[i];
+                ctx.fillStyle = BIOMES_MAP[site.biome];
+                ctx.strokeStyle = 'rgba(2, 44, 34, 0.3)';
+                ctx.lineWidth = 1;
+
+                ctx.beginPath();
+                
+                let firstPoint = true;
+                for (let j = 0; j < polygon.length - 1; j++) {
+                    const p1 = polygon[j];
+                    const p2 = polygon[j + 1];
+
+                    const noisySegment = getNoisyLineSegments(p1[0], p1[1], p2[0], p2[1], roughness, depth);
+
+                    for (let k = 0; k < noisySegment.length; k++) {
+                        const pt = noisySegment[k];
+                        if (firstPoint) {
+                            ctx.moveTo(pt.x, pt.y);
+                            firstPoint = false;
+                        } else {
+                            ctx.lineTo(pt.x, pt.y);
+                        }
+                    }
+                }
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+            }
+
+            const landSites = sites.filter(s => !s.isWater);
+            landSites.forEach((site, index) => {
+                if (index % 25 === 0 && site.biome !== 'PEAKS' && site.biome !== 'HIGHLANDS' && site.biome !== 'DEEP_OCEAN') {
+                    site.city = { name: 'Поселение ' + (index + 1) };
+                }
+            });
+
+            sites.forEach(site => {
+                if (site.city) {
+                    ctx.fillStyle = '#facc15';
+                    ctx.beginPath();
+                    ctx.arc(site.x, site.y, 2.5, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.strokeStyle = '#022c22';
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                }
+            });
+        }
+
+        window.onload = generateMap;
+    </script>
+</body>
+</html>

@@ -161,8 +161,9 @@
   }
 
   /* --- Нижняя панель "Управление и Разведка" — всегда на виду поверх карты
-     (не часть сворачиваемой #panel), как командная панель в Total War.
-     Кнопка "Закончить ход" теперь её часть, а не отдельный плавающий блок. --- */
+     (не часть сворачиваемой #panel), оформлена как командная панель в стиле
+     Total War: тёплое дерево + золотой кант, а не обычная полупрозрачная
+     карточка. Кнопка "Закончить ход" — гербовая печать справа. --- */
   #bottomDock{
     position:absolute;
     left:14px;
@@ -170,8 +171,12 @@
     bottom:14px;
     display:flex;
     align-items:stretch;
-    gap:14px;
+    gap:0;
     z-index:20;
+    border-radius:10px;
+    overflow:hidden;
+    border:2px solid var(--gold-dim);
+    box-shadow:0 10px 30px rgba(0,0,0,0.55), inset 0 0 0 1px rgba(212,162,76,0.18);
   }
   #bottomDock .card{
     margin:0;
@@ -179,33 +184,55 @@
     min-width:0;
     max-height:210px;
     display:flex;
-    flex-direction:column;
+    background:linear-gradient(180deg, #241a10 0%, #1a130c 100%);
+    border:none;
+    border-right:1px solid rgba(212,162,76,0.28);
+    border-radius:0;
+    box-shadow:none;
   }
-  #bottomDock .card h2{ flex-shrink:0; }
+  #bottomDock .card h2{
+    flex-shrink:0;
+    margin:-14px -14px 10px -14px;
+    padding:10px 14px 8px 14px;
+    background:linear-gradient(180deg, rgba(212,162,76,0.16), transparent);
+    border-bottom:1px solid rgba(212,162,76,0.32);
+  }
   #bottomDock #selectedInfo{
     flex-shrink:0;
+    background:rgba(0,0,0,0.22);
   }
   #bottomDock #actionButtons{
     overflow-y:auto;
   }
   #bottomDock #endTurnBtn{
     width:auto;
-    min-width:190px;
-    align-self:center;
+    min-width:200px;
+    align-self:stretch;
+    margin:0;
+    border-radius:0;
+    position:relative;
   }
 
-  /* --- Кнопка "Закончить ход" — теперь живёт внутри #bottomDock (см. выше),
-     здесь только её собственный вид. --- */
+  /* --- Кнопка "Закончить ход" — гербовая печать в золоте на краю панели. --- */
   #endTurnBtn{
-    background:var(--gold);
-    color:#1b1305;
-    font-size:13px;
-    letter-spacing:.1em;
+    background:linear-gradient(180deg, #f0c274 0%, #d4a24c 50%, #a67730 100%);
+    color:#241a0a;
+    font-size:14px;
+    letter-spacing:.14em;
     padding:15px 20px;
     margin-top:0;
-    box-shadow:0 6px 20px rgba(212,162,76,0.35);
+    border:none;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,0.4), inset 0 -3px 6px rgba(0,0,0,0.3);
   }
-  #endTurnBtn:hover:not(:disabled){background:#e6b464;}
+  #endTurnBtn::before{
+    content:'';
+    position:absolute;
+    inset:6px;
+    border:1px solid rgba(36,26,10,0.4);
+    border-radius:2px;
+    pointer-events:none;
+  }
+  #endTurnBtn:hover:not(:disabled){background:linear-gradient(180deg, #f7cd85 0%, #e0af58 50%, #b48a3e 100%);}
 
   /* --- Камера: зум/центрирование, вертикальный кластер справа --- */
   #camControls{
@@ -272,13 +299,6 @@
     font-size:13px;
     filter:saturate(0.9);
     line-height:1;
-  }
-  .card h2 .hint{
-    margin-left:auto;
-    text-transform:none;
-    letter-spacing:0;
-    font-size:11px;
-    color:var(--panel-line);
   }
 
   /* --- Faction roster --- */
@@ -376,16 +396,6 @@
   #log::-webkit-scrollbar{width:6px;}
   #log::-webkit-scrollbar-thumb{background:var(--panel-line);border-radius:3px;}
 
-  /* --- Rules legend --- */
-  .legendGrid{
-    display:grid;
-    grid-template-columns:1fr 1fr;
-    gap:7px 10px;
-    font-size:12px;
-  }
-  .legendItem{display:flex;align-items:center;gap:6px;}
-  .legendSwatch{width:14px;height:14px;border-radius:4px;flex-shrink:0;box-shadow:0 0 0 1px rgba(0,0,0,0.25) inset;}
-
   /* --- Settings --- */
   .settingsGroup{margin-bottom:4px;}
   .settingsGroup summary{
@@ -461,8 +471,8 @@
   @media (max-width:760px){
     #panel{width:calc(100vw - 28px);max-width:420px;top:110px;}
     #topBar h1{font-size:15px;}
-    #bottomDock{flex-direction:column;left:10px;right:10px;bottom:10px;gap:8px;}
-    #bottomDock .card{max-height:150px;}
+    #bottomDock{flex-direction:column;left:10px;right:10px;bottom:10px;}
+    #bottomDock .card{max-height:150px;border-right:none;border-bottom:1px solid rgba(212,162,76,0.28);}
     #endTurnBtn{min-width:0;padding:14px 16px;}
     #fixedTooltip{max-width:calc(100vw - 28px);right:10px;}
     #aiTurnBanner{top:56px;padding:8px 16px;font-size:11px;}
@@ -498,7 +508,6 @@
 
     <div id="bottomDock">
       <div class="card">
-        <h2><span class="icon">🎯</span> Управление и Разведка</h2>
         <div id="selectedInfo"><span class="placeholder">Выберите гекс для отдачи приказов</span></div>
         <div id="actionButtons"></div>
       </div>
@@ -515,9 +524,9 @@
             <label>Радиус карты:
               <select id="mapSizeSelect">
                 <option value="5">Малая (радиус 5)</option>
-                <option value="6" >Средняя (радиус 6)</option>
+                <option value="6" selected>Средняя (радиус 6)</option>
                 <option value="8">Большая (радиус 8)</option>
-                <option value="10" selected>Обширная (радиус 10)</option>
+                <option value="10" >Обширная (радиус 10)</option>
                 <option value="12" >Громадная (радиус 12)</option>
               </select>
             </label>
@@ -546,8 +555,8 @@
             <label>Базовый ход:
               <select id="moveRangeSelect">
                 <option value="1">1 гекс</option>
-                <option value="2" >2 гекса</option>
-                <option value="3" selected>3 гекса</option>
+                <option value="2" selected>2 гекса</option>
+                <option value="3">3 гекса</option>
                 <option value="100">100 гексов</option>
               </select>
             </label>
@@ -563,15 +572,6 @@
         <details class="settingsGroup">
           <summary>Вид и оформление</summary>
           <div class="settingsGrid">
-            <label style="grid-column: span 2;">Палитра оформления:
-              <select id="themeSelect">
-                <option value="classic">Классическая</option>
-                <option value="autumn">Осенняя</option>
-                <option value="midnight">Ночная</option>
-                <option value="parchment">Пергамент</option>
-              </select>
-            </label>
-            <label style="grid-column: span 2;">Масштаб гексов: <input type="range" id="hexSizeRange" min="16" max="32" value="32"></label>
             <label class="checkboxLabel" style="grid-column: span 2;">
               <input type="checkbox" id="gridToggleCheck" checked> Показать сетку
             </label>
@@ -579,11 +579,6 @@
               <input type="checkbox" id="territoryFillCheck"> Полная окраска владений
             </label>
           </div>
-        </details>
-
-        <details class="settingsGroup">
-          <summary>Легенда местности</summary>
-          <div class="legendGrid" id="legendGridContainer"></div>
         </details>
       </div>
 
@@ -935,24 +930,17 @@
   };
 
   // --------------------------------------------------------------------------
-  // "Паттерны соседей" для террейна — точное совпадение картинки под
-  // конкретную раскладку соседних гексов вместо наложения кусков друг на
-  // друга (так каждая картинка полностью авторская и ничего не перекрывает).
+  // "Паттерны соседей" — точное совпадение картинки под конкретную раскладку
+  // соседних гексов (не наложение кусков — каждая картинка полностью авторская).
   //
-  // Схема имени файла:  <террейн>-<сосед1>[<направления через дефис>]-<сосед2>[...]-....png
-  // Пример: water-plains[1-2]-hills[0].png
-  //   — это гекс ВОДЫ (базовый террейн), у которого гексы РАВНИНЫ по сторонам
-  //   1 и 2, и гекс ХОЛМОВ по стороне 0. Направления — те же индексы 0..5,
-  //   что в Game.Config.DIRS (см. Game.Map.neighborAt). Соседей С ТАКИМ ЖЕ
-  //   террейном, как у самого гекса, в скобках указывать не нужно — гекс,
-  //   полностью окружённый тем же террейном, это и есть "базовая картинка"
-  //   (обычный Game.Config.terrainVariant, как и раньше).
+  // Имя файла: <террейн>-<сосед1>[направления через дефис]-<сосед2>[...]-...png
+  // Пример: water-plains[1-2]-hills[0].png — гекс воды с равниной по сторонам
+  // 1 и 2 и холмами по стороне 0 (направления — индексы Game.Config.DIRS,
+  // см. Game.Map.neighborAt). Соседей того же террейна, что и сам гекс,
+  // в скобках не указывают — это и есть обычная базовая картинка террейна.
   //
-  // Порядок групп в имени файла не важен — при сравнении с реальным гексом
-  // паттерн приводится к канонической форме (группы сортируются по имени
-  // террейна). Файл ищется ТОЧНЫМ совпадением полного набора направлений;
-  // если у гекса чуть другая раскладка соседей — совпадения не будет, и
-  // отрисуется обычная базовая картинка террейна (см. Game.Render.drawTerrain).
+  // Порядок групп в имени не важен (сравнение идёт по канонической форме).
+  // Совпадение только ТОЧНОЕ — при другой раскладке соседей рисуется база.
   Game.Assets.parsePatternName = function parsePatternName(nameNoExt){
     const firstGroupAt = nameNoExt.search(/[a-zA-Zа-яА-Я0-9]+\[/);
     const base = (firstGroupAt === -1 ? nameNoExt : nameNoExt.slice(0, firstGroupAt)).replace(/-+$/, '');
@@ -989,12 +977,11 @@
       hexSize: 100,
       showGrid: true,
       territoryFillMode: false,
-      currentTheme: 'classic',
       zocEnabled: true,
-      mapRadius: 8,
-      maxMovementPoints: 3,
+      mapRadius: 12,
+      maxMovementPoints: 2,
       regionSizeMode: 'balanced',
-      factionsCount: 5
+      factionsCount: 4
     },
 
     // Balance constants — kept exactly as designed.
@@ -1007,7 +994,7 @@
     // Радиус тумана войны (в гексах) вокруг владений/юнитов игрока-человека
     // (id:0) — за его пределами вражеские юниты/границы/столицы не рисуются.
     // Меняется прямо здесь, в коде — отдельного UI-контрола не предусмотрено.
-    FOG_OF_WAR_RADIUS: 3,
+    FOG_OF_WAR_RADIUS: 4,
 
     // Толщина каймы непроходимых гексов, обрамляющей карту со всех сторон
     // (терраин 'border' — см. terrainDefs()). Меняется прямо здесь.
@@ -1119,13 +1106,13 @@
     BUILDING_DESTROY_REFUND: 5, // золото за снос постройки
 
     // Camera limits.
-    MIN_ZOOM: 0.45,
-    MAX_ZOOM: 1,
+    MIN_ZOOM: 0.35,
+    MAX_ZOOM: 4.0,
 
     // Наклон вида ("сверху под углом", см. Game.Render.applyTilt) — просто
     // равномерное сжатие карты по Y. Перспективы (сжатия по X с расстоянием
     // от центра) в игре больше нет.
-    TILT_FACTOR: 0.8,
+    TILT_FACTOR: 0.85,
 
     // Hex-grid axial direction vectors.
     DIRS: [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]],
@@ -1138,35 +1125,20 @@
     // Which of a hex's 6 corners sit along its visual "top" edge.
     HEX_TOP_CORNER_INDICES: [4, 5, 0],
 
-    // Theme color palettes.
-    THEMES: {
-      classic: {
-        plains: '#687b47', forest: '#4b633b', hills: '#736b53', goldmine: '#8a7945', mountains: '#595450', water: '#26434f',
-        table: '#1f2b21', textPrimary: '#e9e3cf', bgPanel: '#1b241d'
-      },
-      autumn: {
-        plains: '#917245', forest: '#7a5a3a', hills: '#85704c', goldmine: '#998042', mountains: '#544c49', water: '#2b3f4f',
-        table: '#241e17', textPrimary: '#f2ebd9', bgPanel: '#211a14'
-      },
-      midnight: {
-        plains: '#314747', forest: '#273c3d', hills: '#374747', goldmine: '#565e47', mountains: '#363842', water: '#122330',
-        table: '#121820', textPrimary: '#d8e2ec', bgPanel: '#151d26'
-      },
-      parchment: {
-        plains: '#b0a382', forest: '#8f886f', hills: '#a39880', goldmine: '#a6965d', mountains: '#706b61', water: '#5a7885',
-        table: '#d1c5a2', textPrimary: '#2b261e', bgPanel: '#e3d8b5'
-      }
+    // Theme color palette (единственная — переключатель темы убран).
+    THEME: {
+      plains: '#687b47', forest: '#4b633b', hills: '#736b53', goldmine: '#8a7945', mountains: '#595450', water: '#26434f',
+      table: '#1f2b21', textPrimary: '#e9e3cf', bgPanel: '#1b241d'
     },
 
-    // Terrain-definition cache (theme-dependent, see terrainDefs()). Terrain
+    // Terrain-definition cache.
     // IMAGES now live in Game.Assets.images.terrain — see Game.Assets above.
-    _defsCache: null,
-    _defsCacheTheme: null
+    _defsCache: null
   };
 
   Game.Config.terrainDefs = function terrainDefs(){
-    if(Game.Config._defsCache && Game.Config._defsCacheTheme === Game.Config.settings.currentTheme) return Game.Config._defsCache;
-    const th = Game.Config.THEMES[Game.Config.settings.currentTheme];
+    if(Game.Config._defsCache) return Game.Config._defsCache;
+    const th = Game.Config.THEME;
     Game.Config._defsCache = {
       // imageSrc может быть строкой (один вариант) или массивом строк (несколько
       // вариантов картинки для одного террейна — какой именно вариант достанется
@@ -1190,7 +1162,6 @@
       // остальных террейнов, imageSrc принимает массив путей).
       border:    { color:'#241d14', yield:0, defense:0, moveCost:99, label:'Край карты', impassable:true, isBorder:true, imageSrc: ['assets/map_border.png'], artOverflowTop: 0 },
     };
-    Game.Config._defsCacheTheme = Game.Config.settings.currentTheme;
     return Game.Config._defsCache;
   };
   // Загрузка ассетов теперь общая для всех категорий — см. Game.Assets выше.
@@ -1218,6 +1189,7 @@
   // ==========================================================================
   Game.Map = {};
   Game.Map.create = function create(seed){
+    Game.Render._depthOrderCache = null; // новая карта — старый порядок отрисовки недействителен
     const rand = Game.Utils.mulberry32(seed);
     const noiseElev = Game.Utils.createNoise2D(rand);
     const noiseMoist = Game.Utils.createNoise2D(rand);
@@ -1462,7 +1434,6 @@
     Game.State.isAiRunning = false;
 
     Game.UI.log(`Новая кампания создана. Материк сформирован (регионов: ${uniqueRegionIds.length}).`);
-    Game.UI.updateLegend();
   };
   Game.Map.neighbors = function neighbors(h){
     if(!Game.State.match || !Game.State.match.hexes) return [];
@@ -1509,10 +1480,6 @@
     });
 
     return { income, upkeep, net: income - upkeep };
-  };
-  Game.Map.netIncome = function netIncome(pid){
-    const stats = Game.Map.incomeAndUpkeep(pid);
-    return stats.net;
   };
   Game.Map.isRegionOccupiedBy = function isRegionOccupiedBy(regionId, pid){
     if(regionId === null) return false;
@@ -2166,6 +2133,10 @@
     return Game.Render.applyTilt(fc.x, fc.y);
   };
   Game.Render.pixelForHex = function pixelForHex(h){
+    // Центр гекса — той же функцией наклона, что и его углы (Game.Render.applyTilt) —
+    // гарантирует, что юниты/столицы/текст остаются точно в центре гекса.
+    // Возвращаемая точка — в МИРОВЫХ координатах карты; экранные пиксели
+    // получаются из неё через Game.Render.camera-transform, который ставит Game.Render.draw().
     const c = Game.Render.flatCenter(h);
     const proj = Game.Render.applyTilt(c.x, c.y);
     return { x: proj.x, y: proj.y, hexSize: Game.Config.settings.hexSize, scale: 1 };
@@ -2181,11 +2152,16 @@
   };
   Game.Render.hexAtEvent = function hexAtEvent(evt){
     if(!Game.Render.canvas || !Game.State.match) return null;
+    // Клиентские координаты -> буфер канваса (учитывает CSS-масштаб/DPR) ->
+    // мировые координаты карты (отменяет камеру: pan+zoom).
     const world = Game.Render.bufferToWorld(Game.Render.clientToBuffer(evt));
 
     const offX = Game.Render.canvas.dataset.offx ? parseFloat(Game.Render.canvas.dataset.offx) : 0;
     const offY = Game.Render.canvas.dataset.offy ? parseFloat(Game.Render.canvas.dataset.offy) : 0;
 
+    // Перспективы больше нет — обратное преобразование прямое и точное в
+    // любой точке карты: единственное искажение теперь — равномерный наклон
+    // по Y (Game.Config.TILT_FACTOR), который просто делим обратно.
     const flatX = world.x - offX;
     const flatY = world.y / Game.Config.TILT_FACTOR - offY;
 
@@ -2193,6 +2169,7 @@
     const rf = (2/3 * flatY) / Game.Config.settings.hexSize;
     const { q, r } = Game.Render.cubeRound(qf, rf);
 
+    // Подстраховка на остаточные ошибки округления рядом с границей гексов.
     let best = Game.State.match.hexes.get(Game.Utils.key(q,r)) || null;
     let bestD = best ? distSqScreen(best, world.x, world.y) : Infinity;
     for(const [dq,dr] of Game.Config.DIRS){
@@ -2503,12 +2480,13 @@
         let c1 = corners[i];
         let c2 = corners[(i + 1) % 6];
 
+        // 4. Удлиняем каждый отрезок в обе стороны, чтобы они заходили друг за друга на углах
         const dx = c2.x - c1.x;
         const dy = c2.y - c1.y;
         const len = Math.sqrt(dx * dx + dy * dy);
         
         if (len > 0) {
-          const extend = 4 * Game.Render.camera.zoom;
+          const extend = 4 * Game.Render.camera.zoom; // Запас на перекрытие стыка
           const ux = (dx / len) * extend;
           const uy = (dy / len) * extend;
 
@@ -2536,8 +2514,8 @@
     if(img){
       // Здание — не значок в кружке, а объект, стоящий на своём террейне
       // (какая картинка — зависит от h.terrain, см. Game.Assets.manifest()).
-      const footX = p.x, footY = p.y + p.hexSize * 0.3;
-      const width = p.hexSize * 1.5, height = p.hexSize * 1.7;
+      const footX = p.x, footY = p.y + p.hexSize * 0.75;
+      const width = p.hexSize * 1.6, height = p.hexSize * 1.6;
       Game.Render.drawSpriteAt(Game.Render.ctx, img, footX, footY, width, height);
 
       // Маленький цветной флажок-маркер владельца сбоку от здания.
@@ -2689,8 +2667,17 @@
     });
     Game.Render.staticDirty = false;
   };
+  // Порядок отрисовки по рядам зависит только от q/r гексов — они не
+  // меняются после генерации карты, поэтому сортировать заново на КАЖДЫЙ
+  // кадр (а во время анимации хода draw() вызывается ~60 раз в секунду)
+  // незачем — на большой карте это была реальная причина подлагивания при
+  // перемещении. Кэш сбрасывается в Game.Map.create() (новая карта).
+  Game.Render._depthOrderCache = null;
   Game.Render.hexesByDepth = function hexesByDepth(){
-    return Array.from(Game.State.match.hexes.values()).sort((a,b)=> a.r - b.r);
+    if(!Game.Render._depthOrderCache){
+      Game.Render._depthOrderCache = Array.from(Game.State.match.hexes.values()).sort((a,b)=> a.r - b.r);
+    }
+    return Game.Render._depthOrderCache;
   };
   Game.Render.setup = function setup(){
     Game.Render.canvas = document.getElementById('board');
@@ -2816,13 +2803,38 @@
 
     const depthOrder = Game.Render.hexesByDepth();
 
+    // ОПТИМИЗАЦИЯ (лаги при перемещении на больших картах): камера
+    // показывает только часть большой карты, но раньше каждый кадр всё равно
+    // перебирались и обрабатывались ВСЕ гексы карты (сотни), а не только те,
+    // что реально попадают в кадр. Считаем видимый прямоугольник камеры один
+    // раз за кадр и отсекаем по нему в первую очередь (до любых остальных
+    // проверок) — на большой карте при обычном приближении это отбрасывает
+    // подавляющее большинство гексов почти бесплатно. Margin — с запасом на
+    // нависающие спрайты построек/юнитов и края гексов.
+    const viewMargin = Game.Config.settings.hexSize * 4;
+    const viewMinX = (0 - Game.Render.camera.x) / Game.Render.camera.zoom - viewMargin;
+    const viewMaxX = (Game.Render.canvas.width - Game.Render.camera.x) / Game.Render.camera.zoom + viewMargin;
+    const viewMinY = (0 - Game.Render.camera.y) / Game.Render.camera.zoom - viewMargin;
+    const viewMaxY = (Game.Render.canvas.height - Game.Render.camera.y) / Game.Render.camera.zoom + viewMargin;
+    // Считаем позицию/попадание в кадр РОВНО ОДИН раз на гекс за кадр (а не
+    // по разу на каждый из трёх проходов ниже) и сразу получаем готовый,
+    // уже отфильтрованный список — дальше все три слоя просто перебирают
+    // его, без повторных проверок.
+    const renderList = [];
+    depthOrder.forEach(h=>{
+      const p = Game.Render.pixelForHex(h);
+      if(p.x >= viewMinX && p.x <= viewMaxX && p.y >= viewMinY && p.y <= viewMaxY) renderList.push(h);
+    });
+
     // Layer 0: границы фракций, подсветка активной области, штриховка осады —
     // только на видимых гексах (под туманом войны чужие владения/осады не
     // показываем).
-    depthOrder.forEach(h=>{
+    renderList.forEach(h=>{
       if(!visible.has(Game.Utils.key(h.q, h.r))) return;
       if(h.owner !== null) Game.Render.drawFactionBorders(h) 
       if (Game.State.activeRegionId !== null) Game.Render.drawActiveRegion(h);
+      if(h.capital) Game.Render.drawCapital(h);
+      else if(h.building) Game.Render.drawBuilding(h);
       if (h.occupiedBy !== null) Game.Render.drawSiegeHatch(h);
     });
 
@@ -2841,15 +2853,13 @@
       if(sh.unit && sh.unit.owner===0 && !Game.State.match.over) Game.Render.drawPlayerReachable(sh)
     }
     //Layer 2 — юниты/столицы/постройки тоже скрыты в тумане войны
-    depthOrder.forEach(h => {
+    renderList.forEach(h => {
       if(!visible.has(Game.Utils.key(h.q, h.r))) return;
-      if(h.capital) Game.Render.drawCapital(h);
-      else if(h.building) Game.Render.drawBuilding(h);
       if (h.unit) Game.Render.drawUnit(h);
     });
     // Layer fog: затемняем всё, что вне тумана войны — поверх границ/штриховки,
     // но под юнитами (юниты там всё равно не рисуются, см. Layer 2).
-    depthOrder.forEach(h=>{
+    renderList.forEach(h=>{
       if(!visible.has(Game.Utils.key(h.q, h.r))) Game.Render.drawFog(h);
     });
 
@@ -3403,19 +3413,6 @@
     }
     tip.innerHTML = txt;
   };
-  Game.UI.updateLegend = function updateLegend(){
-    const TERRAIN = Game.Config.terrainDefs();
-    const grid = document.getElementById('legendGridContainer');
-    if(!grid) return;
-    grid.innerHTML = `
-      <div class="legendItem"><div class="legendSwatch" style="background:${TERRAIN.plains.color}"></div>Равнина (2💰)</div>
-      <div class="legendItem"><div class="legendSwatch" style="background:${TERRAIN.forest.color}"></div>Лес (1💰, +1д)</div>
-      <div class="legendItem"><div class="legendSwatch" style="background:${TERRAIN.hills.color}"></div>Холмы (1💰, +1д)</div>
-      <div class="legendItem"><div class="legendSwatch" style="background:${TERRAIN.goldmine.color}"></div>Рудник (4💰)</div>
-      <div class="legendItem"><div class="legendSwatch" style="background:${TERRAIN.mountains.color}"></div>Хребет</div>
-      <div class="legendItem"><div class="legendSwatch" style="background:${TERRAIN.water.color}"></div>Вода</div>
-    `;
-  };
   // Плашка "сейчас ходит..." сверху экрана, пока идёт ход ИИ-фракции (см.
   // Game.AI.runTurnSequence()) — как баннер смены хода в Total War.
   Game.UI.showAiTurnBanner = function showAiTurnBanner(player){
@@ -3495,12 +3492,6 @@
       Game.Render.draw();
     };
 
-    document.getElementById('hexSizeRange').oninput = (e) => {
-      Game.Config.settings.hexSize = parseInt(e.target.value);
-      Game.Render.resize();
-      Game.Render.draw();
-    };
-
     document.getElementById('gridToggleCheck').onchange = (e) => {
       Game.Config.settings.showGrid = e.target.checked;
       Game.Render.staticDirty = true;
@@ -3520,11 +3511,6 @@
       Game.Render.draw();
       Game.UI.updatePanel();
     };
-
-    document.getElementById('themeSelect').onchange = (e) => {
-      Game.Config.settings.currentTheme = e.target.value;
-      Game.Render.draw();
-    }; 
 
     document.getElementById('zocSelect').onchange = (e) => {
       Game.Config.settings.zocEnabled = (e.target.value === 'on');
@@ -3547,7 +3533,7 @@
   window.onload = function(){
     Game.Config.loadAssets(() => {
       Game.UI.initEvents();
-      Game.Map.create(123456789012345);
+      Game.Map.create(123456);
       Game.Render.setup();
       Game.Render.draw();
       Game.UI.updatePanel();
