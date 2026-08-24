@@ -24,17 +24,20 @@
             <canvas id="mapCanvas" width="600" height="600" class="rounded-xl cursor-crosshair bg-slate-950"></canvas>
 
             <div class="w-full flex flex-wrap items-center justify-between gap-3 mt-4 px-2">
+                <div class="flex gap-1">
+                    <button onclick="mapGen.zoomOut()" class="w-8 h-8 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm">−</button>
+                    <button onclick="mapGen.resetView()" class="w-8 h-8 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs">⟲</button>
+                    <button onclick="mapGen.zoomIn()" class="w-8 h-8 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm">+</button>
+                </div>
                 <div id="stats" class="text-xs text-slate-300 flex flex-wrap items-center gap-3">
                     <span class="inline-flex items-center"><span class="w-2.5 h-2.5 rounded-full bg-emerald-600 inline-block mr-1"></span>Суша (10 биомов)</span>
                     <span class="inline-flex items-center"><span class="w-2.5 h-2.5 rounded-full bg-blue-600 inline-block mr-1"></span>Вода (3 биома)</span>
                     <label class="flex items-center gap-1 text-[11px] text-slate-300 cursor-pointer select-none border-l border-slate-800 pl-3">
-                        <input type="checkbox" id="checkClimate" checked onchange="renderMap()" class="accent-emerald-500"> Климатический слой
+                        <input type="checkbox" id="checkClimate" checked onchange="changeMap('showClimate',this.checked);" class="accent-emerald-500"> Климатический слой
                     </label>
                 </div>
                 <div class="flex gap-2">
-                    <button onclick="randomizeSeedAndGenerate()" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl transition">
-                        Случайный Сид 🎲
-                    </button>
+                    
                     <button onclick="generateMap()" class="px-4 py-2 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-slate-950 font-semibold text-sm rounded-xl shadow-lg transition transform active:scale-95">
                         Сгенерировать мир
                     </button>
@@ -51,7 +54,7 @@
                 <div class="flex justify-between items-center text-xs">
                     <span class="text-slate-300 font-semibold">Сид мира (Seed):</span>
                     <label class="flex items-center gap-1 text-[10px] text-emerald-400 cursor-pointer select-none">
-                        <input type="checkbox" id="checkRandomSeed" checked onchange="toggleSeedInput()" class="accent-emerald-500"> Авто
+                        <input type="checkbox" id="checkRandomSeed" checked onchange="generateMap()" class="accent-emerald-500"> Авто
                     </label>
                 </div>
                 <div class="flex gap-2">
@@ -64,12 +67,33 @@
                     <span class="text-slate-300">Плотность полигонов:</span>
                     <span id="valSites" class="text-emerald-400 font-mono">1500</span>
                 </div>
-                <input type="range" id="rangeSites" min="200" max="2500" step="50" value="1500" oninput="updateLabel('valSites', this.value)" class="w-full accent-emerald-500 cursor-pointer">
+                <input type="range" id="rangeSites" min="200" max="2500" step="50" value="1500"
+                    oninput="updateLabel('valSites', this.value)"
+                    onchange="changeMap('sitesAmount', parseInt(this.value))"
+                    class="w-full accent-emerald-500 cursor-pointer">
+            </div>
+            <div class="flex flex-col gap-1.5">
+                <label for="selectViewMode" class="text-xs text-slate-300">Режим просмотра:</label>
+                <select id="selectViewMode" onchange="changeMap('viewMode', this.value)"
+                    class="bg-slate-950 border border-slate-800 text-slate-100 text-xs rounded-xl p-2.5 focus:outline-none focus:border-emerald-500 cursor-pointer">
+                    <option value="terrain" selected>Рельеф + климат</option>
+                    <option value="factions">Карта фракций</option>
+                </select>
+            </div>
+            
+            <div class="flex flex-col gap-1.5">
+                <label for="selectSeason" class="text-xs text-slate-300">Сезон:</label>
+                <select id="selectSeason" onchange="changeMap('currentSeason',this.value)" class="bg-slate-950 border border-slate-800 text-slate-100 text-xs rounded-xl p-2.5 focus:outline-none focus:border-emerald-500 cursor-pointer">
+                    <option value="SPRING" selected>Весна</option>
+                    <option value="SUMMER">Лето</option>
+                    <option value="AUTUMN">Осень</option>
+                    <option value="WINTER">Зима</option>
+                </select>
             </div>
 
             <div class="flex flex-col gap-1.5">
                 <label for="selectShape" class="text-xs text-slate-300">Тип мира:</label>
-                <select id="selectShape" onchange="onShapeChange()" class="bg-slate-950 border border-slate-800 text-slate-100 text-xs rounded-xl p-2.5 focus:outline-none focus:border-emerald-500 cursor-pointer">
+                <select id="selectShape" onchange="changeMap('shapeType',this.value)" class="bg-slate-950 border border-slate-800 text-slate-100 text-xs rounded-xl p-2.5 focus:outline-none focus:border-emerald-500 cursor-pointer">
                     <option value="continent" selected>Континент (Европа)</option>
                     <option value="two_continents">Два континента</option>
                     <option value="island">Один остров</option>
@@ -81,7 +105,7 @@
                     <span class="text-slate-300">Количество суши:</span>
                     <span id="valLandAmount" class="text-emerald-400 font-mono">1.25</span>
                 </div>
-                <input type="range" id="rangeLandAmount" min="0.5" max="1.6" step="0.05" value="1.25" oninput="updateLabel('valLandAmount', this.value)" class="w-full accent-emerald-500 cursor-pointer">
+                <input type="range" id="rangeLandAmount" min="0.5" max="1.6" step="0.05" value="1.25" oninput="updateLabel('valLandAmount', this.value)" onchange="changeMap('landAmount', parseFloat(this.value))"/>
             </div>
 
             <div class="flex flex-col gap-1.5">
@@ -89,7 +113,7 @@
                     <span class="text-slate-300">Рельеф (высота, детализация):</span>
                     <span id="valRelief" class="text-emerald-400 font-mono">0.75</span>
                 </div>
-                <input type="range" id="rangeRelief" min="0.0" max="1.0" step="0.05" value="0.75" oninput="updateLabel('valRelief', this.value)" class="w-full accent-emerald-500 cursor-pointer">
+                <input type="range" id="rangeRelief" min="0.0" max="1.0" step="0.05" value="0.75" oninput="updateLabel('valRelief', this.value)" onchange="changeMap('relief',parseFloat(this.value))" class="w-full accent-emerald-500 cursor-pointer">
                 <p class="text-[10px] text-slate-500 leading-snug">Низкий — пологие равнины. Высокий — резкие высокие пики и сильно изрезанная текстура берегов.</p>
             </div>
 
@@ -98,7 +122,7 @@
                     <span class="text-slate-300">Хаотичность рельефа:</span>
                     <span id="valChaos" class="text-emerald-400 font-mono">0.75</span>
                 </div>
-                <input type="range" id="rangeChaos" min="0.0" max="1.0" step="0.05" value="0.75" oninput="updateLabel('valChaos', this.value)" class="w-full accent-emerald-500 cursor-pointer">
+                <input type="range" id="rangeChaos" min="0.0" max="1.0" step="0.05" value="0.75" oninput="updateLabel('valChaos', this.value)" onchange="changeMap('chaos',this.value)" class="w-full accent-emerald-500 cursor-pointer">
                 <p class="text-[10px] text-slate-500 leading-snug">0 — гладкий градиент высот. Выше — независимый шум по каждому полигону, меньше одинаковых по высоте соседей.</p>
             </div>
 
@@ -109,21 +133,16 @@
     </div>
 
     <script>
-        
-
-        
-
-        function updateLabel(id, val) {
-            document.getElementById(id).textContent = val;
-        }
+        function updateLabel(id, val) { document.getElementById(id).textContent = val;  }
         function init(){
             generateMap()
         }
         const mapGen = new MapGenerator({
             width: 600,
             height: 600,
-            canvas: 'mapCanvas',
-            tooltip: 'mapTooltip'
+            canvas: document.getElementById('mapCanvas'),
+            tooltip: document.getElementById('mapTooltip'),
+            factions: { count: 7, names: ['Север', 'Юг', 'Запад', 'Восток', 'Каплан', 'Ботан', 'Серан'] },
         });
         function generateMap() {
             const isAuto = document.getElementById('checkRandomSeed').checked;
@@ -135,18 +154,31 @@
             } else {
                 seedInput.disabled = false;
             }
-
-            mapGen.generate({
-                seed: parseInt(seedInput.value) || 12345,
-                sitesCount: parseInt(document.getElementById('rangeSites').value),
-                shapeType: document.getElementById('selectShape').value,
-                landAmount: parseFloat(document.getElementById('rangeLandAmount').value),
-                relief: parseFloat(document.getElementById('rangeRelief').value),
-                chaos: parseFloat(document.getElementById('rangeChaos').value),
-                showClimate: document.getElementById('checkClimate').checked
-            });
+            const { regions, factions } = mapGen.generate(parseInt(seedInput.value) || 12345);
+            console.log(factions)
         }
+        const STRUCTURAL_KEYS = new Set([
+            'sitesAmount', 'shapeType', 'landAmount', 'relief', 'chaos',
+            'edgeRoughness', 'edgeDepth', 'borderMargin', 'peakCount', 'peakShape'
+        ]);
+        const VISUAL_KEYS = new Set(['showClimate', 'currentSeason', 'viewMode']);
 
+        let lastRegions = [];
+        let lastFactions = [];
+
+        function changeMap(key, value) {
+            mapGen[key] = value;
+
+            if (VISUAL_KEYS.has(key)) {
+                mapGen.render(); // только перерисовка, карта данных не трогается
+                return;
+            }
+
+            const seed = parseInt(document.getElementById('inputSeed').value) || mapGen.initialSeed;
+            const { regions, factions } = mapGen.generate(seed);
+            lastRegions = regions;
+            lastFactions = factions;
+        }
         window.onload = () => {
             init()
         };

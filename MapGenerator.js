@@ -2,6 +2,7 @@ class MapGenerator {
     constructor(options = {}) {
         this.width = options.width || 600;
         this.height = options.height || 600;
+        this.sitesAmount = options.sitesAmount || 1500;
         this.edgeRoughness = options.edgeRoughness || 0.42;
         this.edgeDepth = options.edgeDepth || 5;
         this.borderMargin = options.borderMargin || 22;
@@ -11,23 +12,101 @@ class MapGenerator {
         this.landAmount = options.landAmount || 1.5;
         this.relief = options.relief || 0.75;
         this.chaos = options.chaos || 0.75;
+        this.showClimate = options.showClimate ?? true;
+        this.currentSeason = options.currentSeason ?? 'SPRING';
+        this.viewMode = options.viewMode 
 
-        this.canvas = document.getElementById(options.canvas);
+        this.canvas = options.canvas;
         this.ctx = this.canvas.getContext('2d');
-        this.tooltip = options.tooltip ? (typeof options.tooltip === 'string' ? document.getElementById(options.tooltip) : options.tooltip) : null;
+        this.tooltip = options.tooltip;
 
-        this.currentSeed = options.seed || 12345;
+        this.initialSeed = options.seed || 12345;
+        this.currentSeed = this.initialSeed;
         this.mapSites = [];
         this.mapVoronoi = null;
         this.noisyEdgeCache = new Map();
 
+        this.factionsConfig = options.factions || { count: 0 }; 
+
+        this.viewTransform = { x: 0, y: 0, scale: 1 };
+        this.minScale = 0.6;
+        this.maxScale = 6;
+
+        this._initEconomy();
         this._initDictionaries();
+        this._initSeasonVisuals();
+        this._initFactionPalette();
         
         if (this.canvas) {
             this._initEvents();
         }
     }
-
+    _initEconomy() {
+        this.seasonOrder = ['SPRING', 'SUMMER', 'AUTUMN', 'WINTER'];
+        this.seasonLabels = { SPRING: 'Весна', SUMMER: 'Лето', AUTUMN: 'Осень', WINTER: 'Зима' };
+    
+        this.biomeResourceBase = {
+            DEEP_OCEAN:   { food: 0, production: 0, manpower: 0, gold: 0, upkeep: -0.2 },
+            OCEAN:        { food: 1, production: 0, manpower: 0, gold: 1, upkeep: -0.3 },
+            SHALLOW:      { food: 2, production: 0, manpower: 0, gold: 0, upkeep: -0.3 },
+    
+            COAST:        { food: 2, production: 1, manpower: 1, gold: 1, upkeep: -0.5 },
+            STEPPE:       { food: 1, production: 1, manpower: 2, gold: 0, upkeep: -0.5 },
+            PLAINS:       { food: 3, production: 1, manpower: 1, gold: 0, upkeep: -0.6 },
+            GRASSLAND:    { food: 3, production: 1, manpower: 2, gold: 0, upkeep: -0.6 },
+            WETLANDS:     { food: 2, production: 0, manpower: 1, gold: 0, upkeep: -0.7 },
+            WOODLAND:     { food: 1, production: 2, manpower: 1, gold: 0, upkeep: -0.6 },
+            FOREST:       { food: 1, production: 3, manpower: 1, gold: 0, upkeep: -0.7 },
+            DENSE_FOREST: { food: 0, production: 3, manpower: 1, gold: 0, upkeep: -0.8 },
+            HIGHLANDS:    { food: 0, production: 2, manpower: 0, gold: 2, upkeep: -0.9 },
+            PEAKS:        { food: 0, production: 1, manpower: 0, gold: 3, upkeep: -1.0 },
+        };
+    
+        this.cityResourceBonus = { production: 1, manpower: 1, gold: 1, upkeep: -0.5 };
+    
+        this.seasonModifiers = {
+            SPRING: {
+                cold:      { food: 0.9, production: 1.0, manpower: 1.0, gold: 1.0, upkeep: 1.0 },
+                temperate: { food: 1.1, production: 1.0, manpower: 1.0, gold: 1.0, upkeep: 1.0 },
+                hot:       { food: 1.0, production: 1.0, manpower: 1.0, gold: 1.0, upkeep: 1.0 },
+            },
+            SUMMER: {
+                cold:      { food: 1.1, production: 1.1, manpower: 1.1, gold: 1.0, upkeep: 1.0 },
+                temperate: { food: 1.3, production: 1.1, manpower: 1.1, gold: 1.0, upkeep: 1.0 },
+                hot:       { food: 0.8, production: 0.9, manpower: 0.9, gold: 1.1, upkeep: 1.1 },
+            },
+            AUTUMN: {
+                cold:      { food: 0.8, production: 1.0, manpower: 0.9, gold: 1.0, upkeep: 1.0 },
+                temperate: { food: 1.2, production: 1.0, manpower: 1.0, gold: 1.0, upkeep: 1.0 },
+                hot:       { food: 1.0, production: 1.0, manpower: 1.0, gold: 1.0, upkeep: 1.0 },
+            },
+            WINTER: {
+                cold:      { food: 0.3, production: 0.7, manpower: 0.7, gold: 0.9, upkeep: 1.3 },
+                temperate: { food: 0.6, production: 0.9, manpower: 0.9, gold: 1.0, upkeep: 1.15 },
+                hot:       { food: 0.9, production: 1.0, manpower: 1.0, gold: 1.0, upkeep: 1.0 },
+            },
+        };
+    }
+    _initSeasonVisuals() {
+        this.seasonTints = {
+            SPRING: {
+                land:  { cold: { color: '#cfe8c2', strength: 0.12 }, temperate: { color: '#d9f2a3', strength: 0.15 }, hot: { color: '#f2e6a8', strength: 0.05 } },
+                water: { cold: { color: '#dfeff5', strength: 0.05 }, temperate: { color: '#dfeff5', strength: 0.00 }, hot: { color: '#dfeff5', strength: 0.00 } },
+            },
+            SUMMER: {
+                land:  { cold: { color: '#e8f0c2', strength: 0.05 }, temperate: { color: '#fff4b0', strength: 0.05 }, hot: { color: '#ffdd88', strength: 0.18 } },
+                water: { cold: { color: '#bfe0e8', strength: 0.00 }, temperate: { color: '#bfe0e8', strength: 0.00 }, hot: { color: '#bfe0e8', strength: 0.00 } },
+            },
+            AUTUMN: {
+                land:  { cold: { color: '#c98a3e', strength: 0.20 }, temperate: { color: '#d9822b', strength: 0.35 }, hot: { color: '#e0a83e', strength: 0.08 } },
+                water: { cold: { color: '#7a8fa0', strength: 0.05 }, temperate: { color: '#7a8fa0', strength: 0.05 }, hot: { color: '#7a8fa0', strength: 0.00 } },
+            },
+            WINTER: {
+                land:  { cold: { color: '#ffffff', strength: 0.80 }, temperate: { color: '#ffffff', strength: 0.45 }, hot: { color: '#ffffff', strength: 0.00 } },
+                water: { cold: { color: '#e8f4fb', strength: 0.15 }, temperate: { color: '#e8f4fb', strength: 0.20 }, hot: { color: '#e8f4fb', strength: 0.00 } },
+            },
+        };
+    }
     _initDictionaries() {
         this.waterBiomes = [
             { id: 'DEEP_OCEAN', color: '#1a2346', maxT: 0.45 },
@@ -64,52 +143,85 @@ class MapGenerator {
         };
         this.climateZoneLabels = { cold: 'холодный', temperate: 'умеренный', hot: 'жаркий' };
     }
+
+    _initFactionPalette() {
+        this.factionColors = ['#e63946', '#457b9d', '#2a9d8f', '#f4a261', '#9b5de5', '#ffbe0b', '#06d6a0', '#ef476f'];
+    }
+
+    hexToRgb(hex) {
+        const h = hex.replace('#', '');
+        return { r: parseInt(h.substring(0, 2), 16), g: parseInt(h.substring(2, 4), 16), b: parseInt(h.substring(4, 6), 16) };
+    }
+    
+    rgbToHex(r, g, b) {
+        const clamp = v => Math.max(0, Math.min(255, Math.round(v)));
+        return '#' + [clamp(r), clamp(g), clamp(b)].map(v => v.toString(16).padStart(2, '0')).join('');
+    }
+    
+    blendColor(baseHex, tintHex, amount) {
+        if (amount <= 0) return baseHex;
+        const base = this.hexToRgb(baseHex), tint = this.hexToRgb(tintHex);
+        return this.rgbToHex(
+            base.r + (tint.r - base.r) * amount,
+            base.g + (tint.g - base.g) * amount,
+            base.b + (tint.b - base.b) * amount
+        );
+    }
+    getSeasonalColor(site, season = this.currentSeason) {
+        const baseColor = this.biomesMap[site.biome];
+        if (!baseColor) return baseColor;
+
+        const tintGroup = this.seasonTints[season];
+        if (!tintGroup) return baseColor;
+
+        const zone = site.climateZone || 'temperate';
+        const tint = (site.isWater ? tintGroup.water : tintGroup.land)[zone];
+        if (!tint || tint.strength <= 0) return baseColor;
+
+        return this.blendColor(baseColor, tint.color, tint.strength);
+    }
+    getBaseFillColor(site) {
+        if (this.viewMode === 'factions') {
+            return this.getElevationGrayscale(site);
+        }
+        site.biome = site.isWater ? site.biomeClimate : (this.showClimate ? site.biomeClimate : site.biomeNeutral);
+        return this.getSeasonalColor(site);
+    }
+    getElevationGrayscale(site) {
+        if (site.isWater) {
+            const v = 25 + site.t * 35; // тёмный, с лёгким синим оттенком
+            return this.rgbToHex(v * 0.7, v * 0.8, v * 1.05);
+        }
+        const v = 110 + site.t * 95; // 85..230, чем выше — тем светлее
+        return this.rgbToHex(v, v, v);
+
+        
+    }
     seededRandom() {
         this.currentSeed = (this.currentSeed * 48271) % 2147483647;
         return (this.currentSeed / 2147483647);
     }
 
+    
     setSeed(seed) {
-        this.currentSeed = seed || Math.floor(Math.random() * 9999999) + 1;
-        return this.currentSeed;
+        this.initialSeed = seed || Math.floor(Math.random() * 9999999) + 1;
+        this.currentSeed = this.initialSeed;
+        return this.initialSeed;
     }
 
-
-    toggleSeedInput() {
-        const isAuto = document.getElementById('checkRandomSeed').checked;
-        document.getElementById('inputSeed').disabled = isAuto;
-        if (isAuto) {
-            this.setSeed(Math.floor(Math.random() * 1000000));
-            document.getElementById('inputSeed').value = this.currentSeed;
-        }
-    }
-
-    randomizeSeedAndGenerate() {
-        document.getElementById('checkRandomSeed').checked = false;
-        document.getElementById('inputSeed').disabled = false;
-        this.setSeed(Math.floor(Math.random() * 9999999) + 1);
-        document.getElementById('inputSeed').value = this.currentSeed;
-        generate();
-    }
-
-
-    pickBiome(bands, t) {
-        for (let i = 0; i < bands.length; i++) if (t <= bands[i].maxT) return bands[i].id;
-        return bands[bands.length - 1].id;
-    }
-    pickElevationBand(bands, t) {
-        for (let i = 0; i < bands.length; i++) if (t <= bands[i].maxT) return bands[i];
+    findBand(bands, t) {
+        for (const b of bands) if (t <= b.maxT) return b;
         return bands[bands.length - 1];
     }
-    computeTemperatures(sites, isWater, landT, width, height) {
+    computeTemperatures(sites, isWater, landT) {
         const n = sites.length;
         const temp = new Float64Array(n);
         const phase = this.seededRandom() * Math.PI * 2;
         for (let i = 0; i < n; i++) {
-            const nx = sites[i].x / width, ny = sites[i].y / height;
+            const nx = sites[i].x / this.width, ny = sites[i].y / this.height;
             const wobble = Math.sin(nx * Math.PI * 2.2 + phase) * 0.07 + Math.sin(nx * Math.PI * 5.0 - phase) * 0.035;
             let val = ny + wobble;
-            if (!isWater[i]) val -= landT[i] * 0.32;
+            val -= landT[i] * 0.32;
             temp[i] = Math.min(1, Math.max(0, val));
         }
         return temp;
@@ -191,7 +303,20 @@ class MapGenerator {
         }
         return sites;
     }
-
+    buildSitePath(polygon) {
+        this.ctx.beginPath();
+        let firstPoint = true;
+        for (let j = 0; j < polygon.length - 1; j++) {
+            const p1 = polygon[j], p2 = polygon[j + 1];
+            const noisySegment = this.getNoisyLineSegments(p1[0], p1[1], p2[0], p2[1]);
+            for (let k = 0; k < noisySegment.length; k++) {
+                const pt = noisySegment[k];
+                if (firstPoint) { this.ctx.moveTo(pt.x, pt.y); firstPoint = false; }
+                else { this.ctx.lineTo(pt.x, pt.y); }
+            }
+        }
+        this.ctx.closePath();
+    }
     buildNeighbors(delaunay, n) {
         const neighbors = new Array(n);
         for (let i = 0; i < n; i++) neighbors[i] = Array.from(delaunay.neighbors(i));
@@ -303,7 +428,7 @@ class MapGenerator {
         }
     }
 
-    generateElevation(sites, neighborsList, shapeType) {
+    generateElevation(sites, neighborsList) {
         const n = sites.length;
         const elevation = new Float64Array(n);
         const seedTrig = (this.currentSeed % 1000) * 0.017;
@@ -386,17 +511,10 @@ class MapGenerator {
                         || sites[i].y < this.borderMargin || sites[i].y > this.height - this.borderMargin;
             if (isEdge) elevation[i] *= 0.15;
         }
-        let channelMask = null;
-        for (let i = 0; i < n; i++) {
-            const isEdge = sites[i].x < this.borderMargin || sites[i].x > this.width - this.borderMargin
-                        || sites[i].y < this.borderMargin || sites[i].y > this.height - this.borderMargin;
-            if (isEdge) elevation[i] *= 0.15;
-        }
-        console.log(elevation)
-        return { elevation, channelMask };
+        return elevation;
     }
 
-    classifyByLandFraction(elevation, targetFraction, reliefCompression, channelMask) {
+    classifyByLandFraction(elevation, targetFraction, reliefCompression) {
         const n = elevation.length;
         const sorted = Array.from(elevation).sort((a, b) => a - b);
         const idx = Math.min(n - 1, Math.max(0, Math.floor((1 - targetFraction) * n)));
@@ -420,14 +538,6 @@ class MapGenerator {
             } else {
                 isWater[i] = 0;
                 t[i] = Math.min(1, Math.max(0, (elevation[i] - waterLevel) / landRange)) * landCeiling;
-            }
-        }
-
-        if (channelMask) {
-            for (let i = 0; i < n; i++) {
-                if (!channelMask[i]) continue;
-                isWater[i] = 1;
-                t[i] = Math.min(1, Math.max(0, (elevation[i] - min) / waterRange));
             }
         }
 
@@ -456,18 +566,28 @@ class MapGenerator {
         }
     }
 
-    generate() {
+    generate(seed) {
+        this.setup(seed);
+        this.render();
+        return {
+            regions: this.getRegionsData(),
+            factions: this.getFactionsData(),
+        };
+    }
+    setup(seed) {
+        if (seed !== undefined) this.setSeed(seed);
+        else this.currentSeed = this.initialSeed;
+    
         this.noisyEdgeCache.clear();
-
-        const approxSites = 1500;
-
-        const rawSites = this.generateUniformSites(approxSites, this.width, this.height, 2);
-        
+    
+        const rawSites = this.generateUniformSites(this.sitesAmount, this.width, this.height, 2);
+    
         const sites = rawSites.map((s, i) => ({
             id: i, x: s.x, y: s.y, elevation: 0, t: 0, biome: 'OCEAN', biomeBand: 'OCEAN',
-            biomeClimate: 'OCEAN', biomeNeutral: 'OCEAN', climateZone: null, isWater: true, city: null
+            biomeClimate: 'OCEAN', biomeNeutral: 'OCEAN', climateZone: null, isWater: true, city: null,
+            ownerId: null,
         }));
-
+    
         const points = new Float64Array(sites.length * 2);
         for (let i = 0; i < sites.length; i++) {
             points[i * 2] = sites[i].x;
@@ -476,46 +596,48 @@ class MapGenerator {
         const delaunay = new d3.Delaunay(points);
         const voronoi = delaunay.voronoi([0, 0, this.width, this.height]);
         const neighbors = this.buildNeighbors(delaunay, sites.length);
-        
-        const { elevation, channelMask } = this.generateElevation(sites, neighbors);
-        
-
+    
+        const elevation = this.generateElevation(sites, neighbors);
+    
         const targetFraction = Math.min(0.62, Math.max(0.12, 0.20 + (this.landAmount - 0.5) * 0.35));
-        const { isWater, t } = this.classifyByLandFraction(elevation, targetFraction, this.relief, channelMask);
-
-        const minLandSize = Math.max(4, Math.round(approxSites * 0.006));
+        const { isWater, t } = this.classifyByLandFraction(elevation, targetFraction, this.relief);
+    
+        const minLandSize = Math.max(4, Math.round(this.sitesAmount * 0.006));
         this.cleanupLandSpecks(isWater, neighbors, minLandSize);
-
-        const temperature = this.computeTemperatures(sites, isWater, t, this.width, this.height);
-
+    
+        const temperature = this.computeTemperatures(sites, isWater, t);
+    
         sites.forEach((site, i) => {
             site.elevation = elevation[i];
             site.t = t[i];
             site.isWater = !!isWater[i];
+    
+            const zone = temperature[i] < 0.28 ? 'cold' : temperature[i] > 0.72 ? 'hot' : 'temperate';
+            site.climateZone = zone;
+    
             if (site.isWater) {
-                const id = this.pickBiome(this.waterBiomes, t[i]);
+                const id = this.findBand(this.waterBiomes, t[i]).id;
                 site.biomeBand = id;
                 site.biomeClimate = id;
                 site.biomeNeutral = id;
-                site.climateZone = null;
             } else {
-                const band = this.pickElevationBand(this.landElevationBands, t[i]);
-                const zone = temperature[i] < 0.28 ? 'cold' : temperature[i] > 0.72 ? 'hot' : 'temperate';
+                const band = this.findBand(this.landElevationBands, t[i]);
                 site.biomeBand = band.id;
                 site.biomeClimate = band.id + '_' + zone;
                 site.biomeNeutral = band.id + '_temperate';
-                site.climateZone = zone;
             }
         });
-
-        this.drawCities(sites)
-
+    
+        this.assignCities(sites);
+        this.assignFactions(sites, neighbors);
+    
         this.mapSites = sites;
         this.mapVoronoi = voronoi;
-        this.renderMap();
+        this.edgeMap = this.buildEdgeMap(); // теперь считается один раз здесь, а не в каждом render()
+        this.viewTransform = { x: 0, y: 0, scale: 1 };
     }
 
-    drawCities(sites){
+    assignCities(sites) {
         const landSites = sites.filter(s => !s.isWater);
         landSites.forEach((site, index) => {
             if (index % 25 === 0 && site.biomeBand !== 'PEAKS' && site.biomeBand !== 'HIGHLANDS') {
@@ -524,37 +646,203 @@ class MapGenerator {
         });
     }
 
-    renderMap() {
-        const showClimate = document.getElementById('checkClimate').checked;
-
-        this.ctx.clearRect(0, 0, this.width, this.height);
-
+    assignFactions(sites, neighborsList) {
+        const count = this.factionsConfig.count || 0;
+        this.factions = [];
+        if (count <= 0) return;
+    
+        const names = this.factionsConfig.names?.length === count ? this.factionsConfig.names : null;
+        const colors = this.factionsConfig.colors?.length === count ? this.factionsConfig.colors : null;
+    
+        const cityCandidates = sites.filter(s => s.city && !s.isWater);
+        if (cityCandidates.length < count) {
+            console.warn(`MapGenerator: городов (${cityCandidates.length}) меньше, чем фракций (${count})`);
+        }
+    
+        const chosenCapitals = [];
+        const pickCapital = () => {
+            let best = null, bestScore = -Infinity;
+            for (const c of cityCandidates) {
+                if (chosenCapitals.includes(c)) continue;
+                const minDist = chosenCapitals.length === 0 ? Infinity :
+                    Math.min(...chosenCapitals.map(p => Math.hypot(p.x - c.x, p.y - c.y)));
+                const score = minDist + this.seededRandom() * 40; // немного шума, чтобы не всегда брать самый дальний
+                if (score > bestScore) { bestScore = score; best = c; }
+            }
+            return best;
+        };
+        for (let i = 0; i < count; i++) {
+            const capital = pickCapital();
+            if (!capital) break;
+            chosenCapitals.push(capital);
+        }
+    
+        chosenCapitals.forEach((capital, i) => {
+            this.factions.push({
+                id: i,
+                name: names ? names[i] : `Фракция ${i + 1}`,
+                color: colors ? colors[i] : this.factionColors[i % this.factionColors.length],
+                capitalSiteId: capital.id,
+                ownedRegions: [],
+                armies: [],
+            });
+        });
+    
+        const ownerOf = new Int16Array(sites.length).fill(-1);
+        const startHops = 2;
+        chosenCapitals.forEach((capital, factionId) => {
+            const queue = [{ id: capital.id, depth: 0 }];
+            ownerOf[capital.id] = factionId;
+            let qi = 0;
+            while (qi < queue.length) {
+                const { id, depth } = queue[qi++];
+                if (depth >= startHops) continue;
+                for (const nb of neighborsList[id]) {
+                    if (ownerOf[nb] !== -1 || sites[nb].isWater) continue;
+                    ownerOf[nb] = factionId;
+                    queue.push({ id: nb, depth: depth + 1 });
+                }
+            }
+        });
+    
+        sites.forEach((site, i) => { site.ownerId = ownerOf[i] === -1 ? null : ownerOf[i]; });
+        this.factions.forEach(faction => {
+            faction.ownedRegions = sites.filter(s => s.ownerId === faction.id).map(s => s.id);
+            faction.armies.push({ id: `${faction.id}-army-0`, siteId: faction.capitalSiteId, strength: 10 });
+        });
+    }
+    _edgeKey(p1, p2) {
+        const a = `${Math.round(p1[0] * 10)},${Math.round(p1[1] * 10)}`;
+        const b = `${Math.round(p2[0] * 10)},${Math.round(p2[1] * 10)}`;
+        return a < b ? `${a}|${b}` : `${b}|${a}`;
+    }
+    
+    buildEdgeMap() {
+        const edgeMap = new Map();
         for (let i = 0; i < this.mapSites.length; i++) {
             const polygon = this.mapVoronoi.cellPolygon(i);
             if (!polygon) continue;
-
-            const site = this.mapSites[i];
-            site.biome = site.isWater ? site.biomeClimate : (showClimate ? site.biomeClimate : site.biomeNeutral);
-            this.ctx.fillStyle = this.biomesMap[site.biome];
-            this.ctx.strokeStyle = 'rgba(2, 44, 34, 0.3)';
-            this.ctx.lineWidth = 1;
-
-            this.ctx.beginPath();
-            let firstPoint = true;
             for (let j = 0; j < polygon.length - 1; j++) {
                 const p1 = polygon[j], p2 = polygon[j + 1];
-                const noisySegment = this.getNoisyLineSegments(p1[0], p1[1], p2[0], p2[1]);
-                for (let k = 0; k < noisySegment.length; k++) {
-                    const pt = noisySegment[k];
-                    if (firstPoint) { this.ctx.moveTo(pt.x, pt.y); firstPoint = false; }
-                    else { this.ctx.lineTo(pt.x, pt.y); }
-                }
+                const key = this._edgeKey(p1, p2);
+                if (!edgeMap.has(key)) edgeMap.set(key, { siteIds: [], p1, p2 });
+                edgeMap.get(key).siteIds.push(i);
             }
-            this.ctx.closePath();
+        }
+        return edgeMap;
+    }
+    setSeason(season) {
+        if (!this.seasonOrder.includes(season)) return;
+        this.currentSeason = season;
+        if (this.mapSites.length) this.render(); // только render(), setup() не трогаем
+    }
+    
+    setShowClimate(value) {
+        this.showClimate = value;
+        if (this.mapSites.length) this.render();
+    }
+    getRegionsData() {
+        return this.mapSites.map(s => ({
+            id: s.id, x: s.x, y: s.y, isWater: s.isWater,
+            biome: s.biomeBand, climateZone: s.climateZone,
+            city: s.city, ownerId: s.ownerId,
+            resources: this.getRegionResources(s),
+        }));
+    }
+
+    getFactionsData() {
+        return this.factions || [];
+    }
+    getRegionResources(site, season = this.currentSeason) {
+        const base = this.biomeResourceBase[site.biomeBand];
+        if (!base) return null;
+    
+        const zone = site.climateZone || 'temperate';
+        const mod = this.seasonModifiers[season][zone];
+    
+        const result = {};
+        for (const key of Object.keys(base)) {
+            const value = base[key] * (mod[key] ?? 1);
+            result[key] = key === 'upkeep' ? -Math.abs(value) : value;
+        }
+    
+        if (site.city) {
+            for (const key of Object.keys(this.cityResourceBonus)) {
+                result[key] = (result[key] || 0) + this.cityResourceBonus[key];
+            }
+        }
+        return result;
+    }
+
+    render() {
+        this.ctx.save();
+        this.ctx.setTransform(1, 0, 0, 1, 0, 0); // сброс, чтобы очистить весь canvas, а не только видимую область
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        this.ctx.restore();
+
+        this.ctx.save();
+        this.ctx.translate(this.viewTransform.x, this.viewTransform.y);
+        this.ctx.scale(this.viewTransform.scale, this.viewTransform.scale);
+        this.renderRegions();
+        if (this.viewMode !== 'factions') this.renderFactionBorders();
+    
+        this.renderCities();
+
+        this.ctx.restore();
+    }
+    renderRegions() {
+        for (let i = 0; i < this.mapSites.length; i++) {
+            const polygon = this.mapVoronoi.cellPolygon(i);
+            if (!polygon) continue;
+    
+            const site = this.mapSites[i];
+            this.ctx.fillStyle = this.getBaseFillColor(site);
+            this.ctx.strokeStyle = this.viewMode === 'factions' ? 'rgba(0, 0, 0, 0.25)' : 'rgba(2, 44, 34, 0.3)';
+            this.ctx.lineWidth = 1;
+    
+            this.buildSitePath(polygon);
             this.ctx.fill();
             this.ctx.stroke();
+    
+            if (site.ownerId !== null && site.ownerId !== undefined && this.factions?.[site.ownerId]) {
+                this.ctx.save();
+                // на карте фракций владение читается сильнее, чем лёгкий тон на обычной карте
+                this.ctx.globalAlpha = this.viewMode === 'factions' ? 0.85 : 0.32;
+                this.ctx.fillStyle = this.factions[site.ownerId].color;
+                this.ctx.fill(); // тот же path, что уже построен buildSitePath
+                this.ctx.restore();
+            }
         }
-
+    }
+    renderFactionBorders() {
+        if (!this.factions || !this.factions.length || !this.edgeMap) return;
+    
+        this.ctx.lineWidth = 2;
+        this.ctx.lineJoin = 'round';
+    
+        this.edgeMap.forEach(edge => {
+            if (edge.siteIds.length < 2) return;
+    
+            const [a, b] = edge.siteIds;
+            const siteA = this.mapSites[a], siteB = this.mapSites[b];
+            if (siteA.ownerId === siteB.ownerId) return;
+    
+            const ownerSite = (siteA.ownerId !== null && siteA.ownerId !== undefined) ? siteA : siteB;
+            const color = this.factions[ownerSite.ownerId]?.color || '#ffffff';
+    
+            const segments = this.getNoisyLineSegments(edge.p1[0], edge.p1[1], edge.p2[0], edge.p2[1]);
+    
+            this.ctx.strokeStyle = color;
+            this.ctx.beginPath();
+            segments.forEach((pt, k) => {
+                if (k === 0) this.ctx.moveTo(pt.x, pt.y);
+                else this.ctx.lineTo(pt.x, pt.y);
+            });
+            this.ctx.stroke();
+        });
+    }
+    
+    renderCities() {
         this.mapSites.forEach(site => {
             if (site.city) {
                 this.ctx.fillStyle = '#facc15';
@@ -572,13 +860,15 @@ class MapGenerator {
     }
 
     _initEvents() {
-        const getClimateState = () => document.getElementById('checkClimate')?.checked || false;
+        this.canvas.style.cursor = 'grab';
 
-        this.canvas.addEventListener('mousemove', e => this.handlePointerAt(e.clientX, e.clientY, getClimateState()));
-        this.canvas.addEventListener('click', e => this.handlePointerAt(e.clientX, e.clientY, getClimateState()));
+        this.canvas.addEventListener('mousedown', e => this._handleMouseDown(e));
+        window.addEventListener('mouseup', () => this._handleMouseUp());
+        this.canvas.addEventListener('mousemove', e => this._handleMouseMove(e));
         this.canvas.addEventListener('mouseleave', () => this.hideTooltip());
+        this.canvas.addEventListener('wheel', e => this._handleWheel(e), { passive: false });
         this.canvas.addEventListener('touchstart', e => {
-            if (e.touches.length) this.handlePointerAt(e.touches[0].clientX, e.touches[0].clientY, getClimateState());
+            if (e.touches.length) this.handlePointerAt(e.touches[0].clientX, e.touches[0].clientY);
         }, { passive: true });
     }
    
@@ -592,23 +882,25 @@ class MapGenerator {
         return best;
     }
 
-    describeSite(site, showClimate) { 
-        const ELEVATION_BAND_LABELS = {
-            COAST: 'Побережье', STEPPE: 'Степь', PLAINS: 'Равнина', GRASSLAND: 'Луга',
-            WETLANDS: 'Болота', WOODLAND: 'Редколесье', FOREST: 'Лес', DENSE_FOREST: 'Густой лес',
-            HIGHLANDS: 'Плоскогорье', PEAKS: 'Пик',
-            DEEP_OCEAN: 'Глубокий океан', OCEAN: 'Океан', SHALLOW: 'Мелководье',
-        };
-        const CLIMATE_ZONE_LABELS = { cold: 'холодный', temperate: 'умеренный', hot: 'жаркий' };
-        const bandLabel = ELEVATION_BAND_LABELS[site.biomeBand] || site.biomeBand;
+    describeSite(site) {
+        const bandLabel = this.elevationBandLabels[site.biomeBand] || site.biomeBand;
         const lines = [];
         if (site.isWater) {
             lines.push(`Глубина: ${(100 - site.t * 100).toFixed(0)}%`);
         } else {
-            if (showClimate && site.climateZone) lines.push(`Климат: ${CLIMATE_ZONE_LABELS[site.climateZone]}`);
+            if (this.showClimate && site.climateZone) lines.push(`Климат: ${this.climateZoneLabels[site.climateZone]}`);
             lines.push(`Высота: ${(site.t * 100).toFixed(0)}%`);
         }
         if (site.city) lines.push(`Поселение: ${site.city.name}`);
+    
+        const res = this.getRegionResources(site);
+        if (res) {
+            lines.push(`<hr class="my-1 border-emerald-800">`);
+            lines.push(`Сезон: ${this.seasonLabels[this.currentSeason]}`);
+            lines.push(`Еда ${res.food.toFixed(1)} · Произв. ${res.production.toFixed(1)} · Manpower ${res.manpower.toFixed(1)}`);
+            lines.push(`Золото ${res.gold.toFixed(1)} · Содержание ${res.upkeep.toFixed(1)}`);
+        }
+    
         return `<div class="font-semibold text-emerald-400 mb-1">${bandLabel}</div>` +
                lines.map(l => `<div>${l}</div>`).join('');
     }
@@ -618,17 +910,71 @@ class MapGenerator {
         const rect = this.canvas.getBoundingClientRect();
         const scaleX = this.canvas.width / rect.width;
         const scaleY = this.canvas.height / rect.height;
-        const mx = (clientX - rect.left) * scaleX;
-        const my = (clientY - rect.top) * scaleY;
-        if (mx < 0 || my < 0 || mx > this.canvas.width || my > this.canvas.height) { this.hideTooltip(); return; }
-
-        const idx = this.findNearestSiteIndex(mx, my);
+        const px = (clientX - rect.left) * scaleX;
+        const py = (clientY - rect.top) * scaleY;
+    
+        // из экранных пикселей canvas — в мировые координаты карты
+        const wx = (px - this.viewTransform.x) / this.viewTransform.scale;
+        const wy = (py - this.viewTransform.y) / this.viewTransform.scale;
+    
+        if (wx < 0 || wy < 0 || wx > this.width || wy > this.height) { this.hideTooltip(); return; }
+    
+        const idx = this.findNearestSiteIndex(wx, wy);
         if (idx === -1) { this.hideTooltip(); return; }
-        const showClimate = document.getElementById('checkClimate').checked;
-        const tooltip = document.getElementById('mapTooltip');
-        tooltip.innerHTML = this.describeSite(this.mapSites[idx], showClimate);
-        tooltip.style.left = (clientX + 16) + 'px';
-        tooltip.style.top = (clientY + 16) + 'px';
-        tooltip.classList.remove('hidden');
+        this.tooltip.innerHTML = this.describeSite(this.mapSites[idx]);
+        this.tooltip.style.left = (clientX + 16) + 'px';
+        this.tooltip.style.top = (clientY + 16) + 'px';
+        this.tooltip.classList.remove('hidden');
+    }
+    _handleWheel(e) {
+        e.preventDefault();
+        const rect = this.canvas.getBoundingClientRect();
+        const scaleX = this.canvas.width / rect.width;
+        const scaleY = this.canvas.height / rect.height;
+        const px = (e.clientX - rect.left) * scaleX;
+        const py = (e.clientY - rect.top) * scaleY;
+    
+        const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+        const newScale = Math.min(this.maxScale, Math.max(this.minScale, this.viewTransform.scale * factor));
+    
+        // точка под курсором должна остаться на месте после зума
+        const worldX = (px - this.viewTransform.x) / this.viewTransform.scale;
+        const worldY = (py - this.viewTransform.y) / this.viewTransform.scale;
+    
+        this.viewTransform.scale = newScale;
+        this.viewTransform.x = px - worldX * newScale;
+        this.viewTransform.y = py - worldY * newScale;
+    
+        this.render();
+        this.hideTooltip();
+    }
+    _handleMouseDown(e) {
+        this._isPanning = true;
+        this._panStart = { x: e.clientX, y: e.clientY };
+        this._transformStart = { x: this.viewTransform.x, y: this.viewTransform.y };
+        this.canvas.style.cursor = 'grabbing';
+    }
+    
+    _handleMouseUp() {
+        this._isPanning = false;
+        this.canvas.style.cursor = 'grab';
+    }
+    
+    _handleMouseMove(e) {
+        if (this._isPanning) {
+            const rect = this.canvas.getBoundingClientRect();
+            const scaleX = this.canvas.width / rect.width;
+            const scaleY = this.canvas.height / rect.height;
+            const dx = (e.clientX - this._panStart.x) * scaleX;
+            const dy = (e.clientY - this._panStart.y) * scaleY;
+    
+            this.viewTransform.x = this._transformStart.x + dx;
+            this.viewTransform.y = this._transformStart.y + dy;
+    
+            this.render();
+            this.hideTooltip();
+            return;
+        }
+        this.handlePointerAt(e.clientX, e.clientY);
     }
 }
