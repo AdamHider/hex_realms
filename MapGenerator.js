@@ -485,7 +485,7 @@ class MapGenerator {
     }
     
     renderRegions(ctx) {
-        const resourceRange = ['food', 'gold', 'production'].includes(this.viewMode)
+        const resourceRange = ['food', 'gold', 'production', 'manpower'].includes(this.viewMode)
         ? this.color.getResourceRange(this.viewMode)
         : null;
 
@@ -536,7 +536,7 @@ const MapColor = {
         if (this.viewMode === 'factions') {
             return this.color.getGrayscale(region);
         }
-        if (!region.isWater && ['food', 'gold', 'production'].includes(this.viewMode)) {
+        if (!region.isWater && ['food', 'gold', 'production', 'manpower'].includes(this.viewMode)) {
             return this.color.getResourceColor(region, this.viewMode, resourceRange);
         }
         region.biome = region.isWater ? region.biomeClimate : (this.showClimate ? region.biomeClimate : region.biomeNeutral);
@@ -607,6 +607,8 @@ const MapColor = {
             food:       ['#7a1f1f', '#2f9e44'], // мало — красный, много — зелёный
             gold:       ['#4a2e1a', '#e08e2b'], // мало — коричневый, много — оранжевый
             production: ['#d7e6f2', '#12294f'], // мало — бледно-голубой, много — насыщенный тёмно-синий
+            manpower:   ['#dbd7d8', '#e83a63'], // мало — бледно-голубой, много — насыщенный тёмно-синий
+               
         };
         const [lowColor, highColor] = scales[key];
     
