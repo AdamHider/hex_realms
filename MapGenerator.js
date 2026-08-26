@@ -51,7 +51,7 @@ class MapGenerator {
 
         this.factions = {
             config: options.factions || { count: 0 },
-            startHops: options.startHops ?? 5,
+            startHops: options.startHops ?? 3,
             capitalPopulation: options.capitalPopulation ?? 120,
             populationDecay: options.populationDecay ?? 0.62,
             colors: { 
@@ -162,7 +162,7 @@ class MapGenerator {
               resources: { food: 0, production: 2, manpower: 0, gold: 2, upkeep: -0.9 } },
             { id: 'PEAKS', isWater: false, maxT: Infinity, label: 'Пик',
               colors: { cold: '#f2f6f7', temperate: '#707372', hot: '#7a6558' },
-              resources: { food: 0, production: 1, manpower: 0, gold: 3, upkeep: -1.0 } },
+              resources: { food: -1.0, production: 1, manpower: 0, gold: 3, upkeep: -1.0 } },
         ];
 
         this.waterBiomes = this.biomeDefs.filter(b => b.isWater);
@@ -519,7 +519,7 @@ class MapGenerator {
 
             if (region.ownerId !== null && region.ownerId !== undefined && this.factions.list?.[region.ownerId]) {
                 ctx.save();
-                ctx.globalAlpha = this.viewMode === 'factions' ? 0.65 : (this.viewMode === 'political') ? 0.32 : 0;
+                ctx.globalAlpha = this.viewMode === 'factions' ? 0.65 : (this.viewMode === 'political') ? 0.42 : 0;
                 ctx.fillStyle = this.factions.list[region.ownerId].color;
                 ctx.fill();
                 ctx.restore();
@@ -722,8 +722,8 @@ const MapInteraction = {
 const MapFaction = {
     getTotal() {
         if (this.factions.config.count) return this.factions.config.count;
-        const scaled = Math.round(this.terrain.config.regionCount / 60);
-        return Math.max(8, Math.min(40, scaled));
+        const scaled = Math.round(this.terrain.config.regionCount / 40);
+        return Math.max(8, Math.min(70, scaled));
     },
     pickCapitals(candidates, count) {
         const chosen = [];
