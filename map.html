@@ -67,17 +67,17 @@
                     <span class="text-slate-300">Плотность полигонов:</span>
                     <span id="valSites" class="text-emerald-400 font-mono">1500</span>
                 </div>
-                <input type="range" id="rangeSites" min="200" max="2500" step="50" value="1500"
+                <input type="range" id="rangeSites" min="200" max="3500" step="50" value="3000"
                     oninput="updateLabel('valSites', this.value)"
-                    onchange="changeMap('sitesAmount', parseInt(this.value))"
+                    onchange="changeMapTerrain('regionCount', parseInt(this.value))"
                     class="w-full accent-emerald-500 cursor-pointer">
             </div>
             <div class="flex flex-col gap-1.5">
                 <label for="selectViewMode" class="text-xs text-slate-300">Режим просмотра:</label>
                 <select id="selectViewMode" onchange="changeMap('viewMode', this.value)"
                     class="bg-slate-950 border border-slate-800 text-slate-100 text-xs rounded-xl p-2.5 focus:outline-none focus:border-emerald-500 cursor-pointer">
-                    <option value="terrain">Рельеф + климат</option>
-                    <option value="political" selected>Рельеф + фракции</option>
+                    <option value="terrain" selected>Рельеф + климат</option>
+                    <option value="political">Рельеф + фракции</option>
                     <option value="factions">Карта фракций</option>
                 </select>
             </div>
@@ -94,7 +94,7 @@
 
             <div class="flex flex-col gap-1.5">
                 <label for="selectShape" class="text-xs text-slate-300">Тип мира:</label>
-                <select id="selectShape" onchange="changeMap('shapeType',this.value)" class="bg-slate-950 border border-slate-800 text-slate-100 text-xs rounded-xl p-2.5 focus:outline-none focus:border-emerald-500 cursor-pointer">
+                <select id="selectShape" onchange="changeMapTerrain('shapeType',this.value)" class="bg-slate-950 border border-slate-800 text-slate-100 text-xs rounded-xl p-2.5 focus:outline-none focus:border-emerald-500 cursor-pointer">
                     <option value="continent" selected>Континент (Европа)</option>
                     <option value="two_continents">Два континента</option>
                     <option value="island">Один остров</option>
@@ -104,26 +104,26 @@
             <div class="flex flex-col gap-1.5">
                 <div class="flex justify-between text-xs">
                     <span class="text-slate-300">Количество суши:</span>
-                    <span id="valLandAmount" class="text-emerald-400 font-mono">1.25</span>
+                    <span id="valLandAmount" class="text-emerald-400 font-mono">0.8</span>
                 </div>
-                <input type="range" id="rangeLandAmount" min="0.5" max="1.6" step="0.05" value="1.25" oninput="updateLabel('valLandAmount', this.value)" onchange="changeMap('landAmount', parseFloat(this.value))"/>
+                <input type="range" id="rangeLandAmount" min="0.5" max="1.6" step="0.05" value="0.80" oninput="updateLabel('valLandAmount', this.value)" onchange="changeMapTerrain('landAmount', parseFloat(this.value))"/>
             </div>
 
             <div class="flex flex-col gap-1.5">
                 <div class="flex justify-between text-xs">
                     <span class="text-slate-300">Рельеф (высота, детализация):</span>
-                    <span id="valRelief" class="text-emerald-400 font-mono">0.75</span>
+                    <span id="valRelief" class="text-emerald-400 font-mono">0.9</span>
                 </div>
-                <input type="range" id="rangeRelief" min="0.0" max="1.0" step="0.05" value="0.75" oninput="updateLabel('valRelief', this.value)" onchange="changeMap('relief',parseFloat(this.value))" class="w-full accent-emerald-500 cursor-pointer">
+                <input type="range" id="rangeRelief" min="0.0" max="1.0" step="0.05" value="0.90" oninput="updateLabel('valRelief', this.value)" onchange="changeMapTerrain('relief',parseFloat(this.value))" class="w-full accent-emerald-500 cursor-pointer">
                 <p class="text-[10px] text-slate-500 leading-snug">Низкий — пологие равнины. Высокий — резкие высокие пики и сильно изрезанная текстура берегов.</p>
             </div>
 
             <div class="flex flex-col gap-1.5">
                 <div class="flex justify-between text-xs">
                     <span class="text-slate-300">Хаотичность рельефа:</span>
-                    <span id="valChaos" class="text-emerald-400 font-mono">0.75</span>
+                    <span id="valChaos" class="text-emerald-400 font-mono">0.2</span>
                 </div>
-                <input type="range" id="rangeChaos" min="0.0" max="1.0" step="0.05" value="0.75" oninput="updateLabel('valChaos', this.value)" onchange="changeMap('chaos',this.value)" class="w-full accent-emerald-500 cursor-pointer">
+                <input type="range" id="rangeChaos" min="0.0" max="1.0" step="0.05" value="0.20" oninput="updateLabel('valChaos', this.value)" onchange="changeMapTerrain('chaos',this.value)" class="w-full accent-emerald-500 cursor-pointer">
                 <p class="text-[10px] text-slate-500 leading-snug">0 — гладкий градиент высот. Выше — независимый шум по каждому полигону, меньше одинаковых по высоте соседей.</p>
             </div>
 
@@ -154,11 +154,11 @@
             } else {
                 seedInput.disabled = false;
             }
-            const { regions, factions } = mapGen.generate(parseInt(seedInput.value) || 12345);
+            const { regions, factions } = mapGen.create(parseInt(seedInput.value) || 12345);
             console.log(factions)
         }
         const STRUCTURAL_KEYS = new Set([
-            'sitesAmount', 'shapeType', 'landAmount', 'relief', 'chaos',
+            'regionCount', 'shapeType', 'landAmount', 'relief', 'chaos',
             'edgeRoughness', 'edgeDepth', 'borderMargin', 'peakCount', 'peakShape'
         ]);
         const VISUAL_KEYS = new Set(['showClimate', 'currentSeason', 'viewMode']);
@@ -166,6 +166,19 @@
         let lastRegions = [];
         let lastFactions = [];
 
+        function changeMapTerrain(key, value) {
+            mapGen.terrain.config[key] = value;
+
+            if (VISUAL_KEYS.has(key)) {
+                mapGen.render(); // только перерисовка, карта данных не трогается
+                return;
+            }
+
+            const seed = parseInt(document.getElementById('inputSeed').value) || mapGen.initialSeed;
+            const { regions, factions } = mapGen.create(seed);
+            lastRegions = regions;
+            lastFactions = factions;
+        }
         function changeMap(key, value) {
             mapGen[key] = value;
 
@@ -175,7 +188,7 @@
             }
 
             const seed = parseInt(document.getElementById('inputSeed').value) || mapGen.initialSeed;
-            const { regions, factions } = mapGen.generate(seed);
+            const { regions, factions } = mapGen.create(seed);
             lastRegions = regions;
             lastFactions = factions;
         }

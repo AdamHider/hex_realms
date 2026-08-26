@@ -2,16 +2,8 @@ class MapGenerator {
     constructor(options = {}) {
         this.width = options.width || 600;
         this.height = options.height || 600;
-        this.sitesAmount = options.sitesAmount || 1500;
-        this.edgeRoughness = options.edgeRoughness || 0.42;
-        this.edgeDepth = options.edgeDepth || 5;
         this.borderMargin = options.borderMargin || 22;
-        this.peakCount = options.peakCount || 4;
-        this.peakShape = options.peakShape || 0.5;
-        this.shapeType = options.shapeType || 'continent';
-        this.landAmount = options.landAmount || 1.5;
-        this.relief = options.relief || 0.75;
-        this.chaos = options.chaos || 0.75;
+
         this.showClimate = options.showClimate ?? true;
         this.currentSeason = options.currentSeason ?? 'SPRING';
         this.viewMode = options.viewMode;
@@ -22,19 +14,15 @@ class MapGenerator {
 
         this.initialSeed = options.seed || 12345;
         this.currentSeed = this.initialSeed;
-        this.mapSites = [];
         this.mapVoronoi = null;
         this.noisyEdgeCache = new Map();
 
-        this.factionsConfig = options.factions || { count: 0 };
-        this.factionStartHops = options.factionStartHops ?? 5;
-        this.factionCapitalPopulation = options.factionCapitalPopulation ?? 120;
-        this.factionPopulationDecay = options.factionPopulationDecay ?? 0.62;
 
         this.viewTransform = { x: 0, y: 0, scale: 1 };
         this.minScale = 0.6;
         this.maxScale = 6;
         this.mapLayerScale = Math.min(this.maxScale, 4) * (window.devicePixelRatio || 1) * 2;
+
 
         this.mapLayerCanvas = document.createElement('canvas');
         this.mapLayerCanvas.width = this.width * this.mapLayerScale;
@@ -42,10 +30,8 @@ class MapGenerator {
         this.mapLayerCtx = this.mapLayerCanvas.getContext('2d');
 
         this.color = {
-            getSeasonalColor: MapColor.getSeasonalColor.bind(this),
-            getFaction: MapColor.getFaction.bind(this),
-            getBaseFill: MapColor.getBaseFill.bind(this),
-            getElevationGrayscale: MapColor.getElevationGrayscale.bind(this),
+            getBase: MapColor.getBase.bind(this),
+            getGrayscale: MapColor.getGrayscale.bind(this),
             hexToRgb: MapColor.hexToRgb.bind(this),
             rgbToHex: MapColor.rgbToHex.bind(this),
             hslToHex: MapColor.hslToHex.bind(this),
@@ -53,10 +39,9 @@ class MapGenerator {
         };
 
         this.interaction = {
-            _initEvents: MapInteraction._initEvents.bind(this),
+            initEvents: MapInteraction.initEvents.bind(this),
             hideTooltip: MapInteraction.hideTooltip.bind(this),
-            findNearestSiteIndex: MapInteraction.findNearestSiteIndex.bind(this),
-            describeSite: MapInteraction.describeSite.bind(this),
+            describeRegion: MapInteraction.describeRegion.bind(this),
             handlePointerAt: MapInteraction.handlePointerAt.bind(this),
             _handleWheel: MapInteraction._handleWheel.bind(this),
             _handleMouseDown: MapInteraction._handleMouseDown.bind(this),
@@ -64,19 +49,73 @@ class MapGenerator {
             _handleMouseMove: MapInteraction._handleMouseMove.bind(this)
         }
 
-        this.faction = {
-            assignCities: MapFaction.assignCities.bind(this), /**/
-            _computeFactionCount: MapFaction._computeFactionCount.bind(this),
+        this.factions = {
+            config: options.factions || { count: 0 },
+            startHops: options.startHops ?? 5,
+            capitalPopulation: options.capitalPopulation ?? 120,
+            populationDecay: options.populationDecay ?? 0.62,
+            colors: { 
+                all: [
+                    '#e63946', '#457b9d', '#2a9d8f', '#f4a261', '#9b5de5',
+                    '#ffbe0b', '#06d6a0', '#ef476f', '#118ab2', '#f77f00',
+                    '#8338ec', '#06a77d', '#d62828', '#3a86ff', '#ffd60a',
+                ],
+                neutral: 'rgba(148, 163, 184, 0)'
+            },
+            getTotal: MapFaction.getTotal.bind(this),
             pickCapitals: MapFaction.pickCapitals.bind(this),
-            assignFactions: MapFaction.assignFactions.bind(this),
-            assignFactionColors: MapFaction.assignFactionColors.bind(this),
+            settle: MapFaction.settle.bind(this),
+            setColors: MapFaction.setColors.bind(this),
+            getColorOf: MapFaction.getColorOf.bind(this),
+            drawBorders: MapFaction.drawBorders.bind(this),
+        }
+
+
+        this.terrain = {
+            config: {
+                regionCount: options.regionCount || 3000,
+                peakCount: options.peakCount || 4,
+                peakShape: options.peakShape || 0.5,
+                shapeType: options.shapeType || 'continent',
+                landAmount: options.landAmount || 0.8,
+                relief: options.relief || 0.9,
+                chaos: options.chaos || 0.2,
+                edgeRoughness: options.edgeRoughness || 0.42,
+                edgeDepth: options.edgeDepth || 5
+            },
+            regions: [],
+            createTemperatures: MapTerrain.createTemperatures.bind(this),
+            createRegions: MapTerrain.createRegions.bind(this),
+            addBlob: MapTerrain.addBlob.bind(this),
+            addRange: MapTerrain.addRange.bind(this),
+            spreadDecay: MapTerrain.spreadDecay.bind(this),
+            createNeighbors: MapTerrain.createNeighbors.bind(this),
+            findNeighbor: MapTerrain.findNeighbor.bind(this),
+            getContinentCenters: MapTerrain.getContinentCenters.bind(this),
+            createElevation: MapTerrain.createElevation.bind(this),
+            classifyByLandFraction: MapTerrain.classifyByLandFraction.bind(this),
+            cleanup: MapTerrain.cleanup.bind(this),
+        }
+        this.decor = {
+            pointInPolygon: MapDecor.pointInPolygon.bind(this),
+            densityFor: MapDecor.densityFor.bind(this),
+            generate: MapDecor.generate.bind(this),
+            drawTree: MapDecor.drawTree.bind(this),
+            drawMountain: MapDecor.drawMountain.bind(this),
+            drawRock: MapDecor.drawRock.bind(this),
+            render: MapDecor.render.bind(this),
+        };
+        this.utils = {
+            strokeOffsetPolyline: MapUtils.strokeOffsetPolyline.bind(this),
+            seededRandom: MapUtils.seededRandom.bind(this),
+            setSeed: MapUtils.setSeed.bind(this),
+            findBand: MapUtils.findBand.bind(this)
         }
 
         this._initConfig();
-        this._initFactionPalette();
 
         if (this.canvas) {
-            this.interaction._initEvents();
+            this.interaction.initEvents();
         }
     }
 
@@ -95,7 +134,7 @@ class MapGenerator {
             { id: 'SHALLOW', isWater: true, maxT: Infinity, label: 'Мелководье',
               color: '#2a3973', resources: { food: 2, production: 0, manpower: 0, gold: 0, upkeep: -0.3 } },
             { id: 'COAST', isWater: false, maxT: 0.08, label: 'Побережье',
-              colors: { cold: '#8fae9c', temperate: '#65a30d', hot: '#d9c27a' },
+              colors: { cold: '#8fae9c', temperate: '#b7d688', hot: '#d9c27a' },
               resources: { food: 2, production: 1, manpower: 1, gold: 1, upkeep: -0.5 } },
             { id: 'STEPPE', isWater: false, maxT: 0.16, label: 'Степь',
               colors: { cold: '#7a9a86', temperate: '#88aa55', hot: '#cdb26a' },
@@ -201,350 +240,6 @@ class MapGenerator {
         this.seasonOrder = Object.keys(this.seasons);
     }
 
-    _initFactionPalette() {
-        this.factionColors = [
-            '#e63946', '#457b9d', '#2a9d8f', '#f4a261', '#9b5de5',
-            '#ffbe0b', '#06d6a0', '#ef476f', '#118ab2', '#f77f00',
-            '#8338ec', '#06a77d', '#d62828', '#3a86ff', '#ffd60a',
-        ];
-        this.neutralBorderColor = 'rgba(148, 163, 184, 0)';
-    }
-
-    // ═══════════════════════════════════════════════════════════
-    // SECTION: MAP_UTILS
-    // Чистые, не зависящие от карты помощники: RNG, цветовая
-    // математика, поиск по порогу. Не трогают this.mapSites.
-    // ═══════════════════════════════════════════════════════════
-
-    seededRandom() {
-        this.currentSeed = (this.currentSeed * 48271) % 2147483647;
-        return (this.currentSeed / 2147483647);
-    }
-
-    setSeed(seed) {
-        this.initialSeed = seed || Math.floor(Math.random() * 9999999) + 1;
-        this.currentSeed = this.initialSeed;
-        return this.initialSeed;
-    }
-
-    findBand(bands, t) {
-        for (const b of bands) if (t <= b.maxT) return b;
-        return bands[bands.length - 1];
-    }
-
-    // ═══════════════════════════════════════════════════════════
-    // SECTION: MAP_TERRAIN
-    // Первичный, "тяжёлый" этап: Вороной, elevation, климат.
-    // Выполняется один раз за вызов setup(), результат кэшируется
-    // в this.mapSites до следующей генерации.
-    // ═══════════════════════════════════════════════════════════
-
-    computeTemperatures(sites, isWater, landT) {
-        const n = sites.length;
-        const temp = new Float64Array(n);
-        const phase = this.seededRandom() * Math.PI * 2;
-        for (let i = 0; i < n; i++) {
-            const nx = sites[i].x / this.width, ny = sites[i].y / this.height;
-            const wobble = Math.sin(nx * Math.PI * 2.2 + phase) * 0.07 + Math.sin(nx * Math.PI * 5.0 - phase) * 0.035;
-            let val = ny + wobble;
-            val -= landT[i] * 0.32;
-            temp[i] = Math.min(1, Math.max(0, val));
-        }
-        return temp;
-    }
-
-    generateUniformSites(numSites, width, height, iterations = 2) {
-        let sites = [];
-        for (let i = 0; i < numSites; i++) {
-            sites.push({ x: this.seededRandom() * width, y: this.seededRandom() * height });
-        }
-
-        for (let iter = 0; iter < iterations; iter++) {
-            const points = new Float64Array(sites.length * 2);
-            for (let i = 0; i < sites.length; i++) {
-                points[i * 2] = sites[i].x;
-                points[i * 2 + 1] = sites[i].y;
-            }
-            const delaunay = new d3.Delaunay(points);
-            const voronoi = delaunay.voronoi([0, 0, width, height]);
-
-            const newSites = [];
-            for (let i = 0; i < sites.length; i++) {
-                const polygon = voronoi.cellPolygon(i);
-                if (!polygon) { newSites.push(sites[i]); continue; }
-
-                let cx = 0, cy = 0, area = 0;
-                for (let j = 0; j < polygon.length - 1; j++) {
-                    const p1 = polygon[j], p2 = polygon[j + 1];
-                    const cross = p1[0] * p2[1] - p2[0] * p1[1];
-                    area += cross;
-                    cx += (p1[0] + p2[0]) * cross;
-                    cy += (p1[1] + p2[1]) * cross;
-                }
-                area *= 0.5;
-
-                if (Math.abs(area) > 1e-5) {
-                    cx /= (6 * area); cy /= (6 * area);
-                    cx = Math.max(10, Math.min(width - 10, cx));
-                    cy = Math.max(10, Math.min(height - 10, cy));
-                    newSites.push({ x: cx, y: cy });
-                } else {
-                    newSites.push(sites[i]);
-                }
-            }
-            sites = newSites;
-        }
-        return sites;
-    }
-
-    buildNeighbors(delaunay, n) {
-        const neighbors = new Array(n);
-        for (let i = 0; i < n; i++) neighbors[i] = Array.from(delaunay.neighbors(i));
-        return neighbors;
-    }
-
-    addBlob(elevation, neighborsList, startId, height, decayBase, plateauHops = 0) {
-        const used = new Uint8Array(elevation.length);
-        const queue = [startId];
-        used[startId] = 1;
-        elevation[startId] += height;
-        let h = height;
-        let qi = 0;
-        let visited = 0;
-        while (qi < queue.length) {
-            const id = queue[qi++];
-            for (const nb of neighborsList[id]) {
-                if (used[nb]) continue;
-                used[nb] = 1;
-                visited++;
-                if (visited > plateauHops) {
-                    h = h * (decayBase + (this.seededRandom() * 0.12 - 0.06));
-                } else {
-                    h = h * (0.97 + (this.seededRandom() * 0.06 - 0.03));
-                }
-                if (h < 0.02) continue;
-                elevation[nb] += h;
-                queue.push(nb);
-            }
-        }
-    }
-
-    addRange(elevation, neighborsList, sites, startId, endId, height, decayBase) {
-        const path = [startId];
-        let current = startId;
-        let guard = 0;
-        while (current !== endId && guard < neighborsList.length) {
-            guard++;
-            let best = null, bestScore = Infinity;
-            for (const nb of neighborsList[current]) {
-                const dx = sites[nb].x - sites[endId].x;
-                const dy = sites[nb].y - sites[endId].y;
-                const d = Math.hypot(dx, dy) + this.seededRandom() * 60;
-                if (d < bestScore) { bestScore = d; best = nb; }
-            }
-            if (best === null || best === current) break;
-            current = best;
-            path.push(current);
-            if (path.length > 200) break;
-        }
-
-        const used = new Uint8Array(elevation.length);
-        const queue = [];
-        path.forEach(id => {
-            used[id] = 1;
-            queue.push(id);
-            elevation[id] += height * (0.65 + this.seededRandom() * 0.35);
-        });
-
-        let h = height * 0.85;
-        let qi = 0;
-        while (qi < queue.length) {
-            const id = queue[qi++];
-            for (const nb of neighborsList[id]) {
-                if (used[nb]) continue;
-                used[nb] = 1;
-                h = h * (decayBase + (this.seededRandom() * 0.1 - 0.05));
-                if (h < 0.02) continue;
-                elevation[nb] += h;
-                queue.push(nb);
-            }
-        }
-    }
-
-    findNearestSite(sites, x, y) {
-        let best = 0, bestD = Infinity;
-        for (let i = 0; i < sites.length; i++) {
-            const d = (sites[i].x - x) ** 2 + (sites[i].y - y) ** 2;
-            if (d < bestD) { bestD = d; best = i; }
-        }
-        return best;
-    }
-
-    getContinentCenters(shapeType, densityScale) {
-        const jitter = () => (this.seededRandom() - 0.5);
-        switch (shapeType) {
-            case 'two_continents':
-                return [
-                    { x: 0.28 + jitter() * 0.12, y: 0.5 + jitter() * 0.25, w: 1.0 },
-                    { x: 0.72 + jitter() * 0.12, y: 0.5 + jitter() * 0.25, w: 1.0 },
-                ];
-            case 'island':
-                return [{ x: 0.5 + jitter() * 0.1, y: 0.5 + jitter() * 0.1, w: 0.85 }];
-            case 'continent':
-            default: {
-                const centers = [{ x: 0.5 + jitter() * 0.16, y: 0.48 + jitter() * 0.16, w: 1.3 }];
-                const satellites = Math.round((1 + Math.floor(this.seededRandom() * 2)) * densityScale);
-                for (let i = 0; i < satellites; i++) {
-                    const ang = this.seededRandom() * Math.PI * 2;
-                    const dist = 0.18 + this.seededRandom() * 0.12;
-                    centers.push({
-                        x: 0.5 + Math.cos(ang) * dist,
-                        y: 0.48 + Math.sin(ang) * dist,
-                        w: 0.55 + this.seededRandom() * 0.35,
-                    });
-                }
-                return centers;
-            }
-        }
-    }
-
-    generateElevation(sites, neighborsList) {
-        const n = sites.length;
-        const elevation = new Float64Array(n);
-        const seedTrig = (this.currentSeed % 1000) * 0.017;
-        const seedPhase = this.seededRandom() * Math.PI * 2;
-
-        const densityScale = Math.sqrt(n / 700);
-
-        const decayExponent = Math.min(1, 700 / n);
-        const scaleDecay = (d) => Math.pow(d, decayExponent);
-
-        for (let i = 0; i < n; i++) {
-            const nx = sites[i].x / this.width, ny = sites[i].y / this.height;
-            elevation[i] = 0.10 * (Math.sin(nx * Math.PI * 1.4 + seedPhase) * Math.cos(ny * Math.PI * 1.1 - seedPhase) + 1);
-        }
-
-        let blobDecay;
-        if (this.shapeType === 'island') blobDecay = Math.min(0.997, Math.max(0.985, 0.993 + (this.landAmount - 1.0) * 0.004));
-        else blobDecay = Math.min(0.994, Math.max(0.965, 0.982 + (this.landAmount - 1.0) * 0.018));
-        blobDecay = scaleDecay(blobDecay);
-        const centers = this.getContinentCenters(this.shapeType, densityScale);
-
-        centers.forEach(c => {
-            const startId = this.findNearestSite(sites, c.x * this.width, c.y * this.height);
-            const peak = (0.75 + this.seededRandom() * 0.35) * c.w * this.landAmount;
-            this.addBlob(elevation, neighborsList, startId, peak, blobDecay);
-        });
-
-        const scaledPeakCount = Math.round(this.peakCount * densityScale);
-        if (scaledPeakCount > 0) {
-            const landCandidates = [];
-            for (let i = 0; i < n; i++) if (elevation[i] > 0.22) landCandidates.push(i);
-            if (landCandidates.length > 3) {
-                const peakBlobDecay = scaleDecay(0.86 + this.relief * 0.05);
-                const rangeDecay = scaleDecay(0.90 + this.relief * 0.03);
-                const peakPlateau = Math.max(3, Math.round(7 * densityScale));
-
-                const chosenPeaks = [];
-                const minPeakDist = 0.16;
-                const pickSpacedCandidate = (avoidId) => {
-                    let fallback = -1;
-                    for (let attempt = 0; attempt < 25; attempt++) {
-                        const id = landCandidates[Math.floor(this.seededRandom() * landCandidates.length)];
-                        if (id === avoidId) continue;
-                        if (fallback === -1) fallback = id;
-                        const cx = sites[id].x / this.width, cy = sites[id].y / this.height;
-                        const tooClose = chosenPeaks.some(p => Math.hypot(p.x - cx, p.y - cy) < minPeakDist);
-                        if (!tooClose) return id;
-                    }
-                    return fallback === -1 ? landCandidates[Math.floor(this.seededRandom() * landCandidates.length)] : fallback;
-                };
-
-                for (let i = 0; i < scaledPeakCount; i++) {
-                    const startId = pickSpacedCandidate(-1);
-                    chosenPeaks.push({ x: sites[startId].x / this.width, y: sites[startId].y / this.height });
-
-                    const peakHeight = (0.85 + this.seededRandom() * 0.3) * (0.6 + this.relief);
-                    const asRidge = this.seededRandom() < this.peakShape;
-                    if (asRidge) {
-                        const endId = pickSpacedCandidate(startId);
-                        if (endId === startId) { this.addBlob(elevation, neighborsList, startId, peakHeight, peakBlobDecay, peakPlateau); continue; }
-                        this.addRange(elevation, neighborsList, sites, startId, endId, peakHeight, rangeDecay);
-                    } else {
-                        this.addBlob(elevation, neighborsList, startId, peakHeight, peakBlobDecay, peakPlateau);
-                    }
-                }
-            }
-        }
-
-        for (let i = 0; i < n; i++) {
-            const nx = sites[i].x / this.width, ny = sites[i].y / this.height;
-            const detail = Math.sin(nx * 23.0 * densityScale + seedTrig) * Math.cos(ny * 19.0 * densityScale - seedTrig) * 0.5
-                            + Math.sin(nx * 47.0 * densityScale - ny * 31.0 * densityScale) * 0.25;
-            const chaosJitter = this.seededRandom() * 2 - 1;
-            elevation[i] *= (1 + detail * (0.15 + this.relief * 0.55) + chaosJitter * this.chaos * 0.65);
-        }
-
-        for (let i = 0; i < n; i++) {
-            const isEdge = sites[i].x < this.borderMargin || sites[i].x > this.width - this.borderMargin
-                        || sites[i].y < this.borderMargin || sites[i].y > this.height - this.borderMargin;
-            if (isEdge) elevation[i] *= 0.15;
-        }
-        return elevation;
-    }
-
-    classifyByLandFraction(elevation, targetFraction, reliefCompression) {
-        const n = elevation.length;
-        const sorted = Array.from(elevation).sort((a, b) => a - b);
-        const idx = Math.min(n - 1, Math.max(0, Math.floor((1 - targetFraction) * n)));
-        const waterLevel = sorted[idx];
-        const min = sorted[0];
-
-        const landElevations = sorted.slice(idx);
-        const refIdx = Math.min(landElevations.length - 1, Math.floor(landElevations.length * 0.95));
-        const landMaxRef = landElevations[refIdx] || sorted[n - 1];
-        const waterRange = (waterLevel - min) || 1;
-        const landRange = (landMaxRef - waterLevel) || 1;
-
-        const landCeiling = 0.35 + 0.65 * reliefCompression;
-
-        const isWater = new Uint8Array(n);
-        const t = new Float64Array(n);
-        for (let i = 0; i < n; i++) {
-            if (elevation[i] < waterLevel) {
-                isWater[i] = 1;
-                t[i] = Math.min(1, Math.max(0, (elevation[i] - min) / waterRange));
-            } else {
-                isWater[i] = 0;
-                t[i] = Math.min(1, Math.max(0, (elevation[i] - waterLevel) / landRange)) * landCeiling;
-            }
-        }
-
-        return { isWater, t };
-    }
-
-    cleanupLandSpecks(isWater, neighborsList, minLandSize) {
-        const n = isWater.length;
-        const visited = new Uint8Array(n);
-        for (let i = 0; i < n; i++) {
-            if (visited[i] || isWater[i]) continue;
-            const component = [i];
-            visited[i] = 1;
-            let qi = 0;
-            while (qi < component.length) {
-                const id = component[qi++];
-                for (const nb of neighborsList[id]) {
-                    if (visited[nb] || isWater[nb]) continue;
-                    visited[nb] = 1;
-                    component.push(nb);
-                }
-            }
-            if (component.length < minLandSize) {
-                for (const id of component) isWater[id] = 1;
-            }
-        }
-    }
-
     // ═══════════════════════════════════════════════════════════
     // SECTION: MAP_GEOMETRY
     // Полигональная геометрия: шумные края, path региона,
@@ -559,7 +254,7 @@ class MapGenerator {
         if (this.noisyEdgeCache.has(revKey)) return [...this.noisyEdgeCache.get(revKey)].reverse();
 
         let points = [{x: x0, y: y0}, {x: x1, y: y1}];
-        for (let i = 0; i < this.edgeDepth; i++) {
+        for (let i = 0; i < this.terrain.config.edgeDepth; i++) {
             const nextPoints = [];
             for (let j = 0; j < points.length - 1; j++) {
                 const p0 = points[j], p1 = points[j + 1];
@@ -570,7 +265,7 @@ class MapGenerator {
                 const dx = p1.x - p0.x, dy = p1.y - p0.y;
                 const length = Math.hypot(dx, dy);
 
-                const offset = (this.seededRandom() - 0.5) * length * this.edgeRoughness;
+                const offset = (this.utils.seededRandom() - 0.5) * length * this.terrain.config.edgeRoughness;
                 const nx = -dy / length * offset;
                 const ny = dx / length * offset;
 
@@ -584,7 +279,7 @@ class MapGenerator {
         return points;
     }
 
-    buildSitePath(ctx, polygon) {
+    drawRegionPath(ctx, polygon) {
         ctx.beginPath();
         let firstPoint = true;
         for (let j = 0; j < polygon.length - 1; j++) {
@@ -598,23 +293,21 @@ class MapGenerator {
         }
         ctx.closePath();
     }
-
-    _edgeKey(p1, p2) {
-        const a = `${Math.round(p1[0] * 10)},${Math.round(p1[1] * 10)}`;
-        const b = `${Math.round(p2[0] * 10)},${Math.round(p2[1] * 10)}`;
-        return a < b ? `${a}|${b}` : `${b}|${a}`;
-    }
-
-    buildEdgeMap() {
+    createEdgeMap() {
         const edgeMap = new Map();
-        for (let i = 0; i < this.mapSites.length; i++) {
+        function edgeKey(p1, p2) {
+            const a = `${Math.round(p1[0] * 10)},${Math.round(p1[1] * 10)}`;
+            const b = `${Math.round(p2[0] * 10)},${Math.round(p2[1] * 10)}`;
+            return a < b ? `${a}|${b}` : `${b}|${a}`;
+        }
+        for (let i = 0; i < this.terrain.regions.length; i++) {
             const polygon = this.mapVoronoi.cellPolygon(i);
             if (!polygon) continue;
             for (let j = 0; j < polygon.length - 1; j++) {
                 const p1 = polygon[j], p2 = polygon[j + 1];
-                const key = this._edgeKey(p1, p2);
-                if (!edgeMap.has(key)) edgeMap.set(key, { siteIds: [], p1, p2 });
-                edgeMap.get(key).siteIds.push(i);
+                const key = edgeKey(p1, p2);
+                if (!edgeMap.has(key)) edgeMap.set(key, { regionIds: [], p1, p2 });
+                edgeMap.get(key).regionIds.push(i);
             }
         }
         return edgeMap;
@@ -623,12 +316,12 @@ class MapGenerator {
     // ═══════════════════════════════════════════════════════════
     // SECTION: MAP_SETUP
     // Точка входа первичного этапа: собирает terrain + факции
-    // в this.mapSites, кэширует edgeMap. generate() — публичная
+    // в this.terrain.regions, кэширует edgeMap. create() — публичная
     // обёртка, которая сразу же вызывает первый render() и отдаёт
     // наружу данные для дальнейшей динамической синхронизации.
     // ═══════════════════════════════════════════════════════════
 
-    generate(seed) {
+    create(seed) {
         this.setup(seed);
         this.render();
         return {
@@ -638,76 +331,76 @@ class MapGenerator {
     }
 
     setup(seed) {
-        if (seed !== undefined) this.setSeed(seed);
+        if (seed !== undefined) this.utils.setSeed(seed);
         else this.currentSeed = this.initialSeed;
 
         this.noisyEdgeCache.clear();
-
-        const rawSites = this.generateUniformSites(this.sitesAmount, this.width, this.height, 2);
-
-        const sites = rawSites.map((s, i) => ({
+        
+        const regions = this.terrain.createRegions(this.width, this.height, 10).map((s, i) => ({
             id: i, x: s.x, y: s.y, elevation: 0, t: 0, biome: 'OCEAN', biomeBand: 'OCEAN',
             biomeClimate: 'OCEAN', biomeNeutral: 'OCEAN', climateZone: null, isWater: true, city: null,
             ownerId: null,
         }));
 
-        const points = new Float64Array(sites.length * 2);
-        for (let i = 0; i < sites.length; i++) {
-            points[i * 2] = sites[i].x;
-            points[i * 2 + 1] = sites[i].y;
+        const points = new Float64Array(regions.length * 2);
+        for (let i = 0; i < regions.length; i++) {
+            points[i * 2] = regions[i].x;
+            points[i * 2 + 1] = regions[i].y;
         }
         const delaunay = new d3.Delaunay(points);
         const voronoi = delaunay.voronoi([0, 0, this.width, this.height]);
-        const neighbors = this.buildNeighbors(delaunay, sites.length);
+        
+        const neighbors = this.terrain.createNeighbors(delaunay, regions.length);
 
-        const elevation = this.generateElevation(sites, neighbors);
+        const elevation = this.terrain.createElevation(regions, neighbors);
 
-        const targetFraction = Math.min(0.62, Math.max(0.12, 0.20 + (this.landAmount - 0.5) * 0.35));
-        const { isWater, t } = this.classifyByLandFraction(elevation, targetFraction, this.relief);
+        const targetFraction = Math.min(0.62, Math.max(0.12, 0.20 + (this.terrain.config.landAmount - 0.5) * 0.35));
+        const { isWater, t } = this.terrain.classifyByLandFraction(elevation, targetFraction);
 
-        const minLandSize = Math.max(4, Math.round(this.sitesAmount * 0.006));
-        this.cleanupLandSpecks(isWater, neighbors, minLandSize);
+        const minLandSize = Math.max(4, Math.round(this.terrain.config.regionCount * 0.006));
+        this.terrain.cleanup(isWater, neighbors, minLandSize);
 
-        const temperature = this.computeTemperatures(sites, isWater, t);
+        const temperature = this.terrain.createTemperatures(regions, t);
 
-        sites.forEach((site, i) => {
-            site.elevation = elevation[i];
-            site.t = t[i];
-            site.isWater = !!isWater[i];
+        regions.forEach((region, i) => {
+            region.elevation = elevation[i];
+            region.t = t[i];
+            region.isWater = !!isWater[i];
 
             const zone = temperature[i] < 0.28 ? 'cold' : temperature[i] > 0.72 ? 'hot' : 'temperate';
-            site.climateZone = zone;
+            region.climateZone = zone;
 
-            if (site.isWater) {
-                const id = this.findBand(this.waterBiomes, t[i]).id;
-                site.biomeBand = id;
-                site.biomeClimate = id;
-                site.biomeNeutral = id;
+            if (region.isWater) {
+                const id = this.utils.findBand(this.waterBiomes, t[i]).id;
+                region.biomeBand = id;
+                region.biomeClimate = id;
+                region.biomeNeutral = id;
             } else {
-                const band = this.findBand(this.landElevationBands, t[i]);
-                site.biomeBand = band.id;
-                site.biomeClimate = band.id + '_' + zone;
-                site.biomeNeutral = band.id + '_temperate';
+                const band = this.utils.findBand(this.landElevationBands, t[i]);
+                region.biomeBand = band.id;
+                region.biomeClimate = band.id + '_' + zone;
+                region.biomeNeutral = band.id + '_temperate';
             }
         });
 
-        this.faction.assignFactions(sites, neighbors);
+        this.factions.settle(regions, neighbors);
+        this.decor.generate(regions, voronoi); 
 
-        this.mapSites = sites;
+        this.terrain.regions = regions;
         this.mapVoronoi = voronoi;
-        this.edgeMap = this.buildEdgeMap();
+        this.edgeMap = this.createEdgeMap();
         this.viewTransform = { x: 0, y: 0, scale: 1 };
     }
 
     // ═══════════════════════════════════════════════════════════
     // SECTION: MAP_DATA
-    // Динамический синтез: превращает статичные mapSites + текущие
+    // Динамический синтез: превращает статичные mapRegions + текущие
     // "живые" параметры (сезон) в данные наружу и в тултип.
     // Вызывается многократно, без пересчёта setup().
     // ═══════════════════════════════════════════════════════════
 
     getRegionsData() {
-        return this.mapSites.map(s => ({
+        return this.terrain.regions.map(s => ({
             id: s.id,
             x: s.x,
             y: s.y,
@@ -722,14 +415,14 @@ class MapGenerator {
     }
 
     getFactionsData() {
-        return this.factions || [];
+        return this.factions.list || [];
     }
 
-    getRegionResources(site, season = this.currentSeason) {
-        const base = this.biomeResourceBase[site.biomeBand];
+    getRegionResources(region, season = this.currentSeason) {
+        const base = this.biomeResourceBase[region.biomeBand];
         if (!base) return null;
 
-        const zone = site.climateZone || 'temperate';
+        const zone = region.climateZone || 'temperate';
         const mod = this.seasons[season].modifiers[zone];
 
         const result = {};
@@ -737,7 +430,7 @@ class MapGenerator {
             const value = base[key] * (mod[key] ?? 1);
             result[key] = key === 'upkeep' ? -Math.abs(value) : value;
         }
-        if (site.city) {
+        if (region.city) {
             for (const key of Object.keys(this.cityResourceBonus)) {
                 result[key] = (result[key] || 0) + this.cityResourceBonus[key];
             }
@@ -748,17 +441,17 @@ class MapGenerator {
     setSeason(season) {
         if (!this.seasonOrder.includes(season)) return;
         this.currentSeason = season;
-        if (this.mapSites.length) this.render();
+        if (this.terrain.regions.length) this.render();
     }
 
     setShowClimate(value) {
         this.showClimate = value;
-        if (this.mapSites.length) this.render();
+        if (this.terrain.regions.length) this.render();
     }
 
     // ═══════════════════════════════════════════════════════════
     // SECTION: MAP_RENDER
-    // Второй этап: перекладывает уже готовые this.mapSites на canvas.
+    // Второй этап: перекладывает уже готовые this.terrain.regions на canvas.
     // Ничего не мутирует в данных — вызывается на каждую смену
     // сезона/слоя/фильтра без повторного setup().
     // ═══════════════════════════════════════════════════════════
@@ -769,107 +462,80 @@ class MapGenerator {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, this.mapLayerCanvas.width, this.mapLayerCanvas.height);
         ctx.scale(this.mapLayerScale, this.mapLayerScale);
-
+    
         this.renderRegions(ctx);
-        if (this.viewMode !== 'factions') this.renderFactionBorders(ctx);
-        this.renderCities(ctx);
+        //this.renderPaperTexture(ctx);
+    
+        ctx.restore();
         this.draw();
     }
-
+    
     draw() {
         this.ctx.save();
         this.ctx.setTransform(1, 0, 0, 1, 0, 0);
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         this.ctx.restore();
-
+    
+        // Слой 1: растровая заливка (дорогая, кэшированная)
         this.ctx.save();
         this.ctx.translate(this.viewTransform.x, this.viewTransform.y);
         this.ctx.scale(this.viewTransform.scale / this.mapLayerScale, this.viewTransform.scale / this.mapLayerScale);
         this.ctx.drawImage(this.mapLayerCanvas, 0, 0);
         this.ctx.restore();
+    
+        // Слой 2: живой векторный оверлей — константный размер на экране при любом зуме
+        this.ctx.save();
+        this.ctx.translate(this.viewTransform.x, this.viewTransform.y);
+        this.ctx.scale(this.viewTransform.scale, this.viewTransform.scale);
+        this.renderOverlay(this.ctx, this.viewTransform.scale);
+        this.ctx.restore();
     }
-
+    
+    renderOverlay(ctx, zoomScale) {
+        this.factions.drawBorders(ctx, zoomScale);
+        //this.decor.render(ctx, zoomScale);
+        this.renderCities(ctx, zoomScale);
+    }
+    renderPaperTexture(ctx) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'multiply';
+        ctx.fillStyle = 'rgba(238, 222, 186, 0.18)';
+        ctx.fillRect(0, 0, this.width, this.height);
+        ctx.restore();
+    }
     renderRegions(ctx) {
-        for (let i = 0; i < this.mapSites.length; i++) {
+        for (let i = 0; i < this.terrain.regions.length; i++) {
             const polygon = this.mapVoronoi.cellPolygon(i);
             if (!polygon) continue;
 
-            const site = this.mapSites[i];
-            ctx.fillStyle = this.color.getBaseFill(site);
-            ctx.strokeStyle = this.viewMode === 'factions' ? 'rgba(0, 0, 0, 0.25)' : 'rgba(2, 44, 44, 0.65)';
-            ctx.lineWidth = 0.3;
+            const region = this.terrain.regions[i];
+            ctx.fillStyle = this.color.getBase(region);
+            ctx.strokeStyle = this.viewMode === 'factions' ? 'rgba(0, 0, 0, 0.25)' : 'rgba(2, 44, 44, 0.2)';
+            ctx.lineWidth = 0.4;
 
-            this.buildSitePath(ctx, polygon);
+            this.drawRegionPath(ctx, polygon);
             ctx.fill();
             ctx.stroke();
 
-            if (site.ownerId !== null && site.ownerId !== undefined && this.factions?.[site.ownerId]) {
+            if (region.ownerId !== null && region.ownerId !== undefined && this.factions.list?.[region.ownerId]) {
                 ctx.save();
                 ctx.globalAlpha = this.viewMode === 'factions' ? 0.65 : (this.viewMode === 'political') ? 0.32 : 0;
-                ctx.fillStyle = this.factions[site.ownerId].color;
+                ctx.fillStyle = this.factions.list[region.ownerId].color;
                 ctx.fill();
                 ctx.restore();
             }
         }
     }
-
-    _strokeOffsetPolyline(ctx, points, nx, ny, offset, color, width) {
-        ctx.strokeStyle = color;
-        ctx.lineWidth = width;
-        ctx.lineCap = 'round';
-        ctx.beginPath();
-        points.forEach((pt, k) => {
-            const x = pt.x + nx * offset, y = pt.y + ny * offset;
-            if (k === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
-        });
-        ctx.stroke();
-    }
-
-    renderFactionBorders(ctx) {
-        if (!this.factions || !this.factions.length || !this.edgeMap) return;
-        ctx.lineJoin = 'round';
-
-        const borderWidth = 1.4;
-        const offset = 0.7;
-
-        this.edgeMap.forEach(edge => {
-            if (edge.siteIds.length < 2) return;
-            const [a, b] = edge.siteIds;
-            const siteA = this.mapSites[a], siteB = this.mapSites[b];
-            if (siteA.ownerId === siteB.ownerId) return;
-
-            const segments = this.getNoisyLineSegments(edge.p1[0], edge.p1[1], edge.p2[0], edge.p2[1]);
-
-            const dx = edge.p2[0] - edge.p1[0], dy = edge.p2[1] - edge.p1[1];
-            const len = Math.hypot(dx, dy) || 1;
-            let nx = -dy / len, ny = dx / len;
-
-            const midX = (edge.p1[0] + edge.p2[0]) / 2, midY = (edge.p1[1] + edge.p2[1]) / 2;
-            const towardA = (siteA.x - midX) * nx + (siteA.y - midY) * ny;
-            if (towardA < 0) { nx = -nx; ny = -ny; }
-
-            const colorA = (siteA.ownerId !== null && siteA.ownerId !== undefined)
-                ? (this.factions[siteA.ownerId]?.color || this.neutralBorderColor)
-                : this.neutralBorderColor;
-            const colorB = (siteB.ownerId !== null && siteB.ownerId !== undefined)
-                ? (this.factions[siteB.ownerId]?.color || this.neutralBorderColor)
-                : this.neutralBorderColor;
-
-            this._strokeOffsetPolyline(ctx, segments, nx, ny, offset, colorA, borderWidth);
-            this._strokeOffsetPolyline(ctx, segments, -nx, -ny, offset, colorB, borderWidth);
-        });
-    }
-
-    renderCities(ctx) {
-        this.mapSites.forEach(site => {
-            if (site.city) {
+    renderCities(ctx, zoomScale = 1) {
+        const r = 2.5 / zoomScale;
+        this.terrain.regions.forEach(region => {
+            if (region.city) {
                 ctx.fillStyle = '#facc15';
                 ctx.beginPath();
-                ctx.arc(site.x, site.y, 2.5, 0, Math.PI * 2);
+                ctx.arc(region.x, region.y, r, 0, Math.PI * 2);
                 ctx.fill();
                 ctx.strokeStyle = '#022c22';
-                ctx.lineWidth = 1;
+                ctx.lineWidth = 1 / zoomScale;
                 ctx.stroke();
             }
         });
@@ -881,42 +547,30 @@ class MapGenerator {
 // в конкретный цвет для заливки. Читает MAP_CONFIG + this.viewMode.
 // ═══════════════════════════════════════════════════════════
 const MapColor = {
-    getSeasonalColor(site, season = this.currentSeason) {
-        const baseColor = this.biomesMap[site.biome];
+    getBase(region) {
+        if (this.viewMode === 'factions') {
+            return this.color.getGrayscale(region);
+        }
+        region.biome = region.isWater ? region.biomeClimate : (this.showClimate ? region.biomeClimate : region.biomeNeutral);
+        
+        const baseColor = this.biomesMap[region.biome];
         if (!baseColor) return baseColor;
 
-        const tintGroup = this.seasons[season]?.tints;
+        const tintGroup = this.seasons[this.currentSeason]?.tints;
         if (!tintGroup) return baseColor;
 
-        const zone = site.climateZone || 'temperate';
-        const tint = (site.isWater ? tintGroup.water : tintGroup.land)[zone];
+        const zone = region.climateZone || 'temperate';
+        const tint = (region.isWater ? tintGroup.water : tintGroup.land)[zone];
         if (!tint || tint.strength <= 0) return baseColor;
 
         return this.color.blend(baseColor, tint.color, tint.strength);
     },
-    getFaction(index, seedOffset = 0) {
-        if (index < this.factionColors.length) return this.factionColors[index];
-
-        const goldenAngle = 137.508;
-        const hue = (seedOffset + index * goldenAngle) % 360;
-        const saturation = 70 + (index % 3) * 8;
-        const lightness = 48 + (index % 2) * 8;
-
-        return this.color.hslToHex(hue, saturation, lightness);
-    },
-    getBaseFill(site) {
-        if (this.viewMode === 'factions') {
-            return this.color.getElevationGrayscale(site);
-        }
-        site.biome = site.isWater ? site.biomeClimate : (this.showClimate ? site.biomeClimate : site.biomeNeutral);
-        return this.color.getSeasonalColor(site);
-    },
-    getElevationGrayscale(site) {
-        if (site.isWater) {
-            const v = 25 + site.t * 35;
+    getGrayscale(region) {
+        if (region.isWater) {
+            const v = 25 + region.t * 35;
             return this.color.rgbToHex(v * 0.7, v * 0.8, v * 1.05);
         }
-        const v = 110 + site.t * 95;
+        const v = 110 + region.t * 95;
         return this.color.rgbToHex(v, v, v);
     },
     hexToRgb(hex) {
@@ -951,7 +605,7 @@ const MapColor = {
 // поиск региона под курсором, текстовое описание региона.
 // ═══════════════════════════════════════════════════════════
 const MapInteraction = {
-    _initEvents() {
+    initEvents() {
         this.canvas.style.cursor = 'grab';
         this.canvas.addEventListener('mousedown', e => this.interaction._handleMouseDown(e));
         window.addEventListener('mouseup', () => this.interaction._handleMouseUp());
@@ -965,39 +619,30 @@ const MapInteraction = {
     hideTooltip() {
         if (this.tooltip) this.tooltip.classList.add('hidden');
     },
-    findNearestSiteIndex(mx, my) {
-        let best = -1, bestD = Infinity;
-        for (let i = 0; i < this.mapSites.length; i++) {
-            const d = (this.mapSites[i].x - mx) ** 2 + (this.mapSites[i].y - my) ** 2;
-            if (d < bestD) { bestD = d; best = i; }
-        }
-        return best;
-    },
-    describeSite(site) {
-        const bandLabel = this.elevationBandLabels[site.biomeBand] || site.biomeBand;
+    describeRegion(region) {
+        const bandLabel = this.elevationBandLabels[region.biomeBand] || region.biomeBand;
         const lines = [];
-        if (site.isWater) {
-            lines.push(`Глубина: ${(100 - site.t * 100).toFixed(0)}%`);
+        if (region.isWater) {
+            lines.push(`Глубина: ${(100 - region.t * 100).toFixed(0)}%`);
         } else {
-            if (this.showClimate && site.climateZone) lines.push(`Климат: ${this.climateZoneLabels[site.climateZone]}`);
-            lines.push(`Высота: ${(site.t * 100).toFixed(0)}%`);
+            if (this.showClimate && region.climateZone) lines.push(`Климат: ${this.climateZoneLabels[region.climateZone]}`);
+            lines.push(`Высота: ${(region.t * 100).toFixed(0)}%`);
         }
-        if (site.city) lines.push(`Поселение: ${site.city.name}`);
-
-        const res = this.getRegionResources(site);
+        if (region.city) lines.push(`Поселение: ${region.city.name}`);
+        const res = this.getRegionResources(region);
         if (res) {
             lines.push(`<hr class="my-1 border-emerald-800">`);
             lines.push(`Сезон: ${this.seasons[this.currentSeason].label}`);
             lines.push(`Еда ${res.food.toFixed(1)} · Произв. ${res.production.toFixed(1)} · Manpower ${res.manpower.toFixed(1)}`);
             lines.push(`Золото ${res.gold.toFixed(1)} · Содержание ${res.upkeep.toFixed(1)}`);
-            if (site.population > 0) lines.push(`Население: ${site.population}`);
+            if (region.population > 0) lines.push(`Население: ${region.population}`);
         }
 
         return `<div class="font-semibold text-emerald-400 mb-1">${bandLabel}</div>` +
                lines.map(l => `<div>${l}</div>`).join('');
     },
     handlePointerAt(clientX, clientY) {
-        if (!this.mapSites.length) return;
+        if (!this.terrain.regions.length) return;
         const rect = this.canvas.getBoundingClientRect();
         const scaleX = this.canvas.width / rect.width;
         const scaleY = this.canvas.height / rect.height;
@@ -1009,9 +654,9 @@ const MapInteraction = {
 
         if (wx < 0 || wy < 0 || wx > this.width || wy > this.height) { this.interaction.hideTooltip(); return; }
 
-        const idx = this.interaction.findNearestSiteIndex(wx, wy);
+        const idx = this.terrain.findNeighbor(this.terrain.regions, wx, wy);
         if (idx === -1) { this.hideTooltip(); return; }
-        this.tooltip.innerHTML = this.interaction.describeSite(this.mapSites[idx]);
+        this.tooltip.innerHTML = this.interaction.describeRegion(this.terrain.regions[idx]);
         this.tooltip.style.left = (clientX + 16) + 'px';
         this.tooltip.style.top = (clientY + 16) + 'px';
         this.tooltip.classList.remove('hidden');
@@ -1075,24 +720,16 @@ const MapInteraction = {
 // ═══════════════════════════════════════════════════════════
 
 const MapFaction = {
-    assignCities(sites) {
-        const landSites = sites.filter(s => !s.isWater);
-        landSites.forEach((site, index) => {
-            if (index % 25 === 0 && site.biomeBand !== 'PEAKS' && site.biomeBand !== 'HIGHLANDS') {
-                site.city = { name: 'Поселение ' + (index + 1) };
-            }
-        });
-    },
-    _computeFactionCount() {
-        if (this.factionsConfig.count) return this.factionsConfig.count;
-        const scaled = Math.round(this.sitesAmount / 60);
+    getTotal() {
+        if (this.factions.config.count) return this.factions.config.count;
+        const scaled = Math.round(this.terrain.config.regionCount / 60);
         return Math.max(8, Math.min(40, scaled));
     },
     pickCapitals(candidates, count) {
         const chosen = [];
         if (!candidates.length || count <= 0) return chosen;
 
-        chosen.push(candidates[Math.floor(this.seededRandom() * candidates.length)]);
+        chosen.push(candidates[Math.floor(this.utils.seededRandom() * candidates.length)]);
         while (chosen.length < count && chosen.length < candidates.length) {
             let best = null, bestDist = -Infinity;
             for (const c of candidates) {
@@ -1105,39 +742,39 @@ const MapFaction = {
         }
         return chosen;
     },
-    assignFactions(sites, neighborsList) {
-        sites.forEach(s => { s.city = null; s.population = 0; });
+    settle(regions, neighborsList) {
+        regions.forEach(s => { s.city = null; s.population = 0; });
 
-        const count = this.faction._computeFactionCount();
-        this.factions = [];
-        if (count <= 0) return;
+        const total = this.factions.getTotal();
+        this.factions.list = [];
+        if (total <= 0) return;
 
-        const capitalCandidates = sites.filter(s => !s.isWater && s.biomeBand !== 'PEAKS' && s.biomeBand !== 'HIGHLANDS');
-        if (capitalCandidates.length < count) {
-            console.warn(`MapGenerator: клеток под столицы (${capitalCandidates.length}) меньше, чем фракций (${count})`);
+        const capitalCandidates = regions.filter(s => !s.isWater && s.biomeBand !== 'PEAKS' && s.biomeBand !== 'HIGHLANDS');
+        if (capitalCandidates.length < total) {
+            console.warn(`MapGenerator: клеток под столицы (${capitalCandidates.length}) меньше, чем фракций (${total})`);
         }
 
-        const names = this.factionsConfig.names?.length === count ? this.factionsConfig.names : null;
-        const colors = this.factionsConfig.colors?.length === count ? this.factionsConfig.colors : null;
+        const names = this.factions.config.names?.length === total ? this.factions.config.names : null;
+        const colors = this.factions.config.colors?.length === total ? this.factions.config.colors : null;
 
-        const capitals = this.faction.pickCapitals(capitalCandidates, count);
+        const capitals = this.factions.pickCapitals(capitalCandidates, total);
 
         capitals.forEach((capital, i) => {
             const factionName = names ? names[i] : `Фракция ${i + 1}`;
             capital.city = { name: factionName + ' (столица)' };
-            this.factions.push({
+            this.factions.list.push({
                 id: i,
                 name: factionName,
-                color: colors ? colors[i] : this.color.getFaction(i, (this.initialSeed % 360)),
-                capitalSiteId: capital.id,
+                color: colors ? colors[i] : this.factions.getColorOf(i, (this.initialSeed % 360)),
+                capitalRegionId: capital.id,
                 ownedRegions: [],
                 totalPopulation: 0,
                 armies: [],
             });
         });
 
-        const ownerOf = new Int16Array(sites.length).fill(-1);
-        const hopOf = new Int16Array(sites.length).fill(-1);
+        const ownerOf = new Int16Array(regions.length).fill(-1);
+        const hopOf = new Int16Array(regions.length).fill(-1);
 
         let frontier = capitals.map((capital, factionId) => {
             ownerOf[capital.id] = factionId;
@@ -1145,12 +782,12 @@ const MapFaction = {
             return capital.id;
         });
 
-        for (let depth = 1; depth <= this.factionStartHops && frontier.length; depth++) {
+        for (let depth = 1; depth <= this.factions.startHops && frontier.length; depth++) {
             const nextFrontier = [];
             for (const id of frontier) {
                 const factionId = ownerOf[id];
                 for (const nb of neighborsList[id]) {
-                    if (ownerOf[nb] !== -1 || sites[nb].isWater) continue;
+                    if (ownerOf[nb] !== -1 || regions[nb].isWater) continue;
                     ownerOf[nb] = factionId;
                     hopOf[nb] = depth;
                     nextFrontier.push(nb);
@@ -1159,32 +796,32 @@ const MapFaction = {
             frontier = nextFrontier;
         }
 
-        sites.forEach((site, i) => {
-            site.ownerId = ownerOf[i] === -1 ? null : ownerOf[i];
-            site.population = site.ownerId === null
+        regions.forEach((region, i) => {
+            region.ownerId = ownerOf[i] === -1 ? null : ownerOf[i];
+            region.population = region.ownerId === null
                 ? 0
-                : Math.round(this.factionCapitalPopulation * Math.pow(this.factionPopulationDecay, hopOf[i]));
+                : Math.round(this.factions.capitalPopulation * Math.pow(this.factions.populationDecay, hopOf[i]));
         });
 
-        if (!colors) this.faction.assignFactionColors(sites, neighborsList);
+        if (!colors) this.factions.setColors(regions, neighborsList);
 
-        this.factions.forEach(faction => {
-            const owned = sites.filter(s => s.ownerId === faction.id);
+        this.factions.list.forEach(faction => {
+            const owned = regions.filter(s => s.ownerId === faction.id);
             faction.ownedRegions = owned.map(s => s.id);
             faction.totalPopulation = owned.reduce((sum, s) => sum + s.population, 0);
-            faction.armies.push({ id: `${faction.id}-army-0`, siteId: faction.capitalSiteId, strength: 10 });
+            faction.armies.push({ id: `${faction.id}-army-0`, regionId: faction.capitalRegionId, strength: 10 });
         });
     },
-    assignFactionColors(sites, neighborsList) {
-        const count = this.factions.length;
+    setColors(regions, neighborsList) {
+        const count = this.factions.list.length;
         if (!count) return;
 
         const adjacency = Array.from({ length: count }, () => new Set());
-        for (let i = 0; i < sites.length; i++) {
-            const ownerI = sites[i].ownerId;
+        for (let i = 0; i < regions.length; i++) {
+            const ownerI = regions[i].ownerId;
             if (ownerI === null || ownerI === undefined) continue;
             for (const nb of neighborsList[i]) {
-                const ownerNb = sites[nb].ownerId;
+                const ownerNb = regions[nb].ownerId;
                 if (ownerNb === null || ownerNb === undefined || ownerNb === ownerI) continue;
                 adjacency[ownerI].add(ownerNb);
                 adjacency[ownerNb].add(ownerI);
@@ -1220,7 +857,484 @@ const MapFaction = {
 
             used.add(best);
             assignedHue[factionId] = candidates[best].hue;
-            this.factions[factionId].color = candidates[best].hex;
+            this.factions.list[factionId].color = candidates[best].hex;
+        });
+    },
+    getColorOf(index, seedOffset = 0) {
+        if (index < this.factions.colors.all.length) return this.factions.colors.all[index];
+
+        const goldenAngle = 137.508;
+        const hue = (seedOffset + index * goldenAngle) % 360;
+        const saturation = 70 + (index % 3) * 8;
+        const lightness = 48 + (index % 2) * 8;
+
+        return this.color.hslToHex(hue, saturation, lightness);
+    },
+    drawBorders(ctx, zoomScale = 1) {
+        if (!this.factions.list || !this.factions.list.length || !this.edgeMap) return;
+        ctx.lineJoin = 'round';
+    
+        const borderWidth = 1.4 / zoomScale * 1.2;
+        const offset = 0.7 / zoomScale * 1.2;
+
+        this.edgeMap.forEach(edge => {
+            if (edge.regionIds.length < 2) return;
+            const [a, b] = edge.regionIds;
+            const regionA = this.terrain.regions[a], regionB = this.terrain.regions[b];
+            if (regionA.ownerId === regionB.ownerId) return;
+
+            const segments = this.getNoisyLineSegments(edge.p1[0], edge.p1[1], edge.p2[0], edge.p2[1]);
+
+            const dx = edge.p2[0] - edge.p1[0], dy = edge.p2[1] - edge.p1[1];
+            const len = Math.hypot(dx, dy) || 1;
+            let nx = -dy / len, ny = dx / len;
+
+            const midX = (edge.p1[0] + edge.p2[0]) / 2, midY = (edge.p1[1] + edge.p2[1]) / 2;
+            const towardA = (regionA.x - midX) * nx + (regionA.y - midY) * ny;
+            if (towardA < 0) { nx = -nx; ny = -ny; }
+
+            const colorA = (regionA.ownerId !== null && regionA.ownerId !== undefined)
+                ? (this.factions.list[regionA.ownerId]?.color || this.factions.colors.neutral)
+                : this.factions.colors.neutral;
+            const colorB = (regionB.ownerId !== null && regionB.ownerId !== undefined)
+                ? (this.factions.list[regionB.ownerId]?.color || this.factions.colors.neutral)
+                : this.factions.colors.neutral;
+
+            this.utils.strokeOffsetPolyline(ctx, segments, nx, ny, offset, colorA, borderWidth);
+            this.utils.strokeOffsetPolyline(ctx, segments, -nx, -ny, offset, colorB, borderWidth);
         });
     }
 }
+
+const MapTerrain = {
+    createRegions(width, height, iterations = 2) {
+        let regions = [];
+        for (let i = 0; i < this.terrain.config.regionCount; i++) {
+            regions.push({ x: this.utils.seededRandom() * width, y: this.utils.seededRandom() * height });
+        }
+
+        for (let iter = 0; iter < iterations; iter++) {
+            const points = new Float64Array(regions.length * 2);
+            for (let i = 0; i < regions.length; i++) {
+                points[i * 2] = regions[i].x;
+                points[i * 2 + 1] = regions[i].y;
+            }
+            const delaunay = new d3.Delaunay(points);
+            const voronoi = delaunay.voronoi([0, 0, width, height]);
+
+            const newRegions = [];
+            for (let i = 0; i < regions.length; i++) {
+                const polygon = voronoi.cellPolygon(i);
+                if (!polygon) { newRegions.push(regions[i]); continue; }
+
+                let cx = 0, cy = 0, area = 0;
+                for (let j = 0; j < polygon.length - 1; j++) {
+                    const p1 = polygon[j], p2 = polygon[j + 1];
+                    const cross = p1[0] * p2[1] - p2[0] * p1[1];
+                    area += cross;
+                    cx += (p1[0] + p2[0]) * cross;
+                    cy += (p1[1] + p2[1]) * cross;
+                }
+                area *= 0.5;
+
+                if (Math.abs(area) > 1e-5) {
+                    cx /= (6 * area); cy /= (6 * area);
+                    cx = Math.max(10, Math.min(width - 10, cx));
+                    cy = Math.max(10, Math.min(height - 10, cy));
+                    newRegions.push({ x: cx, y: cy });
+                } else {
+                    newRegions.push(regions[i]);
+                }
+            }
+            regions = newRegions;
+        }
+        return regions;
+    },
+    createTemperatures(regions, landT) {
+        const n = regions.length;
+        const temp = new Float64Array(n);
+        const phase = this.utils.seededRandom() * Math.PI * 2;
+        for (let i = 0; i < n; i++) {
+            const nx = regions[i].x / this.width, ny = regions[i].y / this.height;
+            const wobble = Math.sin(nx * Math.PI * 2.2 + phase) * 0.07 + Math.sin(nx * Math.PI * 5.0 - phase) * 0.035;
+            let val = ny + wobble;
+            val -= landT[i] * 0.32;
+            temp[i] = Math.min(1, Math.max(0, val));
+        }
+        return temp;
+    },
+    addBlob(elevation, neighborsList, startId, height, decayBase, plateauHops = 0) {
+        elevation[startId] += height;
+        this.terrain.spreadDecay(elevation, neighborsList, [startId], height, decayBase, 0.12, plateauHops, 0.97, 0.06);
+    },
+    addRange(elevation, neighborsList, regions, startId, endId, height, decayBase) {
+        const path = [startId];
+        let current = startId;
+        let guard = 0;
+        while (current !== endId && guard < neighborsList.length) {
+            guard++;
+            let best = null, bestScore = Infinity;
+            for (const nb of neighborsList[current]) {
+                const dx = regions[nb].x - regions[endId].x;
+                const dy = regions[nb].y - regions[endId].y;
+                const d = Math.hypot(dx, dy) + this.utils.seededRandom() * 60;
+                if (d < bestScore) { bestScore = d; best = nb; }
+            }
+            if (best === null || best === current) break;
+            current = best;
+            path.push(current);
+            if (path.length > 200) break;
+        }
+    
+        path.forEach(id => {
+            elevation[id] += height * (0.65 + this.utils.seededRandom() * 0.35);
+        });
+        this.terrain.spreadDecay(elevation, neighborsList, path, height * 0.85, decayBase, 0.1);
+    },
+    spreadDecay(elevation, neighborsList, seedIds, initialHeight, decayBase, jitter, plateauHops = 0, plateauDecay = 0.97, plateauJitter = 0.06) {
+        const used = new Uint8Array(elevation.length);
+        const queue = [...seedIds];
+        seedIds.forEach(id => used[id] = 1);
+        let h = initialHeight;
+        let qi = 0;
+        let visited = 0;
+        while (qi < queue.length) {
+            const id = queue[qi++];
+            for (const nb of neighborsList[id]) {
+                if (used[nb]) continue;
+                used[nb] = 1;
+                visited++;
+                h = visited > plateauHops
+                    ? h * (decayBase + (this.utils.seededRandom() * jitter - jitter / 2))
+                    : h * (plateauDecay + (this.utils.seededRandom() * plateauJitter - plateauJitter / 2));
+                if (h < 0.02) continue;
+                elevation[nb] += h;
+                queue.push(nb);
+            }
+        }
+    },
+    createNeighbors(delaunay, n) {
+        const neighbors = new Array(n);
+        for (let i = 0; i < n; i++) neighbors[i] = Array.from(delaunay.neighbors(i));
+        return neighbors;
+    },
+    findNeighbor(regions, x, y) {
+        let best = 0, bestD = Infinity;
+        for (let i = 0; i < regions.length; i++) {
+            const d = (regions[i].x - x) ** 2 + (regions[i].y - y) ** 2;
+            if (d < bestD) { bestD = d; best = i; }
+        }
+        return best;
+    },
+    getContinentCenters(densityScale) {
+        const jitter = () => (this.utils.seededRandom() - 0.5);
+        switch (this.terrain.config.shapeType) {
+            case 'two_continents':
+                const centers = [
+                    { x: 0.28 + jitter() * 0.12, y: 0.5 + jitter() * 0.25, w: 1.0 },
+                    { x: 0.72 + jitter() * 0.12, y: 0.5 + jitter() * 0.25, w: 1.0 },
+                ];
+                //const satellites = Math.round((1 + Math.floor(this.utils.seededRandom() * 7)) * densityScale);
+                const satellites = 7;
+                for (let i = 0; i < satellites; i++) {
+                    const ang = this.utils.seededRandom() * Math.PI * 2;
+                    const dist = 0.18 + this.utils.seededRandom() * 0.12;
+                    centers.push({
+                        x: 0.5 + Math.cos(ang) * dist,
+                        y: 0.48 + Math.sin(ang) * dist,
+                        w: 0.55 + this.utils.seededRandom() * 0.35,
+                    });
+                }
+                return centers;
+            case 'island':
+                return [{ x: 0.5 + jitter() * 0.1, y: 0.5 + jitter() * 0.1, w: 0.85 }];
+            case 'continent':
+            default: {
+                const centers = [
+                    { x: 0.28 + jitter() * 0.12, y: 0.25 + jitter() * 0.25, w: 1.0 },
+                    { x: 0.52 + jitter() * 0.12, y: 0.75 + jitter() * 0.25, w: 1.0 },
+                    { x: 0.72 + jitter() * 0.12, y: 0.25 + jitter() * 0.25, w: 1.0 },
+                ];
+                const satellites = 4;
+                for (let i = 0; i < satellites; i++) {
+                    const ang = this.utils.seededRandom() * Math.PI * 2;
+                    const dist = 0.18 + this.utils.seededRandom() * 0.12;
+                    centers.push({
+                        x: 0.5 + Math.cos(ang) * dist,
+                        y: 0.48 + Math.sin(ang) * dist,
+                        w: 0.55 + this.utils.seededRandom() * 0.35,
+                    });
+                }
+                return centers;
+            }
+        }
+    },
+    createElevation(regions, neighborsList) {
+        const n = regions.length;
+        const elevation = new Float64Array(n);
+        const seedTrig = (this.currentSeed % 1000) * 0.017;
+        const seedPhase = this.utils.seededRandom() * Math.PI * 2;
+
+        const densityScale = Math.sqrt(n / 600);
+
+        const decayExponent = Math.min(1, 600 / n);
+        const scaleDecay = (d) => Math.pow(d, decayExponent);
+
+        elevation.fill(0);
+
+        let blobDecay;
+        if (this.terrain.config.shapeType === 'island') blobDecay = Math.min(0.997, Math.max(0.985, 0.993 + (this.terrain.config.landAmount - 1.0) * 0.004));
+        else blobDecay = Math.min(0.994, Math.max(0.965, 0.982 + (this.terrain.config.landAmount - 1.0) * 0.018));
+        blobDecay = scaleDecay(blobDecay);
+        const centers = this.terrain.getContinentCenters(densityScale);
+
+        centers.forEach(c => {
+            const startId = this.terrain.findNeighbor(regions, c.x * this.width, c.y * this.height);
+            const peak = (0.75 + this.utils.seededRandom() * 0.35) * c.w * this.terrain.config.landAmount;
+            this.terrain.addBlob(elevation, neighborsList, startId, peak, blobDecay);
+        });
+
+        const scaledPeakCount = Math.round(this.terrain.config.peakCount * densityScale);
+        if (scaledPeakCount > 0) {
+            const landCandidates = [];
+            for (let i = 0; i < n; i++) if (elevation[i] > 0.22) landCandidates.push(i);
+            if (landCandidates.length > 3) {
+                const peakBlobDecay = scaleDecay(0.86 + this.terrain.config.relief * 0.05);
+                const rangeDecay = scaleDecay(0.90 + this.terrain.config.relief * 0.03);
+                const peakPlateau = Math.max(3, Math.round(7 * densityScale));
+
+                const chosenPeaks = [];
+                const minPeakDist = 0.16;
+                const pickSpacedCandidate = (avoidId) => {
+                    for (let attempt = 0; attempt < 10; attempt++) {
+                        const id = landCandidates[Math.floor(this.utils.seededRandom() * landCandidates.length)];
+                        if (id === avoidId) continue;
+                        const cx = regions[id].x / this.width, cy = regions[id].y / this.height;
+                        if (!chosenPeaks.some(p => Math.hypot(p.x - cx, p.y - cy) < minPeakDist)) return id;
+                    }
+                    return landCandidates[Math.floor(this.utils.seededRandom() * landCandidates.length)];
+                };
+
+                for (let i = 0; i < scaledPeakCount; i++) {
+                    const startId = pickSpacedCandidate(-1);
+                    chosenPeaks.push({ x: regions[startId].x / this.width, y: regions[startId].y / this.height });
+
+                    const peakHeight = (0.85 + this.utils.seededRandom() * 0.3) * (0.6 + this.terrain.config.relief);
+                    const asRidge = this.utils.seededRandom() < this.terrain.config.peakShape;
+                    if (asRidge) {
+                        const endId = pickSpacedCandidate(startId);
+                        if (endId === startId) { this.terrain.addBlob(elevation, neighborsList, startId, peakHeight, peakBlobDecay, peakPlateau); continue; }
+                        this.terrain.addRange(elevation, neighborsList, regions, startId, endId, peakHeight, rangeDecay);
+                    } else {
+                        this.terrain.addBlob(elevation, neighborsList, startId, peakHeight, peakBlobDecay, peakPlateau);
+                    }
+                }
+            }
+        }
+
+        for (let i = 0; i < n; i++) {
+            const nx = regions[i].x / this.width, ny = regions[i].y / this.height;
+            const detail = Math.sin(nx * 23.0 * densityScale + seedTrig) * Math.cos(ny * 19.0 * densityScale - seedTrig) * 0.5
+                            + Math.sin(nx * 47.0 * densityScale - ny * 31.0 * densityScale) * 0.25;
+            const chaosJitter = this.utils.seededRandom() * 2 - 1;
+            elevation[i] *= (1 + detail * (0.15 + this.terrain.config.relief * 0.55) + chaosJitter * this.terrain.config.chaos * 0.65);
+        }
+
+        for (let i = 0; i < n; i++) {
+            const isEdge = regions[i].x < this.borderMargin || regions[i].x > this.width - this.borderMargin
+                        || regions[i].y < this.borderMargin || regions[i].y > this.height - this.borderMargin;
+            if (isEdge) elevation[i] *= 0.15;
+        }
+        return elevation;
+    },
+    classifyByLandFraction(elevation, targetFraction) {
+        const n = elevation.length;
+        const sorted = Array.from(elevation).sort((a, b) => a - b);
+        const idx = Math.min(n - 1, Math.max(0, Math.floor((1 - targetFraction) * n)));
+        const waterLevel = sorted[idx];
+        const min = sorted[0];
+
+        const landElevations = sorted.slice(idx);
+        const refIdx = Math.min(landElevations.length - 1, Math.floor(landElevations.length * 0.95));
+        const landMaxRef = landElevations[refIdx] || sorted[n - 1];
+        const waterRange = (waterLevel - min) || 1;
+        const landRange = (landMaxRef - waterLevel) || 1;
+
+        const landCeiling = 0.35 + 0.65 * this.terrain.config.relief;
+
+        const isWater = new Uint8Array(n);
+        const t = new Float64Array(n);
+        for (let i = 0; i < n; i++) {
+            if (elevation[i] < waterLevel) {
+                isWater[i] = 1;
+                t[i] = Math.min(1, Math.max(0, (elevation[i] - min) / waterRange));
+            } else {
+                isWater[i] = 0;
+                t[i] = Math.min(1, Math.max(0, (elevation[i] - waterLevel) / landRange)) * landCeiling;
+            }
+        }
+
+        return { isWater, t };
+    },
+    cleanup(isWater, neighborsList, minLandSize) {
+        const n = isWater.length;
+        const visited = new Uint8Array(n);
+        for (let i = 0; i < n; i++) {
+            if (visited[i] || isWater[i]) continue;
+            const component = [i];
+            visited[i] = 1;
+            let qi = 0;
+            while (qi < component.length) {
+                const id = component[qi++];
+                for (const nb of neighborsList[id]) {
+                    if (visited[nb] || isWater[nb]) continue;
+                    visited[nb] = 1;
+                    component.push(nb);
+                }
+            }
+            if (component.length < minLandSize) {
+                for (const id of component) isWater[id] = 1;
+            }
+        }
+    }
+}
+
+const MapUtils = {
+    strokeOffsetPolyline(ctx, points, nx, ny, offset, color, width) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = width;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        points.forEach((pt, k) => {
+            const x = pt.x + nx * offset, y = pt.y + ny * offset;
+            if (k === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+    },
+    seededRandom() {
+        this.currentSeed = (this.currentSeed * 48271) % 2147483647;
+        return (this.currentSeed / 2147483647);
+    },
+    setSeed(seed) {
+        this.initialSeed = seed || Math.floor(Math.random() * 9999999) + 1;
+        this.currentSeed = this.initialSeed;
+        return this.initialSeed;
+    },
+    findBand(bands, t) {
+        for (const b of bands) if (t <= b.maxT) return b;
+        return bands[bands.length - 1];
+    }
+}
+const MapDecor = {
+    pointInPolygon(x, y, polygon) {
+        let inside = false;
+        for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+            const xi = polygon[i][0], yi = polygon[i][1];
+            const xj = polygon[j][0], yj = polygon[j][1];
+            const intersect = ((yi > y) !== (yj > y)) &&
+                (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+            if (intersect) inside = !inside;
+        }
+        return inside;
+    },
+
+    densityFor(region) {
+        const table = {
+            WOODLAND:     { count: [1, 20], icon: 'tree' },
+            FOREST:       { count: [20, 40], icon: 'tree' },
+            DENSE_FOREST: { count: [40, 50], icon: 'tree' },
+            HIGHLANDS:    { count: [2, 10], icon: 'mountain' },
+            PEAKS:        { count: [10, 20], icon: 'mountain' },
+        };
+        return table[region.biomeBand] || null;
+    },
+
+    generate(regions, voronoi) {
+        regions.forEach(region => {
+            region.decorations = [];
+            if (region.isWater) return;
+
+            const spec = this.decor.densityFor(region);
+            if (!spec) return;
+
+            const polygon = voronoi.cellPolygon(region.id);
+            if (!polygon) return;
+
+            const xs = polygon.map(p => p[0]), ys = polygon.map(p => p[1]);
+            const minX = Math.min(...xs), maxX = Math.max(...xs);
+            const minY = Math.min(...ys), maxY = Math.max(...ys);
+
+            const count = spec.count[0] + Math.floor(this.utils.seededRandom() * (spec.count[1] - spec.count[0] + 1));
+            let placed = 0, attempts = 0;
+            while (placed < count && attempts < count * 8) {
+                attempts++;
+                const x = minX + this.utils.seededRandom() * (maxX - minX);
+                const y = minY + this.utils.seededRandom() * (maxY - minY);
+                if (!this.decor.pointInPolygon(x, y, polygon)) continue;
+
+                region.decorations.push({
+                    x, y,
+                    icon: spec.icon,
+                    size: 2.5 + this.utils.seededRandom() * 2,
+                });
+                placed++;
+            }
+        });
+    },
+
+    drawTree(ctx, x, y, size, zoomScale) {
+        const s = size / zoomScale;
+        ctx.fillStyle = '#3a5a3a';
+        ctx.beginPath();
+        ctx.moveTo(x, y - s * 1.6);
+        ctx.lineTo(x - s, y + s * 0.4);
+        ctx.lineTo(x + s, y + s * 0.4);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#5a3a28';
+        ctx.fillRect(x - s * 0.12, y + s * 0.4, s * 0.24, s * 0.5);
+    },
+
+    drawMountain(ctx, x, y, size, zoomScale) {
+        const s = size / zoomScale;
+        ctx.fillStyle = '#664d37';
+        ctx.beginPath();
+        ctx.moveTo(x, y - s * 1.4);
+        ctx.lineTo(x - s * 1.1, y + s * 0.6);
+        ctx.lineTo(x + s * 1.1, y + s * 0.6);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#f2f2f2';
+        ctx.beginPath();
+        ctx.moveTo(x, y - s * 1.4);
+        ctx.lineTo(x - s * 0.35, y - s * 0.55);
+        ctx.lineTo(x + s * 0.35, y - s * 0.55);
+        ctx.closePath();
+        ctx.fill();
+    },
+
+    drawRock(ctx, x, y, size, zoomScale) {
+        const s = size / zoomScale;
+        ctx.fillStyle = '#7a7568';
+        ctx.beginPath();
+        ctx.ellipse(x, y, s, s * 0.6, 0, 0, Math.PI * 2);
+        ctx.fill();
+    },
+
+    render(ctx, zoomScale) {
+        //const zoomMod = (2-zoomScale)*2;
+        console.log(zoomScale)
+        let zoomMod = (10 - zoomScale)*1.05;
+        console.log(zoomMod)
+        if(zoomMod > 12) zoomMod = 12
+        this.terrain.regions.forEach(region => {
+            if (!region.decorations || !region.decorations.length) return;
+            region.decorations.forEach(d => {
+                if (d.icon === 'tree') this.decor.drawTree(ctx, d.x, d.y, d.size, zoomMod);
+                else if (d.icon === 'mountain') this.decor.drawMountain(ctx, d.x, d.y, d.size, zoomMod);
+                else if (d.icon === 'rock') this.decor.drawRock(ctx, d.x, d.y, d.size, zoomMod);
+            });
+        });
+    },
+};
