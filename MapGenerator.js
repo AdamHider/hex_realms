@@ -28,10 +28,13 @@ class MapGenerator {
         this.mapLayerCanvas.width = this.width * this.mapLayerScale;
         this.mapLayerCanvas.height = this.height * this.mapLayerScale;
         this.mapLayerCtx = this.mapLayerCanvas.getContext('2d');
+        
 
         this.color = {
             getBase: MapColor.getBase.bind(this),
             getGrayscale: MapColor.getGrayscale.bind(this),
+            getResourceRange: MapColor.getResourceRange.bind(this),
+            getResourceColor: MapColor.getResourceColor.bind(this),
             hexToRgb: MapColor.hexToRgb.bind(this),
             rgbToHex: MapColor.rgbToHex.bind(this),
             hslToHex: MapColor.hslToHex.bind(this),
@@ -96,15 +99,6 @@ class MapGenerator {
             classifyByLandFraction: MapTerrain.classifyByLandFraction.bind(this),
             cleanup: MapTerrain.cleanup.bind(this),
         }
-        this.decor = {
-            pointInPolygon: MapDecor.pointInPolygon.bind(this),
-            densityFor: MapDecor.densityFor.bind(this),
-            generate: MapDecor.generate.bind(this),
-            drawTree: MapDecor.drawTree.bind(this),
-            drawMountain: MapDecor.drawMountain.bind(this),
-            drawRock: MapDecor.drawRock.bind(this),
-            render: MapDecor.render.bind(this),
-        };
         this.utils = {
             strokeOffsetPolyline: MapUtils.strokeOffsetPolyline.bind(this),
             seededRandom: MapUtils.seededRandom.bind(this),
@@ -134,35 +128,35 @@ class MapGenerator {
             { id: 'SHALLOW', isWater: true, maxT: Infinity, label: 'Мелководье',
               color: '#2a3973', resources: { food: 2, production: 0, manpower: 0, gold: 0, upkeep: -0.3 } },
             { id: 'COAST', isWater: false, maxT: 0.08, label: 'Побережье',
-              colors: { cold: '#8fae9c', temperate: '#b7d688', hot: '#d9c27a' },
-              resources: { food: 2, production: 1, manpower: 1, gold: 1, upkeep: -0.5 } },
+            colors: { cold: '#9fb8a0', temperate: '#b5c95a', hot: '#d9c27a' },
+            resources: { food: 2, production: 1, manpower: 1, gold: 1, upkeep: -0.5 } },
             { id: 'STEPPE', isWater: false, maxT: 0.16, label: 'Степь',
-              colors: { cold: '#7a9a86', temperate: '#88aa55', hot: '#cdb26a' },
-              resources: { food: 1, production: 1, manpower: 2, gold: 0, upkeep: -0.5 } },
+            colors: { cold: '#93ab97', temperate: '#a3bb52', hot: '#cdb26a' },
+            resources: { food: 1, production: 1, manpower: 2, gold: 0, upkeep: -0.5 } },
             { id: 'PLAINS', isWater: false, maxT: 0.25, label: 'Равнина',
-              colors: { cold: '#6b8f7a', temperate: '#679459', hot: '#c2a35c' },
-              resources: { food: 3, production: 1, manpower: 1, gold: 0, upkeep: -0.6 } },
+            colors: { cold: '#86a08c', temperate: '#8fae4f', hot: '#c2a35c' },
+            resources: { food: 3, production: 1, manpower: 1, gold: 0, upkeep: -0.6 } },
             { id: 'GRASSLAND', isWater: false, maxT: 0.35, label: 'Луга',
-              colors: { cold: '#5a7d6a', temperate: '#559944', hot: '#b8944a' },
-              resources: { food: 3, production: 1, manpower: 2, gold: 0, upkeep: -0.6 } },
+            colors: { cold: '#7a9482', temperate: '#6fa050', hot: '#b8944a' },
+            resources: { food: 3, production: 1, manpower: 2, gold: 0, upkeep: -0.6 } },
             { id: 'WETLANDS', isWater: false, maxT: 0.45, label: 'Болота',
-              colors: { cold: '#4a6b5c', temperate: '#4d7c0f', hot: '#a9863e' },
-              resources: { food: 2, production: 0, manpower: 1, gold: 0, upkeep: -0.7 } },
+            colors: { cold: '#6f8877', temperate: '#5c9159', hot: '#a9863e' },
+            resources: { food: 2, production: 0, manpower: 1, gold: 0, upkeep: -0.7 } },
             { id: 'WOODLAND', isWater: false, maxT: 0.56, label: 'Редколесье',
-              colors: { cold: '#3d5a4d', temperate: '#337755', hot: '#9c7a3a' },
-              resources: { food: 1, production: 2, manpower: 1, gold: 0, upkeep: -0.6 } },
+            colors: { cold: '#63796d', temperate: '#4a8058', hot: '#9c7a3a' },
+            resources: { food: 1, production: 2, manpower: 1, gold: 0, upkeep: -0.6 } },
             { id: 'FOREST', isWater: false, maxT: 0.68, label: 'Лес',
-              colors: { cold: '#2f4a40', temperate: '#14532d', hot: '#8a6a35' },
-              resources: { food: 1, production: 3, manpower: 1, gold: 0, upkeep: -0.7 } },
+            colors: { cold: '#566a5f', temperate: '#3a6b52', hot: '#8a6a35' },
+            resources: { food: 1, production: 3, manpower: 1, gold: 0, upkeep: -0.7 } },
             { id: 'DENSE_FOREST', isWater: false, maxT: 0.80, label: 'Густой лес',
-              colors: { cold: '#24413a', temperate: '#064e3b', hot: '#7a5c30' },
-              resources: { food: 0, production: 3, manpower: 1, gold: 0, upkeep: -0.8 } },
+            colors: { cold: '#4a5b53', temperate: '#2d5548', hot: '#7a5c30' },
+            resources: { food: 0, production: 3, manpower: 1, gold: 0, upkeep: -0.8 } },
             { id: 'HIGHLANDS', isWater: false, maxT: 0.92, label: 'Плоскогорье',
-              colors: { cold: '#cfd8d6', temperate: '#042f2e', hot: '#8a6048' },
-              resources: { food: 0, production: 2, manpower: 0, gold: 2, upkeep: -0.9 } },
+            colors: { cold: '#8a9490', temperate: '#5c6b64', hot: '#8a7a5c' },
+            resources: { food: 0, production: 2, manpower: 0, gold: 2, upkeep: -0.9 } },
             { id: 'PEAKS', isWater: false, maxT: Infinity, label: 'Пик',
-              colors: { cold: '#f2f6f7', temperate: '#707372', hot: '#7a6558' },
-              resources: { food: -1.0, production: 1, manpower: 0, gold: 3, upkeep: -1.0 } },
+            colors: { cold: '#eef2f0', temperate: '#9a9d9a', hot: '#a89a86' },
+            resources: { food: 0, production: 1, manpower: 0, gold: 3, upkeep: -1.0 } },
         ];
 
         this.waterBiomes = this.biomeDefs.filter(b => b.isWater);
@@ -196,7 +190,7 @@ class MapGenerator {
                     hot:       { food: 1.0, production: 1.0, manpower: 1.0, gold: 1.0, upkeep: 1.0 },
                 },
                 tints: {
-                    land:  { cold: { color: '#cfe8c2', strength: 0.12 }, temperate: { color: '#d9f2a3', strength: 0.15 }, hot: { color: '#f2e6a8', strength: 0.05 } },
+                    land:  { cold: { color: '#cfe8c2', strength: 0.06 }, temperate: { color: '#d9f2a3', strength: 0.15 }, hot: { color: '#f2e6a8', strength: 0.05 } },
                     water: { cold: { color: '#dfeff5', strength: 0.05 }, temperate: { color: '#dfeff5', strength: 0.00 }, hot: { color: '#dfeff5', strength: 0.00 } },
                 },
             },
@@ -384,7 +378,6 @@ class MapGenerator {
         });
 
         this.factions.settle(regions, neighbors);
-        this.decor.generate(regions, voronoi); 
 
         this.terrain.regions = regions;
         this.mapVoronoi = voronoi;
@@ -462,11 +455,10 @@ class MapGenerator {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, this.mapLayerCanvas.width, this.mapLayerCanvas.height);
         ctx.scale(this.mapLayerScale, this.mapLayerScale);
-    
         this.renderRegions(ctx);
-        //this.renderPaperTexture(ctx);
-    
         ctx.restore();
+
+
         this.draw();
     }
     
@@ -487,31 +479,24 @@ class MapGenerator {
         this.ctx.save();
         this.ctx.translate(this.viewTransform.x, this.viewTransform.y);
         this.ctx.scale(this.viewTransform.scale, this.viewTransform.scale);
-        this.renderOverlay(this.ctx, this.viewTransform.scale);
+        this.renderCities(this.ctx);
+        this.factions.drawBorders(this.ctx, this.viewTransform.scale);
         this.ctx.restore();
     }
     
-    renderOverlay(ctx, zoomScale) {
-        this.factions.drawBorders(ctx, zoomScale);
-        //this.decor.render(ctx, zoomScale);
-        this.renderCities(ctx, zoomScale);
-    }
-    renderPaperTexture(ctx) {
-        ctx.save();
-        ctx.globalCompositeOperation = 'multiply';
-        ctx.fillStyle = 'rgba(238, 222, 186, 0.18)';
-        ctx.fillRect(0, 0, this.width, this.height);
-        ctx.restore();
-    }
     renderRegions(ctx) {
+        const resourceRange = ['food', 'gold', 'production'].includes(this.viewMode)
+        ? this.color.getResourceRange(this.viewMode)
+        : null;
+
         for (let i = 0; i < this.terrain.regions.length; i++) {
             const polygon = this.mapVoronoi.cellPolygon(i);
             if (!polygon) continue;
 
             const region = this.terrain.regions[i];
-            ctx.fillStyle = this.color.getBase(region);
-            ctx.strokeStyle = this.viewMode === 'factions' ? 'rgba(0, 0, 0, 0.25)' : 'rgba(2, 44, 44, 0.2)';
-            ctx.lineWidth = 0.4;
+            ctx.fillStyle = this.color.getBase(region, resourceRange);
+            ctx.strokeStyle = this.viewMode === 'factions' ? 'rgba(0, 0, 0, 0.25)' : 'rgba(2, 44, 44, 0.65)';
+            ctx.lineWidth = 0.3;
 
             this.drawRegionPath(ctx, polygon);
             ctx.fill();
@@ -519,7 +504,7 @@ class MapGenerator {
 
             if (region.ownerId !== null && region.ownerId !== undefined && this.factions.list?.[region.ownerId]) {
                 ctx.save();
-                ctx.globalAlpha = this.viewMode === 'factions' ? 0.65 : (this.viewMode === 'political') ? 0.42 : 0;
+                ctx.globalAlpha = this.viewMode === 'factions' ? 0.65 : (this.viewMode === 'political') ? 0.32 : 0;
                 ctx.fillStyle = this.factions.list[region.ownerId].color;
                 ctx.fill();
                 ctx.restore();
@@ -547,9 +532,12 @@ class MapGenerator {
 // в конкретный цвет для заливки. Читает MAP_CONFIG + this.viewMode.
 // ═══════════════════════════════════════════════════════════
 const MapColor = {
-    getBase(region) {
+    getBase(region, resourceRange) {
         if (this.viewMode === 'factions') {
             return this.color.getGrayscale(region);
+        }
+        if (!region.isWater && ['food', 'gold', 'production'].includes(this.viewMode)) {
+            return this.color.getResourceColor(region, this.viewMode, resourceRange);
         }
         region.biome = region.isWater ? region.biomeClimate : (this.showClimate ? region.biomeClimate : region.biomeNeutral);
         
@@ -596,7 +584,35 @@ const MapColor = {
             base.g + (tint.g - base.g) * amount,
             base.b + (tint.b - base.b) * amount
         );
-    }
+    },
+    getResourceRange(key) {
+        let min = Infinity, max = -Infinity;
+        this.terrain.regions.forEach(region => {
+            const res = this.getRegionResources(region);
+            if (!res) return;
+            const v = res[key];
+            if (v < min) min = v;
+            if (v > max) max = v;
+        });
+        if (!isFinite(min)) { min = 0; max = 1; }
+        if (min === max) max = min + 1; // защита от деления на 0, если все значения одинаковы
+        return { min, max };
+    },
+    
+    getResourceColor(region, key, range) {
+        const res = this.getRegionResources(region);
+        if (!res) return '#333333';
+    
+        const scales = {
+            food:       ['#7a1f1f', '#2f9e44'], // мало — красный, много — зелёный
+            gold:       ['#4a2e1a', '#e08e2b'], // мало — коричневый, много — оранжевый
+            production: ['#d7e6f2', '#12294f'], // мало — бледно-голубой, много — насыщенный тёмно-синий
+        };
+        const [lowColor, highColor] = scales[key];
+    
+        const t = Math.max(0, Math.min(1, (res[key] - range.min) / (range.max - range.min)));
+        return this.color.blend(lowColor, highColor, t);
+    },
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -874,8 +890,8 @@ const MapFaction = {
         if (!this.factions.list || !this.factions.list.length || !this.edgeMap) return;
         ctx.lineJoin = 'round';
     
-        const borderWidth = 1.4 / zoomScale * 1.2;
-        const offset = 0.7 / zoomScale * 1.2;
+        const borderWidth = 1.4 / zoomScale;
+        const offset = 0.7 / zoomScale;
 
         this.edgeMap.forEach(edge => {
             if (edge.regionIds.length < 2) return;
@@ -1226,115 +1242,3 @@ const MapUtils = {
         return bands[bands.length - 1];
     }
 }
-const MapDecor = {
-    pointInPolygon(x, y, polygon) {
-        let inside = false;
-        for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-            const xi = polygon[i][0], yi = polygon[i][1];
-            const xj = polygon[j][0], yj = polygon[j][1];
-            const intersect = ((yi > y) !== (yj > y)) &&
-                (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
-            if (intersect) inside = !inside;
-        }
-        return inside;
-    },
-
-    densityFor(region) {
-        const table = {
-            WOODLAND:     { count: [1, 20], icon: 'tree' },
-            FOREST:       { count: [20, 40], icon: 'tree' },
-            DENSE_FOREST: { count: [40, 50], icon: 'tree' },
-            HIGHLANDS:    { count: [2, 10], icon: 'mountain' },
-            PEAKS:        { count: [10, 20], icon: 'mountain' },
-        };
-        return table[region.biomeBand] || null;
-    },
-
-    generate(regions, voronoi) {
-        regions.forEach(region => {
-            region.decorations = [];
-            if (region.isWater) return;
-
-            const spec = this.decor.densityFor(region);
-            if (!spec) return;
-
-            const polygon = voronoi.cellPolygon(region.id);
-            if (!polygon) return;
-
-            const xs = polygon.map(p => p[0]), ys = polygon.map(p => p[1]);
-            const minX = Math.min(...xs), maxX = Math.max(...xs);
-            const minY = Math.min(...ys), maxY = Math.max(...ys);
-
-            const count = spec.count[0] + Math.floor(this.utils.seededRandom() * (spec.count[1] - spec.count[0] + 1));
-            let placed = 0, attempts = 0;
-            while (placed < count && attempts < count * 8) {
-                attempts++;
-                const x = minX + this.utils.seededRandom() * (maxX - minX);
-                const y = minY + this.utils.seededRandom() * (maxY - minY);
-                if (!this.decor.pointInPolygon(x, y, polygon)) continue;
-
-                region.decorations.push({
-                    x, y,
-                    icon: spec.icon,
-                    size: 2.5 + this.utils.seededRandom() * 2,
-                });
-                placed++;
-            }
-        });
-    },
-
-    drawTree(ctx, x, y, size, zoomScale) {
-        const s = size / zoomScale;
-        ctx.fillStyle = '#3a5a3a';
-        ctx.beginPath();
-        ctx.moveTo(x, y - s * 1.6);
-        ctx.lineTo(x - s, y + s * 0.4);
-        ctx.lineTo(x + s, y + s * 0.4);
-        ctx.closePath();
-        ctx.fill();
-        ctx.fillStyle = '#5a3a28';
-        ctx.fillRect(x - s * 0.12, y + s * 0.4, s * 0.24, s * 0.5);
-    },
-
-    drawMountain(ctx, x, y, size, zoomScale) {
-        const s = size / zoomScale;
-        ctx.fillStyle = '#664d37';
-        ctx.beginPath();
-        ctx.moveTo(x, y - s * 1.4);
-        ctx.lineTo(x - s * 1.1, y + s * 0.6);
-        ctx.lineTo(x + s * 1.1, y + s * 0.6);
-        ctx.closePath();
-        ctx.fill();
-        ctx.fillStyle = '#f2f2f2';
-        ctx.beginPath();
-        ctx.moveTo(x, y - s * 1.4);
-        ctx.lineTo(x - s * 0.35, y - s * 0.55);
-        ctx.lineTo(x + s * 0.35, y - s * 0.55);
-        ctx.closePath();
-        ctx.fill();
-    },
-
-    drawRock(ctx, x, y, size, zoomScale) {
-        const s = size / zoomScale;
-        ctx.fillStyle = '#7a7568';
-        ctx.beginPath();
-        ctx.ellipse(x, y, s, s * 0.6, 0, 0, Math.PI * 2);
-        ctx.fill();
-    },
-
-    render(ctx, zoomScale) {
-        //const zoomMod = (2-zoomScale)*2;
-        console.log(zoomScale)
-        let zoomMod = (10 - zoomScale)*1.05;
-        console.log(zoomMod)
-        if(zoomMod > 12) zoomMod = 12
-        this.terrain.regions.forEach(region => {
-            if (!region.decorations || !region.decorations.length) return;
-            region.decorations.forEach(d => {
-                if (d.icon === 'tree') this.decor.drawTree(ctx, d.x, d.y, d.size, zoomMod);
-                else if (d.icon === 'mountain') this.decor.drawMountain(ctx, d.x, d.y, d.size, zoomMod);
-                else if (d.icon === 'rock') this.decor.drawRock(ctx, d.x, d.y, d.size, zoomMod);
-            });
-        });
-    },
-};
