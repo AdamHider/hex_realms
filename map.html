@@ -3,103 +3,55 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Полигональная карта мира с настраиваемыми параметрами и Сидом</title>
+    <title>Игра</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/d3-delaunay@6"></script>
     <script src="MapGenerator.js"></script>
+    <script src="TurnManager .js"></script>
+    <script src="FactionsManager.js"></script>
+    <script src="DiplomacyManager.js"></script>
+    <script src="AIManager.js"></script>
+    <script src="Game.js"></script>
     <style>
-        body { font-family: 'Inter', sans-serif; }
+        html, body { margin: 0; padding: 0; overflow: hidden; }
+        #gameCanvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
     </style>
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col items-center justify-center p-4">
+<body class="bg-slate-950 text-slate-100">
 
-    <header class="text-center mb-4">
-        <h1 class="text-2xl font-bold tracking-tight text-emerald-400">Полигональная карта мира (Сиды и Рельеф)</h1>
-        <p class="text-xs text-slate-400 mt-1">10 биомов суши (с климатическими зонами) и 3 биома воды — наведите курсор на карту, чтобы узнать детали</p>
-    </header>
+    <canvas id="gameCanvas"></canvas>
 
-    <div class="flex flex-col lg:flex-row gap-4 items-start justify-center max-w-6xl w-full">
-        <!-- Canvas and stats block -->
-        <div class="relative bg-slate-900 border border-slate-800 rounded-2xl p-3 shadow-2xl overflow-hidden flex flex-col items-center">
-            <canvas id="mapCanvas" width="600" height="600" class="rounded-xl cursor-crosshair bg-slate-950"></canvas>
+    <div id="mapTooltip" class="hidden fixed z-50 pointer-events-none bg-slate-900 border border-emerald-700 text-slate-100 text-xs rounded-lg shadow-2xl px-3 py-2 max-w-[220px] leading-relaxed"></div>
 
-            <div class="w-full flex flex-wrap items-center justify-between gap-3 mt-4 px-2">
-                <div class="flex gap-1">
-                    <button onclick="mapGen.zoomOut()" class="w-8 h-8 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm">−</button>
-                    <button onclick="mapGen.resetView()" class="w-8 h-8 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs">⟲</button>
-                    <button onclick="mapGen.zoomIn()" class="w-8 h-8 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm">+</button>
-                </div>
-                <div id="stats" class="text-xs text-slate-300 flex flex-wrap items-center gap-3">
-                    <span class="inline-flex items-center"><span class="w-2.5 h-2.5 rounded-full bg-emerald-600 inline-block mr-1"></span>Суша (10 биомов)</span>
-                    <span class="inline-flex items-center"><span class="w-2.5 h-2.5 rounded-full bg-blue-600 inline-block mr-1"></span>Вода (3 биома)</span>
-                    <label class="flex items-center gap-1 text-[11px] text-slate-300 cursor-pointer select-none border-l border-slate-800 pl-3">
-                        <input type="checkbox" id="checkClimate" checked onchange="changeMap('showClimate',this.checked);" class="accent-emerald-500"> Климатический слой
-                    </label>
-                </div>
-                <div class="flex gap-2">
-                    
-                    <button onclick="generateMap()" class="px-4 py-2 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-slate-950 font-semibold text-sm rounded-xl shadow-lg transition transform active:scale-95">
-                        Сгенерировать мир
-                    </button>
-                </div>
-            </div>
-        </div>
+    <!-- ═══════════ Меню "Новая игра" — поверх канваса, скрывается после старта ═══════════ -->
+    <div id="newGameMenu" class="fixed inset-0 z-40 bg-slate-950/95 flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl w-full max-w-md flex flex-col gap-4">
+            <h1 class="text-lg font-bold text-emerald-400">Новая игра</h1>
 
-        <div id="mapTooltip" class="hidden fixed z-50 pointer-events-none bg-slate-900 border border-emerald-700 text-slate-100 text-xs rounded-lg shadow-2xl px-3 py-2 max-w-[220px] leading-relaxed"></div>
-
-        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-2xl w-full lg:w-80 flex flex-col gap-4">
-            <h2 class="text-sm font-bold text-emerald-400 uppercase tracking-wider border-b border-slate-800 pb-2">Настройки мира</h2>
-
-            <div class="flex flex-col gap-1.5 bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+            <div class="flex flex-col gap-1.5">
                 <div class="flex justify-between items-center text-xs">
-                    <span class="text-slate-300 font-semibold">Сид мира (Seed):</span>
+                    <span class="text-slate-300 font-semibold">Сид мира:</span>
                     <label class="flex items-center gap-1 text-[10px] text-emerald-400 cursor-pointer select-none">
-                        <input type="checkbox" id="checkRandomSeed" checked onchange="generateMap()" class="accent-emerald-500"> Авто
+                        <input type="checkbox" id="menuRandomSeed" checked class="accent-emerald-500"> Случайный
                     </label>
                 </div>
-                <div class="flex gap-2">
-                    <input type="text" id="inputSeed" value="12345" disabled class="w-full bg-slate-900 border border-slate-800 text-slate-100 text-xs rounded-lg px-2 py-1 font-mono disabled:opacity-50">
-                </div>
+                <input type="text" id="menuSeed" value="12345" disabled class="w-full bg-slate-950 border border-slate-800 text-xs rounded-lg px-2 py-1 font-mono disabled:opacity-50">
             </div>
 
             <div class="flex flex-col gap-1.5">
                 <div class="flex justify-between text-xs">
                     <span class="text-slate-300">Плотность полигонов:</span>
-                    <span id="valSites" class="text-emerald-400 font-mono">1500</span>
+                    <span id="menuValRegionCount" class="text-emerald-400 font-mono">3000</span>
                 </div>
-                <input type="range" id="rangeSites" min="200" max="3500" step="50" value="3000"
-                    oninput="updateLabel('valSites', this.value)"
-                    onchange="changeMapTerrain('regionCount', parseInt(this.value))"
+                <input type="range" id="menuRegionCount" min="500" max="4000" step="100" value="3000"
+                    oninput="document.getElementById('menuValRegionCount').textContent = this.value"
                     class="w-full accent-emerald-500 cursor-pointer">
-            </div>
-            <div class="flex flex-col gap-1.5">
-                <label for="selectViewMode" class="text-xs text-slate-300">Режим просмотра:</label>
-                <select id="selectViewMode" onchange="changeMap('viewMode', this.value)"
-                    class="bg-slate-950 border border-slate-800 text-slate-100 text-xs rounded-xl p-2.5 focus:outline-none focus:border-emerald-500 cursor-pointer">
-                    <option value="terrain" selected>Рельеф + климат</option>
-                    <option value="political">Рельеф + фракции</option>
-                    <option value="factions">Карта фракций</option>
-                    <option value="gold">Золото</option>
-                    <option value="food">Еда</option>
-                    <option value="production">Промышленность</option>
-                    <option value="manpower">Население</option>
-                </select>
-            </div>
-            
-            <div class="flex flex-col gap-1.5">
-                <label for="selectSeason" class="text-xs text-slate-300">Сезон:</label>
-                <select id="selectSeason" onchange="changeMap('currentSeason',this.value)" class="bg-slate-950 border border-slate-800 text-slate-100 text-xs rounded-xl p-2.5 focus:outline-none focus:border-emerald-500 cursor-pointer">
-                    <option value="SPRING" selected>Весна</option>
-                    <option value="SUMMER">Лето</option>
-                    <option value="AUTUMN">Осень</option>
-                    <option value="WINTER">Зима</option>
-                </select>
             </div>
 
             <div class="flex flex-col gap-1.5">
-                <label for="selectShape" class="text-xs text-slate-300">Тип мира:</label>
-                <select id="selectShape" onchange="changeMapTerrain('shapeType',this.value)" class="bg-slate-950 border border-slate-800 text-slate-100 text-xs rounded-xl p-2.5 focus:outline-none focus:border-emerald-500 cursor-pointer">
-                    <option value="continent" selected>Континент (Европа)</option>
+                <label class="text-xs text-slate-300">Тип мира:</label>
+                <select id="menuShapeType" class="bg-slate-950 border border-slate-800 text-xs rounded-xl p-2.5 cursor-pointer">
+                    <option value="continent" selected>Континент</option>
                     <option value="two_continents">Два континента</option>
                     <option value="island">Один остров</option>
                 </select>
@@ -108,102 +60,216 @@
             <div class="flex flex-col gap-1.5">
                 <div class="flex justify-between text-xs">
                     <span class="text-slate-300">Количество суши:</span>
-                    <span id="valLandAmount" class="text-emerald-400 font-mono">0.8</span>
+                    <span id="menuValLandAmount" class="text-emerald-400 font-mono">0.8</span>
                 </div>
-                <input type="range" id="rangeLandAmount" min="0.5" max="1.6" step="0.05" value="0.80" oninput="updateLabel('valLandAmount', this.value)" onchange="changeMapTerrain('landAmount', parseFloat(this.value))"/>
+                <input type="range" id="menuLandAmount" min="0.5" max="1.6" step="0.05" value="0.8"
+                    oninput="document.getElementById('menuValLandAmount').textContent = this.value"
+                    class="w-full accent-emerald-500 cursor-pointer">
             </div>
 
             <div class="flex flex-col gap-1.5">
                 <div class="flex justify-between text-xs">
-                    <span class="text-slate-300">Рельеф (высота, детализация):</span>
-                    <span id="valRelief" class="text-emerald-400 font-mono">0.9</span>
+                    <span class="text-slate-300">Рельеф:</span>
+                    <span id="menuValRelief" class="text-emerald-400 font-mono">0.9</span>
                 </div>
-                <input type="range" id="rangeRelief" min="0.0" max="1.0" step="0.05" value="0.90" oninput="updateLabel('valRelief', this.value)" onchange="changeMapTerrain('relief',parseFloat(this.value))" class="w-full accent-emerald-500 cursor-pointer">
-                <p class="text-[10px] text-slate-500 leading-snug">Низкий — пологие равнины. Высокий — резкие высокие пики и сильно изрезанная текстура берегов.</p>
+                <input type="range" id="menuRelief" min="0" max="1" step="0.05" value="0.9"
+                    oninput="document.getElementById('menuValRelief').textContent = this.value"
+                    class="w-full accent-emerald-500 cursor-pointer">
             </div>
 
             <div class="flex flex-col gap-1.5">
                 <div class="flex justify-between text-xs">
-                    <span class="text-slate-300">Хаотичность рельефа:</span>
-                    <span id="valChaos" class="text-emerald-400 font-mono">0.2</span>
+                    <span class="text-slate-300">Хаотичность:</span>
+                    <span id="menuValChaos" class="text-emerald-400 font-mono">0.2</span>
                 </div>
-                <input type="range" id="rangeChaos" min="0.0" max="1.0" step="0.05" value="0.20" oninput="updateLabel('valChaos', this.value)" onchange="changeMapTerrain('chaos',this.value)" class="w-full accent-emerald-500 cursor-pointer">
-                <p class="text-[10px] text-slate-500 leading-snug">0 — гладкий градиент высот. Выше — независимый шум по каждому полигону, меньше одинаковых по высоте соседей.</p>
+                <input type="range" id="menuChaos" min="0" max="1" step="0.05" value="0.2"
+                    oninput="document.getElementById('menuValChaos').textContent = this.value"
+                    class="w-full accent-emerald-500 cursor-pointer">
             </div>
 
-            <button onclick="generateMap()" class="mt-2 w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-semibold text-sm rounded-xl shadow transition transform active:scale-95">
-                Применить и пересоздать
+            <div class="flex flex-col gap-1.5">
+                <div class="flex justify-between text-xs">
+                    <span class="text-slate-300">Количество фракций:</span>
+                    <span id="menuValFactionCount" class="text-emerald-400 font-mono">25</span>
+                </div>
+                <input type="range" id="menuFactionCount" min="4" max="70" step="1" value="25"
+                    oninput="document.getElementById('menuValFactionCount').textContent = this.value"
+                    class="w-full accent-emerald-500 cursor-pointer">
+            </div>
+            
+
+            <button id="startGameBtn" class="mt-2 w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-semibold text-sm rounded-xl shadow transition transform active:scale-95">
+                Начать игру
             </button>
         </div>
     </div>
 
+    <!-- ═══════════ HUD поверх карты — видна только во время игры ═══════════ -->
+    <div id="gameHud" class="hidden fixed top-3 left-3 right-3 z-30 flex flex-wrap items-center justify-between gap-3 pointer-events-none">
+        <div class="flex gap-2 pointer-events-auto">
+        </div>
+        <div class="flex gap-2 pointer-events-auto items-center text-xs">
+            <span id="hudTurn" class="bg-slate-900/90 border border-slate-700 rounded-lg px-2 py-1.5">Ход 1</span>
+            <span id="hudTreasury" class="bg-slate-900/90 border border-slate-700 rounded-lg px-2 py-1.5">🌾 0 · 🪙 0</span>
+            <span id="hudFactionsAlive" class="bg-slate-900/90 border border-slate-700 rounded-lg px-2 py-1.5">Фракций: 0</span>
+            <button onclick="game.endTurn()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-semibold rounded-lg">
+                Завершить ход
+            </button>
+        </div>
+
+        <div class="flex gap-2 pointer-events-auto">
+            <select id="hudViewMode" onchange="game.setViewMode(this.value)"
+                class="bg-slate-900/90 border border-slate-700 text-xs rounded-lg px-2 py-1.5 cursor-pointer">
+                <option value="terrain" selected>Рельеф + климат</option>
+                <option value="political">Рельеф + фракции</option>
+                <option value="factions">Карта фракций</option>
+                <option value="gold">Золото</option>
+                <option value="food">Еда</option>
+                <option value="production">Промышленность</option>
+                <option value="manpower">Население</option>
+            </select>
+
+            <select id="hudSeason" onchange="game.setSeason(this.value)"
+                class="bg-slate-900/90 border border-slate-700 text-xs rounded-lg px-2 py-1.5 cursor-pointer">
+                <option value="SPRING" selected>Весна</option>
+                <option value="SUMMER">Лето</option>
+                <option value="AUTUMN">Осень</option>
+                <option value="WINTER">Зима</option>
+            </select>
+        </div>
+    </div>
+
+    <div id="regionPanel" class="hidden fixed bottom-3 left-3 z-30 bg-slate-900/95 border border-slate-700 rounded-xl p-3 text-xs max-w-xs"></div>
+    <div id="aiLog" class="hidden fixed bottom-3 right-3 z-30 bg-slate-900/95 border border-slate-700 rounded-xl p-3 text-xs max-w-xs max-h-40 overflow-y-auto"></div>
     <script>
-        function updateLabel(id, val) { document.getElementById(id).textContent = val;  }
-        function init(){
-            generateMap()
+        let game;
+
+        function startGame() {
+            const isRandom = document.getElementById('menuRandomSeed').checked;
+            const seed = isRandom
+                ? Math.floor(Math.random() * 9999999) + 1
+                : parseInt(document.getElementById('menuSeed').value) || 12345;
+
+            document.getElementById('newGameMenu').classList.add('hidden');
+            document.getElementById('gameHud').classList.remove('hidden');
+
+            // канвас должен уже занимать весь экран (CSS fixed inset-0) —
+            // читаем его реальный размер только теперь, когда меню скрыто
+            game = new Game({
+                canvas: document.getElementById('gameCanvas'),
+                tooltip: document.getElementById('mapTooltip'),
+                onRegionSelected: (region, state) => {
+                    showRegionPanel(region);
+                },
+                onGameReady: (state) => { updateHud(); },
+                onTurnEnd: (summary) => {
+                    document.getElementById('hudTurn').textContent = `Ход ${summary.turnNumber}`;
+                    updateHud();
+                    // если открыта панель региона — держим её в актуальном состоянии
+                    const selected = game.getSelectedRegion();
+                    if (selected) showRegionPanel(selected);
+                },
+                onSeasonChange: (season) => {
+                    document.getElementById('hudSeason').value = season;
+                },
+                onFactionEliminated: (faction) => {
+                    updateHud();
+                },
+                onAIAction: (factionId, action, details) => {
+                    const faction = game.factionsManager.get(factionId);
+                    const target = game.factionsManager.get(details.target);
+                    const log = document.getElementById('aiLog');
+                    log.classList.remove('hidden');
+
+                    const labels = { declare_war: 'объявила войну', make_peace: 'заключила мир с' };
+                    const line = document.createElement('div');
+                    line.textContent = `${faction.name} ${labels[action]} ${target.name}`;
+                    log.prepend(line);
+                },
+            });
+
+            game.newGame({
+                seed,
+                regionCount: parseInt(document.getElementById('menuRegionCount').value),
+                shapeType: document.getElementById('menuShapeType').value,
+                landAmount: parseFloat(document.getElementById('menuLandAmount').value),
+                relief: parseFloat(document.getElementById('menuRelief').value),
+                chaos: parseFloat(document.getElementById('menuChaos').value),
+                factionCount: parseInt(document.getElementById('menuFactionCount').value),
+                playerFactionId: 0,
+            });
         }
-        const mapGen = new MapGenerator({
-            width: 600,
-            height: 600,
-            canvas: document.getElementById('mapCanvas'),
-            tooltip: document.getElementById('mapTooltip'),
-            onSelect: (region) => {
-                console.log('Выбран регион:', region);
-                // например, обновить боковую панель UI
-            },
-        });
-        function generateMap() {
-            const isAuto = document.getElementById('checkRandomSeed').checked;
-            const seedInput = document.getElementById('inputSeed');
-            
-            if (isAuto) {
-                seedInput.value = Math.floor(Math.random() * 9999999) + 1;
-                seedInput.disabled = true;
+
+        function showRegionPanel(region) {
+            const info = game.getRegionFullInfo(region);
+            const panel = document.getElementById('regionPanel');
+            panel.classList.remove('hidden');
+
+            const biomeLabel = game.mapGen.elevationBandLabels[info.region.biome] || info.region.biome;
+            const climateLabel = info.region.climateZone ? game.mapGen.climateZoneLabels[info.region.climateZone] : null;
+
+            let html = `
+                <div class="font-semibold text-emerald-400 mb-1">${biomeLabel}</div>
+                <div>Высота: ${info.elevation !== null ? (info.elevation * 100).toFixed(0) + '%' : '—'}</div>
+                <div>Температура: ${info.temperature !== null ? (info.temperature * 100).toFixed(0) + '%' : '—'}${climateLabel ? ' (' + climateLabel + ')' : ''}</div>
+            `;
+
+            if (info.region.isWater) {
+                html += `<div>Тип: вода</div>`;
             } else {
-                seedInput.disabled = false;
-            }
-            const { regions, factions } = mapGen.create(parseInt(seedInput.value) || 12345);
-            console.log(factions)
-        }
-        const STRUCTURAL_KEYS = new Set([
-            'regionCount', 'shapeType', 'landAmount', 'relief', 'chaos',
-            'edgeRoughness', 'edgeDepth', 'borderMargin', 'peakCount', 'peakShape'
-        ]);
-        const VISUAL_KEYS = new Set(['showClimate', 'currentSeason', 'viewMode']);
-
-        let lastRegions = [];
-        let lastFactions = [];
-
-        function changeMapTerrain(key, value) {
-            mapGen.terrain.config[key] = value;
-            mapGen.markDirty('terrain');
-            if (VISUAL_KEYS.has(key)) {
-                mapGen.render(); // только перерисовка, карта данных не трогается
-                return;
+                const res = info.region.resources;
+                html += `
+                    <hr class="my-1 border-slate-700">
+                    <div>Еда ${res.food.toFixed(1)} · Произв. ${res.production.toFixed(1)} · Manpower ${res.manpower.toFixed(1)}</div>
+                    <div>Золото ${res.gold.toFixed(1)} · Содержание ${res.upkeep.toFixed(1)}</div>
+                    <div>Население: ${info.region.population}</div>
+                `;
             }
 
-            const seed = parseInt(document.getElementById('inputSeed').value) || mapGen.initialSeed;
-            const { regions, factions } = mapGen.create(seed);
-            lastRegions = regions;
-            lastFactions = factions;
-        }
-        function changeMap(key, value) {
-            mapGen[key] = value;
-            mapGen.markDirty('terrain');
-
-            if (VISUAL_KEYS.has(key)) {
-                mapGen.render(); // только перерисовка, карта данных не трогается
-                return;
+            if (info.region.city) {
+                html += `<hr class="my-1 border-slate-700"><div>Поселение: ${info.region.city.name}</div>`;
             }
 
-            const seed = parseInt(document.getElementById('inputSeed').value) || mapGen.initialSeed;
-            const { regions, factions } = mapGen.create(seed);
-            lastRegions = regions;
-            lastFactions = factions;
+            html += `<hr class="my-1 border-slate-700">`;
+            if (info.faction) {
+                html += `<div class="font-semibold" style="color: ${info.faction.color}">${info.faction.name}${info.isPlayerOwned ? ' (игрок)' : ''}</div>`;
+                if (info.diplomacy) {
+                    const labels = { peace: 'Мир', war: 'Война', alliance: 'Союз' };
+                    html += `<div>Отношения: ${labels[info.diplomacy]}</div>`;
+                    if (info.diplomacy === 'peace') {
+                        html += `<button onclick="game.declareWar(game.factionsManager.getPlayer().id, ${info.faction.id}); showRegionPanel(game.getSelectedRegion())" class="mt-1 px-2 py-1 bg-red-700 hover:bg-red-600 rounded text-xs">Объявить войну</button>`;
+                    } else if (info.diplomacy === 'war') {
+                        html += `<button onclick="game.makePeace(game.factionsManager.getPlayer().id, ${info.faction.id})" class="mt-1 px-2 py-1 bg-blue-700 hover:bg-blue-600 rounded text-xs">Предложить мир</button>`;
+                    }
+                }
+            } else {
+                html += `<div class="text-slate-400">Ничейная территория</div>`;
+            }
+
+            if (info.armies.length) {
+                html += `<hr class="my-1 border-slate-700"><div class="font-semibold">Армии здесь:</div>`;
+                info.armies.forEach(a => {
+                    html += `<div>${a.id} — сила ${a.strength}</div>`;
+                });
+            }
+
+            panel.innerHTML = html;
         }
-        window.onload = () => {
-            init()
-        };
+        function updateHud() {
+            const player = game.factionsManager.getPlayer();
+            if (player) {
+                document.getElementById('hudTreasury').textContent =
+                    `🌾 ${Math.round(player.treasury.food)} · 🪙 ${Math.round(player.treasury.gold)} · ⚙️ ${Math.round(player.treasury.production)}`;
+            }
+            document.getElementById('hudFactionsAlive').textContent =
+                `Фракций: ${game.factionsManager.getAlive().length}`;
+        }
+
+        document.getElementById('menuRandomSeed').addEventListener('change', (e) => {
+            document.getElementById('menuSeed').disabled = e.target.checked;
+        });
+
+        document.getElementById('startGameBtn').addEventListener('click', startGame);
     </script>
 </body>
 </html>

@@ -88,7 +88,10 @@ class MapGenerator {
             setColors: MapFaction.setColors.bind(this),
             getColorOf: MapFaction.getColorOf.bind(this),
             drawBorders: MapFaction.drawBorders.bind(this),
-            mapFactionEdges: MapFaction.mapFactionEdges.bind(this)
+            mapFactionEdges: MapFaction.mapFactionEdges.bind(this),
+            getFactionAdjacency: MapFaction.getFactionAdjacency.bind(this),
+            getNeighboringFactions: MapFaction.getNeighboringFactions.bind(this),
+
         }
 
 
@@ -465,6 +468,47 @@ class MapGenerator {
             }
         }
         return result;
+    }
+    getFactionEconomy(factionId) {
+        const totals = { food: 0, production: 0, manpower: 0, gold: 0, upkeep: 0 };
+        let regionCount = 0;
+    
+        this.terrain.regions.forEach(region => {
+            if (region.ownerId !== factionId) return;
+            const res = this.getRegionResources(region);
+            if (!res) return;
+            regionCount++;
+            totals.food += res.food;
+            totals.production += res.production;
+            totals.manpower += res.manpower;
+            totals.gold += res.gold;
+            totals.upkeep += res.upkeep;
+        });
+    
+        return { ...totals, regionCount };
+    }
+    
+    getAllFactionEconomies() {
+        const result = {};
+        (this.factions.list || []).forEach(f => {
+            result[f.id] = this.getFactionEconomy(f.id);
+        });
+        return result;
+    }
+    setViewMode(mode){
+        this.viewMode = mode
+        this.markDirty('terrain');
+        this.render()
+    }
+    setSeason(season){
+        this.currentSeason = season
+        this.markDirty('terrain');
+        this.render()
+    }
+    setShowClimate(climate){
+        this.showClimate = climate
+        this.markDirty('terrain');
+        this.render()
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -1135,7 +1179,34 @@ const MapFaction = {
             this.utils.strokeOffsetPolyline(ctx, segments, -nx, -ny, offset, colorB, width);
 
         });
+    },
+    getFactionAdjacency() {
+        const count = this.factions.list.length;
+        const adjacency = Array.from({ length: count }, () => new Set());
+    
+        for (let i = 0; i < this.terrain.regions.length; i++) {
+            const ownerI = this.terrain.regions[i].ownerId;
+            if (ownerI === null || ownerI === undefined) continue;
+        }
+    
+        this.edgeMap.forEach(edge => {
+            if (edge.regionIds.length < 2) return;
+            const [a, b] = edge.regionIds;
+            const ownerA = this.terrain.regions[a].ownerId;
+            const ownerB = this.terrain.regions[b].ownerId;
+            if (ownerA === null || ownerB === null || ownerA === undefined || ownerB === undefined) return;
+            if (ownerA === ownerB) return;
+            adjacency[ownerA].add(ownerB);
+            adjacency[ownerB].add(ownerA);
+        });
+    
+        return adjacency; // adjacency[factionId] = Set(соседних factionId)
+    },
+    getNeighboringFactions(factionId) {
+        const adjacency = this.factions.getFactionAdjacency();
+        return adjacency[factionId] ? [...adjacency[factionId]] : [];
     }
+
 }
 
 const MapTerrain = {
