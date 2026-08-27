@@ -147,6 +147,10 @@
             height: 600,
             canvas: document.getElementById('mapCanvas'),
             tooltip: document.getElementById('mapTooltip'),
+            onSelect: (region) => {
+                console.log('Выбран регион:', region);
+                // например, обновить боковую панель UI
+            },
         });
         function generateMap() {
             const isAuto = document.getElementById('checkRandomSeed').checked;
@@ -172,7 +176,7 @@
 
         function changeMapTerrain(key, value) {
             mapGen.terrain.config[key] = value;
-
+            mapGen.markDirty('terrain');
             if (VISUAL_KEYS.has(key)) {
                 mapGen.render(); // только перерисовка, карта данных не трогается
                 return;
@@ -185,6 +189,7 @@
         }
         function changeMap(key, value) {
             mapGen[key] = value;
+            mapGen.markDirty('terrain');
 
             if (VISUAL_KEYS.has(key)) {
                 mapGen.render(); // только перерисовка, карта данных не трогается
