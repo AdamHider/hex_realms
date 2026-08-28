@@ -38,9 +38,10 @@ class TurnManager {
             const eco = economies[faction.id];
             if (!eco || !faction.treasury) return;
 
-            faction.treasury.food += eco.food + eco.upkeep; // upkeep уже отрицателен
             faction.treasury.gold += eco.gold;
-            faction.treasury.production += eco.production;
+            
+            faction.treasury.food = eco.food + eco.upkeep; // upkeep уже отрицателен
+            faction.treasury.production = eco.production;
 
             faction.treasury.food = Math.max(0, faction.treasury.food);
             faction.treasury.gold = Math.max(0, faction.treasury.gold);

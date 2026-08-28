@@ -46,12 +46,22 @@ class Game {
             onFactionEliminated: (f) => { if (this.callbacks.onFactionEliminated) this.callbacks.onFactionEliminated(f); },
         });
         const enrichedFactions = this.factionsManager.init(mapFactions, params.playerFactionId ?? 0);
+        
 
         this.diplomacyManager = new DiplomacyManager(this, {
             onWarDeclared: (a, b) => { if (this.callbacks.onWarDeclared) this.callbacks.onWarDeclared(a, b); },
             onPeaceMade: (a, b) => { if (this.callbacks.onPeaceMade) this.callbacks.onPeaceMade(a, b); },
         });
         this.diplomacyManager.init(enrichedFactions);
+
+        this.mapGen.setDiplomaticColorResolver((factionId) => {
+            const player = this.factionsManager.getPlayer();
+            if (!player) return this.mapGen.factions.colors.neutral;
+            if (factionId === player.id) return this.mapGen.factions.diplomacyColors.player;
+        
+            const status = this.diplomacyManager.getStatus(player.id, factionId);
+            return this.mapGen.factions.diplomacyColors[status] || this.mapGen.factions.diplomacyColors.peace;
+        });
 
         this.state = {
             regions,
@@ -71,11 +81,21 @@ class Game {
                 if (this.callbacks.onAIAction) this.callbacks.onAIAction(factionId, action, details);
             },
         });
-
+        const playerFaction = this.factionsManager.getPlayer();
+        if (playerFaction) {
+            this.mapGen.focusOnRegion(playerFaction.capitalRegionId);
+            this.mapGen.setPlayerFaction(playerFaction.id);
+        }
+        const economies = this.mapGen.getAllFactionEconomies();
+        this.turnManager._applyEconomies(economies);
         if (this.callbacks.onGameReady) this.callbacks.onGameReady(this.state);
         return this.state;
     }
     getRegionFullInfo(region) {
+        const visible = this.mapGen.factions.computeVisibility(this.state.playerFactionId, this.mapGen.fogVisionHops ?? 2);
+        if (!visible[region.id]) {
+            return { region: { id: region.id, x: region.x, y: region.y }, hidden: true };
+        }
         const faction = region.ownerId !== null ? this.factionsManager.get(region.ownerId) : null;
         const player = this.factionsManager.getPlayer();
     
@@ -110,8 +130,17 @@ class Game {
     }
 
     // ── Дипломатия — тонкий проброс, чтобы UI не трогал diplomacyManager напрямую ──
-    declareWar(a, b) { return this.diplomacyManager?.declareWar(a, b) ?? false; }
-    makePeace(a, b) { return this.diplomacyManager?.makePeace(a, b) ?? false; }
+    declareWar(a, b) {
+        const result = this.diplomacyManager?.declareWar(a, b) ?? false;
+        if (result) { this.mapGen.markDirty('political'); this.mapGen.render(); }
+        return result;
+    }
+
+    makePeace(a, b) {
+        const result = this.diplomacyManager?.makePeace(a, b) ?? false;
+        if (result) { this.mapGen.markDirty('political'); this.mapGen.render(); }
+        return result;
+    }
     formAlliance(a, b) { return this.diplomacyManager?.formAlliance(a, b) ?? false; }
     getDiplomacyStatus(a, b) { return this.diplomacyManager?.getStatus(a, b) ?? 'peace'; }
 

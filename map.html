@@ -20,7 +20,12 @@
 <body class="bg-slate-950 text-slate-100">
 
     <canvas id="gameCanvas"></canvas>
-
+    <svg style="display:none;">
+    <filter id="coastline-warp">
+        <feTurbulence type="fractalNoise" baseFrequency="0.03" numOctaves="3" result="noise" />
+        <feDisplacementMap in="SourceGraphic" in2="noise" scale="12" xChannelSelector="R" yChannelSelector="G" />
+    </filter>
+    </svg>
     <div id="mapTooltip" class="hidden fixed z-50 pointer-events-none bg-slate-900 border border-emerald-700 text-slate-100 text-xs rounded-lg shadow-2xl px-3 py-2 max-w-[220px] leading-relaxed"></div>
 
     <!-- ═══════════ Меню "Новая игра" — поверх канваса, скрывается после старта ═══════════ -->
@@ -204,6 +209,11 @@
             const info = game.getRegionFullInfo(region);
             const panel = document.getElementById('regionPanel');
             panel.classList.remove('hidden');
+
+            if (info.hidden) {
+                panel.innerHTML = `<div class="text-slate-400 italic">Территория неизвестна</div>`;
+                return;
+            }
 
             const biomeLabel = game.mapGen.elevationBandLabels[info.region.biome] || info.region.biome;
             const climateLabel = info.region.climateZone ? game.mapGen.climateZoneLabels[info.region.climateZone] : null;

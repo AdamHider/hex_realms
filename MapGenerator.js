@@ -18,25 +18,24 @@ class MapGenerator {
         this.noisyEdgeCache = new Map();
 
 
+        this._isPanning = false;
+        this._panStart = { x: 0, y: 0 };
         this.viewTransform = { x: 0, y: 0, scale: 1 };
         this.minScale = 0.6;
         this.maxScale = 8;
 
         this._renderScheduled = false;
         this.mapLayerScale = 3;
-        this.sharpRegionBudget = 600;
-
-        this.layers = {
-            terrain: this._createLayer(),
-            political: this._createLayer(),
-        };
+        this.sharpRegionBudget = 200;
 
         this.viewLevel = 'overview';
-
         this.layers = {
             terrain: this._createLayer(),
             political: this._createLayer(),
+            fog: this._createLayer(),
         };
+        this.fogEnabled = options.fogEnabled ?? false;
+
 
         this.color = {
             getBase: MapColor.getBase.bind(this),
@@ -71,7 +70,7 @@ class MapGenerator {
 
         this.factions = {
             config: options.factions || { count: 0 },
-            startHops: options.startHops ?? 3,
+            startHops: options.startHops ?? 1,
             capitalPopulation: options.capitalPopulation ?? 120,
             populationDecay: options.populationDecay ?? 0.62,
             colors: { 
@@ -82,6 +81,13 @@ class MapGenerator {
                 ],
                 neutral: 'rgba(148, 163, 184, 0)'
             },
+            diplomacyColors: {
+                player: '#facc15',   // жёлтый
+                war: '#ef4444',      // красный
+                alliance: '#3b82f6', // синий
+                peace: '#94a3b8',    // нейтральный серый — не враг, не друг, не игрок
+                neutral: 'rgba(148, 163, 184, 0)', // ничейная территория — как было
+            },
             getTotal: MapFaction.getTotal.bind(this),
             pickCapitals: MapFaction.pickCapitals.bind(this),
             settle: MapFaction.settle.bind(this),
@@ -91,7 +97,7 @@ class MapGenerator {
             mapFactionEdges: MapFaction.mapFactionEdges.bind(this),
             getFactionAdjacency: MapFaction.getFactionAdjacency.bind(this),
             getNeighboringFactions: MapFaction.getNeighboringFactions.bind(this),
-
+            computeVisibility: MapFaction.computeVisibility.bind(this),
         }
 
 
@@ -417,6 +423,7 @@ class MapGenerator {
         this.terrain.regions = regions;
         this.mapVoronoi = voronoi;
         this.edgeMap = this.createEdgeMap();
+        this.regionNeighbors = neighbors;
         this.viewTransform = { x: 0, y: 0, scale: 1 };
     }
 
@@ -495,6 +502,11 @@ class MapGenerator {
         });
         return result;
     }
+    getSelectedRegion() {
+        if (this.selection.regionId === null) return null;
+        const region = this.terrain.regions[this.selection.regionId];
+        return region ? this.getRegionData(region) : null;
+    }
     setViewMode(mode){
         this.viewMode = mode
         this.markDirty('terrain');
@@ -509,6 +521,14 @@ class MapGenerator {
         this.showClimate = climate
         this.markDirty('terrain');
         this.render()
+    }
+    setDiplomaticColorResolver(fn) {
+        this.factions.getDiplomaticColor = fn;
+    }
+    setPlayerFaction(factionId) {
+        this.playerFactionId = factionId;
+        this.markDirty('fog');
+        this.render();
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -542,8 +562,8 @@ class MapGenerator {
         this.ctx.scale(s, s);
         this.ctx.drawImage(this.layers.terrain.canvas, 0, 0);
         this.ctx.drawImage(this.layers.political.canvas, 0, 0);
+        this.ctx.drawImage(this.layers.fog.canvas, 0, 0);
         this.ctx.restore();
-    
         this.ctx.save();
         this.ctx.translate(this.viewTransform.x, this.viewTransform.y);
         this.ctx.scale(this.viewTransform.scale, this.viewTransform.scale);
@@ -568,9 +588,23 @@ class MapGenerator {
         this.ctx.scale(this.viewTransform.scale, this.viewTransform.scale);
     
         this.renderRegions(this.ctx, visibleRect);
+        
         this.factions.drawBorders(this.ctx, this.viewTransform.scale, visibleRect);
         this.renderDynamicObjects(this.ctx, this.viewTransform.scale);
-    
+
+        if (this.fogEnabled && this.playerFactionId !== null && this.playerFactionId !== undefined) {
+            const visible = this.factions.computeVisibility(this.playerFactionId, this.fogVisionHops ?? 2);
+            for (let i = 0; i < this.terrain.regions.length; i++) {
+                if (visible[i]) continue;
+                const region = this.terrain.regions[i];
+                if (visibleRect && !this.bboxIntersects(region.bbox, visibleRect)) continue;
+                const polygon = this.mapVoronoi.cellPolygon(i);
+                if (!polygon) continue;
+                this.ctx.fillStyle = 'rgba(5, 8, 15, 0.52)';
+                this.drawRegionPath(this.ctx, polygon);
+                this.ctx.fill();
+            }
+        }
         this.ctx.restore();
     }
     updateViewLevel(visibleRect) {
@@ -583,7 +617,39 @@ class MapGenerator {
         this.renderSelection(ctx, zoomScale);
         // сюда позже: армии, туман войны — как отдельные renderArmies(ctx, zoomScale) и т.п.
     }
+    _ensureFlakesTexture() {
+        if (this.flakesTexture) return this.flakesTexture;
     
+        const size = 300; // Делаем тайл крупнее, чтобы пятна не повторялись слишком часто
+        const c = document.createElement('canvas');
+        c.width = c.height = size;
+        const cx = c.getContext('2d');
+        const imgData = cx.createImageData(size, size);
+        const data = imgData.data;
+    
+        // Генерируем сырой шум
+        for (let i = 0; i < size * size; i++) {
+            const v = 128 + (this.utils.seededRandom() * 2 - 1) * 127;
+            const idx = i * 4;
+            data[idx]     = v;
+            data[idx + 1] = v;
+            data[idx + 2] = v;
+            data[idx + 3] = 255;
+        }
+        cx.putImageData(imgData, 0, 0);
+    
+        const textured = document.createElement('canvas');
+        textured.width = textured.height = size;
+        const tcx = textured.getContext('2d');
+        
+        // БЛЮР задает физический размер самих «хлопьев» (попробуйте от 20px до 50px).
+        // КОНТРАСТ превращает мягкие переходы блюра в резкие, выраженные границы пятен.
+        tcx.filter = 'contrast(800%)';
+        tcx.drawImage(c, 0, 0);
+    
+        this.flakesTexture = textured;
+        return this.flakesTexture;
+    }
     renderRegions(ctx, visibleRect = null) {
         const resourceRange = ['food', 'gold', 'production', 'manpower'].includes(this.viewMode)
         ? this.color.getResourceRange(this.viewMode)
@@ -668,6 +734,22 @@ class MapGenerator {
         ctx.clearRect(0, 0, this.layers.terrain.canvas.width, this.layers.terrain.canvas.height);
         ctx.scale(this.mapLayerScale, this.mapLayerScale);
         this.renderRegions(ctx); // без visibleRect — вся карта, целиком, один раз
+        
+
+        ctx.save();
+
+        const texture = this._ensureFlakesTexture();
+        const pattern = ctx.createPattern(texture, 'repeat');
+        
+        // Чтобы хлопья были сочными и контрастными, а не полупрозрачной дымкой
+        ctx.globalAlpha = 0.10; // Поднимите до 0.6–0.7, если нужно ярче
+        
+        // Если хотите, чтобы текстура смешивалась с цветами регионов (осветляла/затемняла их):
+        ctx.globalCompositeOperation = 'overlay'; 
+        
+        ctx.fillStyle = pattern;
+        // Заливаем весь канвас — паттерн сам замостит карту, а source-atop ограничит его сушей
+        ctx.fillRect(0, 0, ctx.canvas.width * 140, ctx.canvas.height * 140);
         ctx.restore();
     }
     
@@ -680,10 +762,36 @@ class MapGenerator {
         this.factions.drawBorders(ctx, this.mapLayerScale); // фиксированная толщина под layer-масштаб
         ctx.restore();
     }
+    _paintFogLayer(playerFactionId) {
+        const ctx = this.layers.fog.ctx;
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, this.layers.fog.canvas.width, this.layers.fog.canvas.height);
+    
+        if (!this.fogEnabled || playerFactionId === null || playerFactionId === undefined) {
+            ctx.restore();
+            return;
+        }
+    
+        ctx.scale(this.mapLayerScale, this.mapLayerScale);
+        const visible = this.factions.computeVisibility(playerFactionId, this.fogVisionHops ?? 2);
+    
+        for (let i = 0; i < this.terrain.regions.length; i++) {
+            if (visible[i]) continue; // видимые регионы не затемняем
+            const polygon = this.mapVoronoi.cellPolygon(i);
+            if (!polygon) continue;
+    
+            ctx.fillStyle = 'rgba(5, 8, 15, 0.52)';
+            this.drawRegionPath(ctx, polygon);
+            ctx.fill();
+        }
+        ctx.restore();
+    }
     
     repaintLayersIfDirty() {
         if (this.layers.terrain.dirty) { this._paintTerrainLayer(); this.layers.terrain.dirty = false; }
         if (this.layers.political.dirty) { this._paintPoliticalLayer(); this.layers.political.dirty = false; }
+        if (this.layers.fog.dirty) { this._paintFogLayer(this.playerFactionId); this.layers.fog.dirty = false; }
     }
     countVisibleRegions(visibleRect) {
         let count = 0;
@@ -708,6 +816,17 @@ class MapGenerator {
         this.drawRegionPath(ctx, polygon);
         ctx.stroke();
         ctx.restore();
+    }
+    focusOnRegion(regionId, targetScale = 2.5) {
+        const region = this.terrain.regions[regionId];
+        if (!region) return;
+    
+        const scale = Math.min(this.maxScale, Math.max(this.minScale, targetScale));
+        this.viewTransform.scale = scale;
+        this.viewTransform.x = this.canvas.width / 2 - region.x * scale;
+        this.viewTransform.y = this.canvas.height / 2 - region.y * scale;
+    
+        this.scheduleRender();
     }
 }
 // ═══════════════════════════════════════════════════════════
@@ -1131,19 +1250,28 @@ const MapFaction = {
             borderWidth = 0.6;
             offset = 0.3;
         }
-
         const outlineWidth = borderWidth * 1.5;
-        const outlineColor = '#2c3b74';
-
+        const outlineColor = '#00000073';
+        
         this.factions.mapFactionEdges(ctx, offset, outlineColor, outlineWidth, visibleRect);
         this.factions.mapFactionEdges(ctx, offset, null, borderWidth, visibleRect);
         this.factions.mapFactionEdges(ctx, 0, '#a3aa9b', 0.3, visibleRect);
     },
     mapFactionEdges(ctx, offset, color, width, visibleRect){
+        
+        const useFactionColors = this.viewMode === 'factions'; 
+        const resolveColor = (ownerId) => {
+            if (ownerId === null || ownerId === undefined) return this.factions.colors.neutral;
+            if (useFactionColors) return this.factions.list[ownerId]?.color || this.factions.colors.neutral;
+            return this.factions.getDiplomaticColor
+                ? this.factions.getDiplomaticColor(ownerId)
+                : (this.factions.list[ownerId]?.color || this.factions.colors.neutral);
+        };
         this.edgeMap.forEach(edge => {
             if (edge.regionIds.length < 2) return;
             const [a, b] = edge.regionIds;
             const regionA = this.terrain.regions[a], regionB = this.terrain.regions[b];
+            
             if (regionA.ownerId === regionB.ownerId) return;
 
             if (visibleRect) {
@@ -1165,16 +1293,10 @@ const MapFaction = {
             let colorA = color;
             let colorB= color;
             if(!color){
-                colorA = (regionA.ownerId !== null && regionA.ownerId !== undefined)
-                    ? (this.factions.list[regionA.ownerId]?.color || this.factions.colors.neutral)
-                    : this.factions.colors.neutral;
-                colorB = (regionB.ownerId !== null && regionB.ownerId !== undefined)
-                    ? (this.factions.list[regionB.ownerId]?.color || this.factions.colors.neutral)
-                    : this.factions.colors.neutral;
-            }
+                colorA = resolveColor(regionA.ownerId);
+                colorB = resolveColor(regionB.ownerId);
+            } 
            
-
-            // 2. Цветные линии поверх — уже, оставляют чёрный контур по краям
             this.utils.strokeOffsetPolyline(ctx, segments, nx, ny, offset, colorA, width);
             this.utils.strokeOffsetPolyline(ctx, segments, -nx, -ny, offset, colorB, width);
 
@@ -1200,11 +1322,32 @@ const MapFaction = {
             adjacency[ownerB].add(ownerA);
         });
     
-        return adjacency; // adjacency[factionId] = Set(соседних factionId)
+        return adjacency;
     },
     getNeighboringFactions(factionId) {
         const adjacency = this.factions.getFactionAdjacency();
         return adjacency[factionId] ? [...adjacency[factionId]] : [];
+    },
+    computeVisibility(factionId, visionHops = 1) {
+        const n = this.terrain.regions.length;
+        const visible = new Uint8Array(n);
+        if (factionId === null || factionId === undefined) return visible;
+    
+        let frontier = [];
+        this.terrain.regions.forEach((r, i) => {
+            if (r.ownerId === factionId) { visible[i] = 1; frontier.push(i); }
+        });
+    
+        for (let hop = 0; hop < visionHops; hop++) {
+            const next = [];
+            frontier.forEach(id => {
+                (this.regionNeighbors?.[id] || []).forEach(nb => {
+                    if (!visible[nb]) { visible[nb] = 1; next.push(nb); }
+                });
+            });
+            frontier = next;
+        }
+        return visible;
     }
 
 }
