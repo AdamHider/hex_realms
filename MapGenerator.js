@@ -132,6 +132,73 @@ class MapGenerator {
             setSeed: MapUtils.setSeed.bind(this),
             findBand: MapUtils.findBand.bind(this)
         }
+        this.decorations = {
+            enabled: options.iconsEnabled ?? true,
+            ready: false,
+            assets: {},
+            basePath: options.iconBasePath || 'icons/',
+            edgeMargin: options.iconEdgeMargin ?? 0.6,
+            defaultSizePct: options.iconDefaultSizePct || [0.5, 0.6],
+            minGap: options.iconMinGap ?? 6, 
+            sets: {
+                STEPPE:       { count: [2, 4], keys: ['grass_tuft'], sizePct: [0.3, 0.4] },
+                PLAINS:       { count: [4, 6], keys: ['grass_tuft'], sizePct: [0.3, 0.4] },
+                GRASSLAND:    { count: [2, 3], keys: ['grass_tuft', 'tree_lone'], sizePct: [0.3, 0.4] },
+                WETLANDS:     { count: [2, 3], keys: ['reed'], sizePct: [0.3, 0.4] },
+                WOODLAND:     { count: [2, 3], keys: ['tree_lone'], sizePct: [0.3, 0.4] },
+                FOREST:       { count: [3, 5], keys: ['tree_cluster'], sizePct: [0.5, 0.6] },
+                DENSE_FOREST: { count: [4, 6], keys: ['tree_cluster'], sizePct: [0.5, 0.6] },
+                HIGHLANDS:    { count: [2, 3], keys: ['rock'] },
+                PEAKS:        { count: [2, 2], keys: ['mountain'], sizePct: [0.7, 0.8]  },
+                COAST:        { count: [1, 2], keys: ['grass_tuft'] },
+            },
+            snowSets: {
+                FOREST:       { count: [3, 5], keys: ['tree_snow'], sizePct: [0.3, 0.4]  },
+                DENSE_FOREST: { count: [3, 4], keys: ['tree_snow_cluster'], sizePct: [0.5, 0.6]  },
+                WOODLAND:     { count: [5, 6], keys: ['tree_snow_cluster'], sizePct: [0.5, 0.6]  },
+                PEAKS:        { count: [3, 4], keys: ['mountain_snow']  },
+                HIGHLANDS:    { count: [2, 3], keys: ['mountain_snow'] },
+            },
+            hotSets: {
+                STEPPE:    { count: [1, 2], keys: ['palm_lone', 'cactus'] },
+                PLAINS:    { count: [1, 2], keys: ['cactus'] },
+                GRASSLAND: { count: [1, 2], keys: ['palm_lone'] },
+                COAST:     { count: [2, 3], keys: ['palm_cluster', 'oasis'] },
+                WOODLAND:  { count: [1, 2], keys: ['palm_lone', 'cactus'] },
+                // сухие безлесные биомы в жаркой зоне логично отдать под пустыню:
+                WETLANDS:  { count: [1, 2], keys: ['oasis'] },
+            },
+            waterSets: {
+                DEEP_OCEAN: { count: [0, 1], keys: ['wave'] },
+                OCEAN:      { count: [1, 2], keys: ['wave'] },
+                SHALLOW:    { count: [1, 2], keys: ['wave'] },
+            },
+            variantsPerKey: {
+                grass_tuft: 3, tree_lone: 3, tree_cluster: 4, tree_snow: 3,
+                reed: 2, rock: 3, mountain: 3, mountain_snow: 2, wave: 2,
+                palm_lone: 3, palm_cluster: 3, cactus: 3, oasis: 2,
+            },
+            textures: {
+                enabled: options.texturesEnabled ?? true,
+                ready: false,
+                assets: {},
+                variantCount: 4,
+                alpha: options.textureAlpha ?? 0.5,
+            },
+            // методы
+            loadAssets: MapDecorations._loadAssets.bind(this),
+            shrinkPolygon: MapDecorations.shrinkPolygon.bind(this),
+            pointInPolygon: MapDecorations.pointInPolygon.bind(this),
+            resolveIconSet: MapDecorations.resolveIconSet.bind(this),
+            generatePlacements: MapDecorations.generatePlacements.bind(this),
+            assignTo: MapDecorations.assignTo.bind(this),
+            paint: MapDecorations.paint.bind(this),
+            paintTextures: MapDecorations.paintTextures.bind(this),
+             
+        };
+        if (this.decorations.enabled) this.decorations.loadAssets();
+        if (this.decorations.textures.enabled) this.decorations.loadTextures = MapDecorations._loadTextures.bind(this);
+        if (this.decorations.textures.enabled) this.decorations.loadTextures();
 
         this._initConfig();
 
@@ -154,6 +221,37 @@ class MapGenerator {
               color: '#232f5e', resources: { food: 1, production: 0, manpower: 0, gold: 1, upkeep: -0.3 } },
             { id: 'SHALLOW', isWater: true, maxT: Infinity, label: 'Мелководье',
               color: '#2a3973', resources: { food: 2, production: 0, manpower: 0, gold: 0, upkeep: -0.3 } },
+            { id: 'COAST', isWater: false, maxT: 0.08, label: 'Побережье',
+            colors: { cold: '#9fb8a0', temperate: '#8fae4f', hot: '#d9c27a' },
+            resources: { food: 2, production: 1, manpower: 1, gold: 1, upkeep: -0.5 } },
+            { id: 'STEPPE', isWater: false, maxT: 0.16, label: 'Степь',
+            colors: { cold: '#93ab97', temperate: '#8fae4f', hot: '#cdb26a' },
+            resources: { food: 1, production: 1, manpower: 2, gold: 0, upkeep: -0.5 } },
+            { id: 'PLAINS', isWater: false, maxT: 0.25, label: 'Равнина',
+            colors: { cold: '#86a08c', temperate: '#8fae4f', hot: '#c2a35c' },
+            resources: { food: 3, production: 1, manpower: 1, gold: 0, upkeep: -0.6 } },
+            { id: 'GRASSLAND', isWater: false, maxT: 0.35, label: 'Луга',
+            colors: { cold: '#7a9482', temperate: '#8fae4f', hot: '#b8944a' },
+            resources: { food: 3, production: 1, manpower: 2, gold: 0, upkeep: -0.6 } },
+            { id: 'WETLANDS', isWater: false, maxT: 0.45, label: 'Болота',
+            colors: { cold: '#6f8877', temperate: '#8fae4f', hot: '#a9863e' },
+            resources: { food: 2, production: 0, manpower: 1, gold: 0, upkeep: -0.7 } },
+            { id: 'WOODLAND', isWater: false, maxT: 0.56, label: 'Редколесье',
+            colors: { cold: '#63796d', temperate: '#8fae4f', hot: '#9c7a3a' },
+            resources: { food: 1, production: 2, manpower: 1, gold: 0, upkeep: -0.6 } },
+            { id: 'FOREST', isWater: false, maxT: 0.68, label: 'Лес',
+            colors: { cold: '#566a5f', temperate: '#8fae4f', hot: '#8a6a35' },
+            resources: { food: 1, production: 3, manpower: 1, gold: 0, upkeep: -0.7 } },
+            { id: 'DENSE_FOREST', isWater: false, maxT: 0.80, label: 'Густой лес',
+            colors: { cold: '#4a5b53', temperate: '#8fae4f', hot: '#7a5c30' },
+            resources: { food: 0, production: 3, manpower: 1, gold: 0, upkeep: -0.8 } },
+            { id: 'HIGHLANDS', isWater: false, maxT: 0.92, label: 'Плоскогорье',
+            colors: { cold: '#8a9490', temperate: '#5c6b64', hot: '#8a7a5c' },
+            resources: { food: 0, production: 2, manpower: 0, gold: 2, upkeep: -0.9 } },
+            { id: 'PEAKS', isWater: false, maxT: Infinity, label: 'Пик',
+            colors: { cold: '#eef2f0', temperate: '#9a9d9a', hot: '#a89a86' },
+            resources: { food: 0, production: 1, manpower: 0, gold: 3, upkeep: -1.0 } },
+/*
             { id: 'COAST', isWater: false, maxT: 0.08, label: 'Побережье',
             colors: { cold: '#9fb8a0', temperate: '#b5c95a', hot: '#d9c27a' },
             resources: { food: 2, production: 1, manpower: 1, gold: 1, upkeep: -0.5 } },
@@ -183,7 +281,7 @@ class MapGenerator {
             resources: { food: 0, production: 2, manpower: 0, gold: 2, upkeep: -0.9 } },
             { id: 'PEAKS', isWater: false, maxT: Infinity, label: 'Пик',
             colors: { cold: '#eef2f0', temperate: '#9a9d9a', hot: '#a89a86' },
-            resources: { food: 0, production: 1, manpower: 0, gold: 3, upkeep: -1.0 } },
+            resources: { food: 0, production: 1, manpower: 0, gold: 3, upkeep: -1.0 } },*/
         ];
 
         this.waterBiomes = this.biomeDefs.filter(b => b.isWater);
@@ -416,6 +514,7 @@ class MapGenerator {
             } else {
                 region.bbox = { minX: region.x, minY: region.y, maxX: region.x, maxY: region.y };
             }
+            this.decorations.assignTo(region, polygon || []);
         });
 
         this.factions.settle(regions, neighbors);
@@ -424,6 +523,7 @@ class MapGenerator {
         this.mapVoronoi = voronoi;
         this.edgeMap = this.createEdgeMap();
         this.regionNeighbors = neighbors;
+    
         this.viewTransform = { x: 0, y: 0, scale: 1 };
     }
 
@@ -588,7 +688,8 @@ class MapGenerator {
         this.ctx.scale(this.viewTransform.scale, this.viewTransform.scale);
     
         this.renderRegions(this.ctx, visibleRect);
-        
+        this.decorations.paintTextures(this.ctx, visibleRect);
+        this.decorations.paint(this.ctx, visibleRect);
         this.factions.drawBorders(this.ctx, this.viewTransform.scale, visibleRect);
         this.renderDynamicObjects(this.ctx, this.viewTransform.scale);
 
@@ -617,39 +718,7 @@ class MapGenerator {
         this.renderSelection(ctx, zoomScale);
         // сюда позже: армии, туман войны — как отдельные renderArmies(ctx, zoomScale) и т.п.
     }
-    _ensureFlakesTexture() {
-        if (this.flakesTexture) return this.flakesTexture;
     
-        const size = 300; // Делаем тайл крупнее, чтобы пятна не повторялись слишком часто
-        const c = document.createElement('canvas');
-        c.width = c.height = size;
-        const cx = c.getContext('2d');
-        const imgData = cx.createImageData(size, size);
-        const data = imgData.data;
-    
-        // Генерируем сырой шум
-        for (let i = 0; i < size * size; i++) {
-            const v = 128 + (this.utils.seededRandom() * 2 - 1) * 127;
-            const idx = i * 4;
-            data[idx]     = v;
-            data[idx + 1] = v;
-            data[idx + 2] = v;
-            data[idx + 3] = 255;
-        }
-        cx.putImageData(imgData, 0, 0);
-    
-        const textured = document.createElement('canvas');
-        textured.width = textured.height = size;
-        const tcx = textured.getContext('2d');
-        
-        // БЛЮР задает физический размер самих «хлопьев» (попробуйте от 20px до 50px).
-        // КОНТРАСТ превращает мягкие переходы блюра в резкие, выраженные границы пятен.
-        tcx.filter = 'contrast(800%)';
-        tcx.drawImage(c, 0, 0);
-    
-        this.flakesTexture = textured;
-        return this.flakesTexture;
-    }
     renderRegions(ctx, visibleRect = null) {
         const resourceRange = ['food', 'gold', 'production', 'manpower'].includes(this.viewMode)
         ? this.color.getResourceRange(this.viewMode)
@@ -733,23 +802,9 @@ class MapGenerator {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, this.layers.terrain.canvas.width, this.layers.terrain.canvas.height);
         ctx.scale(this.mapLayerScale, this.mapLayerScale);
-        this.renderRegions(ctx); // без visibleRect — вся карта, целиком, один раз
-        
-
-        ctx.save();
-
-        const texture = this._ensureFlakesTexture();
-        const pattern = ctx.createPattern(texture, 'repeat');
-        
-        // Чтобы хлопья были сочными и контрастными, а не полупрозрачной дымкой
-        ctx.globalAlpha = 0.10; // Поднимите до 0.6–0.7, если нужно ярче
-        
-        // Если хотите, чтобы текстура смешивалась с цветами регионов (осветляла/затемняла их):
-        ctx.globalCompositeOperation = 'overlay'; 
-        
-        ctx.fillStyle = pattern;
-        // Заливаем весь канвас — паттерн сам замостит карту, а source-atop ограничит его сушей
-        ctx.fillRect(0, 0, ctx.canvas.width * 140, ctx.canvas.height * 140);
+        this.renderRegions(ctx);
+        this.decorations.paintTextures(ctx);
+        this.decorations.paint(ctx);
         ctx.restore();
     }
     
@@ -1258,7 +1313,6 @@ const MapFaction = {
         this.factions.mapFactionEdges(ctx, 0, '#a3aa9b', 0.3, visibleRect);
     },
     mapFactionEdges(ctx, offset, color, width, visibleRect){
-        
         const useFactionColors = this.viewMode === 'factions'; 
         const resolveColor = (ownerId) => {
             if (ownerId === null || ownerId === undefined) return this.factions.colors.neutral;
@@ -1672,3 +1726,173 @@ const MapUtils = {
         return bands[bands.length - 1];
     }
 }
+// ═══════════════════════════════════════════════════════════
+// SECTION: MAP_DECORATIONS
+// Растровые иконки поверх регионов (деревья, горы, рябь и т.п.).
+// Позиции считаются один раз в setup() — статичны для карты.
+// Асинхронная загрузка спрайтов не блокирует создание карты.
+// ═══════════════════════════════════════════════════════════
+const MapDecorations = {
+    _loadAssets() {
+        const keys = new Set();
+        Object.keys(this.decorations.variantsPerKey).forEach(key => {
+            for (let v = 1; v <= this.decorations.variantsPerKey[key]; v++) keys.add(`${key}_${v}`);
+        });
+
+        const loaders = [...keys].map(name => new Promise(resolve => {
+            const img = new Image();
+            img.onload = () => { this.decorations.assets[name] = img; resolve(); };
+            img.onerror = () => resolve();
+            img.src = `${this.decorations.basePath}${name}.png`;
+        }));
+
+        Promise.all(loaders).then(() => {
+            this.decorations.ready = true;
+            if (this.terrain.regions.length) { this.markDirty('terrain'); this.render(); }
+        });
+    },
+    _loadTextures() {
+        const loaders = [];
+        for (let v = 1; v <= this.decorations.textures.variantCount; v++) {
+            loaders.push(new Promise(resolve => {
+                const img = new Image();
+                img.onload = () => { this.decorations.textures.assets[v] = img; resolve(); };
+                img.onerror = () => resolve();
+                img.src = `${this.decorations.basePath}texture_${v}.png`;
+            }));
+        }
+        Promise.all(loaders).then(() => {
+            this.decorations.textures.ready = true;
+            if (this.terrain.regions.length) { this.markDirty('terrain'); this.render(); }
+        });
+    },
+    shrinkPolygon(polygon, factor) {
+        let cx = 0, cy = 0;
+        polygon.forEach(([x, y]) => { cx += x; cy += y; });
+        cx /= polygon.length; cy /= polygon.length;
+        return polygon.map(([x, y]) => [cx + (x - cx) * factor, cy + (y - cy) * factor]);
+    },
+
+    pointInPolygon(x, y, polygon) {
+        let inside = false;
+        for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+            const xi = polygon[i][0], yi = polygon[i][1];
+            const xj = polygon[j][0], yj = polygon[j][1];
+            const intersect = ((yi > y) !== (yj > y)) &&
+                (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+            if (intersect) inside = !inside;
+        }
+        return inside;
+    },
+
+    resolveIconSet(region) {
+        if (region.isWater) return this.decorations.waterSets[region.biomeBand] || null;
+        if (region.climateZone === 'cold' && this.decorations.snowSets[region.biomeBand]) {
+            return this.decorations.snowSets[region.biomeBand];
+        }
+        if (region.climateZone === 'hot' && this.decorations.hotSets[region.biomeBand]) {
+            return this.decorations.hotSets[region.biomeBand];
+        }
+        return this.decorations.sets[region.biomeBand] || null;
+    },
+
+    generatePlacements(region, polygon) {
+        const set = this.decorations.resolveIconSet(region);
+        if (!set) return [];
+    
+        const inner = this.decorations.shrinkPolygon(polygon, this.decorations.edgeMargin);
+        const xs = inner.map(p => p[0]), ys = inner.map(p => p[1]);
+        const minX = Math.min(...xs), maxX = Math.max(...xs);
+        const minY = Math.min(...ys), maxY = Math.max(...ys);
+        if (maxX - minX < 2 || maxY - minY < 2) return [];
+     
+        const refDim = Math.min(maxX - minX, maxY - minY); // база для процентного размера
+        const [sizePctMin, sizePctMax] = set.sizePct || this.decorations.defaultSizePct;
+    
+        const count = set.count[0] + Math.floor(this.utils.seededRandom() * (set.count[1] - set.count[0] + 1));
+        const placements = [];
+        const minGap = this.decorations.minGap;
+    
+        for (let n = 0; n < count; n++) {
+            for (let attempt = 0; attempt < 10; attempt++) {
+                const x = minX + this.utils.seededRandom() * (maxX - minX);
+                const y = minY + this.utils.seededRandom() * (maxY - minY);
+                if (!this.decorations.pointInPolygon(x, y, inner)) continue;
+    
+                const tooClose = placements.some(p => Math.hypot(p.x - x, p.y - y) < minGap);
+                if (tooClose) continue;
+    
+                const key = set.keys[Math.floor(this.utils.seededRandom() * set.keys.length)];
+                const variantCount = this.decorations.variantsPerKey[key] || 1;
+                const variant = 1 + Math.floor(this.utils.seededRandom() * variantCount);
+                const sizePct = sizePctMin + this.utils.seededRandom() * (sizePctMax - sizePctMin);
+                const size = refDim * sizePct;
+                const rotation = (this.utils.seededRandom() - 0.5) * 0.5*0;
+    
+                placements.push({ assetName: `${key}_${variant}`, x, y, size, rotation });
+                break;
+            }
+        }
+        return placements;
+    },
+
+    assignTo(region, polygon) {
+        region.icons = this.decorations.enabled ? this.decorations.generatePlacements(region, polygon) : [];
+        region.textureVariant = (this.decorations.textures.enabled )
+            ? 1 + Math.floor(this.utils.seededRandom() * this.decorations.textures.variantCount)
+            : null;
+    },
+
+    paint(ctx, visibleRect = null) {
+        if (!this.decorations.ready || this.viewMode === 'factions' ||
+            ['food', 'gold', 'production', 'manpower'].includes(this.viewMode)) return;
+
+        this.terrain.regions.forEach(region => {
+            if (!region.icons || !region.icons.length) return;
+            if (visibleRect && !this.bboxIntersects(region.bbox, visibleRect)) return;
+
+            region.icons.forEach(icon => {
+                const img = this.decorations.assets[icon.assetName];
+                if (!img) return;
+                ctx.save();
+                ctx.translate(icon.x, icon.y);
+                ctx.rotate(icon.rotation);
+                ctx.drawImage(img, -icon.size / 2, -icon.size / 2, icon.size, icon.size);
+                ctx.restore();
+            });
+        });
+    },
+    paintTextures(ctx, visibleRect = null) {
+        if (!this.decorations.textures.ready) return;
+    
+        this.terrain.regions.forEach((region, i) => {
+            if (!region.textureVariant) return;
+            if (visibleRect && !this.bboxIntersects(region.bbox, visibleRect)) return;
+    
+            const img = this.decorations.textures.assets[region.textureVariant];
+            if (!img) return;
+    
+            const polygon = this.mapVoronoi.cellPolygon(i);
+            if (!polygon) return;
+    
+            const { minX, minY, maxX, maxY } = region.bbox;
+            const boxW = (maxX - minX); 
+            const boxH = (maxY - minY);
+            if (boxW <= 0 || boxH <= 0) return;
+    
+            // квадрат стороной = большая сторона bbox — гарантированно покрывает bbox по обеим осям
+            const side = Math.max(boxW, boxH);
+            const cx = minX + boxW / 2, cy = minY + boxH / 2;
+            const drawX = cx - side / 2, drawY = cy - side / 2;
+    
+            ctx.save();
+            this.drawRegionPath(ctx, polygon);
+            ctx.clip();
+    
+            ctx.globalAlpha = this.decorations.textures.alpha;
+            ctx.drawImage(img, drawX-4, drawY-4, side+8, side+8); 
+    
+            ctx.restore();
+        });
+    },
+};
