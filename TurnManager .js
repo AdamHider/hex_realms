@@ -1,12 +1,14 @@
 class TurnManager {
     constructor(game, options = {}) {
-        this.game = game; // ссылка на Game — читает mapGen, пишет в game.state
+        this.game = game;
         this.turnsPerSeason = options.turnsPerSeason ?? 4;
 
-        this.state = {
-            turnNumber: 1,
-            seasonIndex: 0,
-        };
+        // экономические коэффициенты
+        this.starvationFactor = options.starvationFactor ?? 1.0;   // насколько сильно голод бьёт по manpower
+        this.foodManpowerBonus = options.foodManpowerBonus ?? 0.3;  // избыток еды ускоряет рост manpower
+        this.goldManpowerBonus = options.goldManpowerBonus ?? 0.05; // золото слабо влияет на рост manpower (найм)
+
+        this.state = { turnNumber: 1, seasonIndex: 0 };
 
         this.callbacks = {
             onTurnStart: options.onTurnStart || null,
@@ -15,7 +17,6 @@ class TurnManager {
         };
     }
 
-    // Основной шаг — вызывается по кнопке "Завершить ход" из UI
     endTurn() {
         const mapGen = this.game.mapGen;
         if (!mapGen) return null;
@@ -38,23 +39,33 @@ class TurnManager {
             const eco = economies[faction.id];
             if (!eco || !faction.treasury) return;
 
+            // Золото — простое накопление дохода региона
             faction.treasury.gold += eco.gold;
-            
-            faction.treasury.food = eco.food + eco.upkeep; // upkeep уже отрицателен
-            faction.treasury.production = eco.production;
 
-            faction.treasury.food = Math.max(0, faction.treasury.food);
-            faction.treasury.gold = Math.max(0, faction.treasury.gold);
+            // Manpower — накопительный, но его ПРИРОСТ зависит от текущего потока еды/золота
+            let manpowerDelta;
+            if (eco.food <= 0) {
+                // еды не хватает — население вымирает, manpower может уйти в минус
+                manpowerDelta = eco.food * this.starvationFactor;
+            } else {
+                manpowerDelta = eco.manpower
+                    + eco.food * this.foodManpowerBonus
+                    + eco.gold * this.goldManpowerBonus;
+            }
+            faction.treasury.manpower += manpowerDelta;
+
+            // Еда и производство — НЕ накопительные, это снимок текущего потока для UI/логики,
+            // каждый ход перезаписывается заново из фактических владений, не суммируется с прошлым
+            faction.currentFood = eco.food;
+            faction.currentProduction = eco.production;
         });
     }
 
     _advanceSeasonIfNeeded(mapGen) {
         if (this.state.turnNumber % this.turnsPerSeason !== 0) return;
-
         this.state.seasonIndex = (this.state.seasonIndex + 1) % mapGen.seasonOrder.length;
         const newSeason = mapGen.seasonOrder[this.state.seasonIndex];
         mapGen.setSeason(newSeason);
-
         if (this.callbacks.onSeasonChange) this.callbacks.onSeasonChange(newSeason);
     }
 }

@@ -22,7 +22,7 @@ class MapGenerator {
         this._panStart = { x: 0, y: 0 };
         this.viewTransform = { x: 0, y: 0, scale: 1 };
         this.minScale = 0.6;
-        this.maxScale = 8;
+        this.maxScale = 10;
 
         this._renderScheduled = false;
         this.mapLayerScale = 3;
@@ -130,7 +130,8 @@ class MapGenerator {
             strokeOffsetPolyline: MapUtils.strokeOffsetPolyline.bind(this),
             seededRandom: MapUtils.seededRandom.bind(this),
             setSeed: MapUtils.setSeed.bind(this),
-            findBand: MapUtils.findBand.bind(this)
+            findBand: MapUtils.findBand.bind(this),
+            generateRegionName: MapUtils.generateRegionName.bind(this)
         }
         this.decorations = {
             enabled: options.iconsEnabled ?? true,
@@ -139,44 +140,47 @@ class MapGenerator {
             basePath: options.iconBasePath || 'icons/',
             edgeMargin: options.iconEdgeMargin ?? 0.6,
             defaultSizePct: options.iconDefaultSizePct || [0.5, 0.6],
-            minGap: options.iconMinGap ?? 6, 
+            gapFactor: options.iconGapFactor ?? 1, 
             sets: {
                 STEPPE:       { count: [2, 4], keys: ['grass_tuft'], sizePct: [0.3, 0.4] },
                 PLAINS:       { count: [4, 6], keys: ['grass_tuft'], sizePct: [0.3, 0.4] },
-                GRASSLAND:    { count: [2, 3], keys: ['grass_tuft', 'tree_lone'], sizePct: [0.3, 0.4] },
+                GRASSLAND:    { count: [2, 3], keys: ['grass_tuft'], sizePct: [0.3, 0.4] },
                 WETLANDS:     { count: [2, 3], keys: ['reed'], sizePct: [0.3, 0.4] },
-                WOODLAND:     { count: [2, 3], keys: ['tree_lone'], sizePct: [0.3, 0.4] },
-                FOREST:       { count: [3, 5], keys: ['tree_cluster'], sizePct: [0.5, 0.6] },
-                DENSE_FOREST: { count: [4, 6], keys: ['tree_cluster'], sizePct: [0.5, 0.6] },
-                HIGHLANDS:    { count: [2, 3], keys: ['rock'] },
-                PEAKS:        { count: [2, 2], keys: ['mountain'], sizePct: [0.7, 0.8]  },
-                COAST:        { count: [1, 2], keys: ['grass_tuft'] },
+                WOODLAND:     { count: [4, 6], keys: ['tree_lone'], sizePct: [0.3, 0.35] },
+                FOREST:       { count: [3, 5], keys: ['tree_cluster'], sizePct: [0.6, 0.65] },
+                DENSE_FOREST: { count: [4, 6], keys: ['tree_cluster', 'tree_snow_cluster'], sizePct: [0.6, 0.65] },
+                HIGHLANDS:    { count: [2, 3], keys: ['rock', 'tree_snow_cluster'], sizePct: [0.7, 0.8] },
+                PEAKS:        { count: [2, 3], keys: ['mountain'], sizePct: [0.7, 0.8]  },
+                COAST:        { count: [1, 2], keys: ['grass_tuft'], sizePct: [0.3, 0.4] },
             },
             snowSets: {
-                FOREST:       { count: [3, 5], keys: ['tree_snow'], sizePct: [0.3, 0.4]  },
-                DENSE_FOREST: { count: [3, 4], keys: ['tree_snow_cluster'], sizePct: [0.5, 0.6]  },
-                WOODLAND:     { count: [5, 6], keys: ['tree_snow_cluster'], sizePct: [0.5, 0.6]  },
-                PEAKS:        { count: [3, 4], keys: ['mountain_snow']  },
-                HIGHLANDS:    { count: [2, 3], keys: ['mountain_snow'] },
+                FOREST:       { count: [3, 5], keys: ['tree_snow'], sizePct: [0.3, 0.35]  },
+                DENSE_FOREST: { count: [3, 4], keys: ['tree_snow_cluster'], sizePct: [0.6, 0.65]  },
+                WOODLAND:     { count: [5, 6], keys: ['tree_snow_cluster'], sizePct: [0.6, 0.65]  },
+                PEAKS:        { count: [2, 3], keys: ['mountain_snow'], sizePct: [0.7, 0.8]  },
+                HIGHLANDS:    { count: [2, 3], keys: ['mountain_snow'], sizePct: [0.7, 0.8] },
             },
             hotSets: {
-                STEPPE:    { count: [1, 2], keys: ['palm_lone', 'cactus'] },
-                PLAINS:    { count: [1, 2], keys: ['cactus'] },
-                GRASSLAND: { count: [1, 2], keys: ['palm_lone'] },
-                COAST:     { count: [2, 3], keys: ['palm_cluster', 'oasis'] },
-                WOODLAND:  { count: [1, 2], keys: ['palm_lone', 'cactus'] },
+                COAST:        { count: [1, 2], keys: ['sand'], sizePct: [0.7, 0.8] },
+                STEPPE:       { count: [2, 3], keys: ['sand'], sizePct: [0.5, 0.8] },
+                PLAINS:       { count: [3, 4], keys: ['cactus'], sizePct: [0.2, 0.3] },
+                GRASSLAND:    { count: [2, 3], keys: ['palm_lone'], sizePct: [0.3, 0.4] },
+                COAST:        { count: [2, 3], keys: ['sand'], sizePct: [0.5, 0.8] },
+                FOREST:       { count: [2, 3], keys: ['palm_cluster'], sizePct: [0.3, 0.4]  },
+                DENSE_FOREST: { count: [3, 4], keys: ['palm_cluster'], sizePct: [0.3, 0.4]  },
+                WOODLAND:     { count: [5, 6], keys: ['palm_lone'], sizePct: [0.3, 0.4]  },
                 // сухие безлесные биомы в жаркой зоне логично отдать под пустыню:
-                WETLANDS:  { count: [1, 2], keys: ['oasis'] },
+                WETLANDS:  { count: [1, 2], keys: ['palm_lone'], sizePct: [0.3, 0.4] },
             },
             waterSets: {
-                DEEP_OCEAN: { count: [0, 1], keys: ['wave'] },
-                OCEAN:      { count: [1, 2], keys: ['wave'] },
-                SHALLOW:    { count: [1, 2], keys: ['wave'] },
+                DEEP_OCEAN: { count: [1, 2], keys: ['wave'], sizePct: [0.7, 0.8] },
+                OCEAN:      { count: [1, 2], keys: ['wave'], sizePct: [0.7, 0.8] },
+                SHALLOW:    { count: [1, 2], keys: ['wave'], sizePct: [0.7, 0.8] },
             },
             variantsPerKey: {
-                grass_tuft: 3, tree_lone: 3, tree_cluster: 4, tree_snow: 3,
-                reed: 2, rock: 3, mountain: 3, mountain_snow: 2, wave: 2,
-                palm_lone: 3, palm_cluster: 3, cactus: 3, oasis: 2,
+                grass_tuft: 3, tree_lone: 3, tree_cluster: 3, tree_snow: 3,  tree_snow_cluster: 3,
+                reed: 1, rock: 3, mountain: 3, mountain_snow: 2, wave: 3, sand: 3,
+                palm_lone: 3, palm_cluster: 3, cactus: 1, oasis: 2,
             },
             textures: {
                 enabled: options.texturesEnabled ?? true,
@@ -222,37 +226,6 @@ class MapGenerator {
             { id: 'SHALLOW', isWater: true, maxT: Infinity, label: 'Мелководье',
               color: '#2a3973', resources: { food: 2, production: 0, manpower: 0, gold: 0, upkeep: -0.3 } },
             { id: 'COAST', isWater: false, maxT: 0.08, label: 'Побережье',
-            colors: { cold: '#9fb8a0', temperate: '#8fae4f', hot: '#d9c27a' },
-            resources: { food: 2, production: 1, manpower: 1, gold: 1, upkeep: -0.5 } },
-            { id: 'STEPPE', isWater: false, maxT: 0.16, label: 'Степь',
-            colors: { cold: '#93ab97', temperate: '#8fae4f', hot: '#cdb26a' },
-            resources: { food: 1, production: 1, manpower: 2, gold: 0, upkeep: -0.5 } },
-            { id: 'PLAINS', isWater: false, maxT: 0.25, label: 'Равнина',
-            colors: { cold: '#86a08c', temperate: '#8fae4f', hot: '#c2a35c' },
-            resources: { food: 3, production: 1, manpower: 1, gold: 0, upkeep: -0.6 } },
-            { id: 'GRASSLAND', isWater: false, maxT: 0.35, label: 'Луга',
-            colors: { cold: '#7a9482', temperate: '#8fae4f', hot: '#b8944a' },
-            resources: { food: 3, production: 1, manpower: 2, gold: 0, upkeep: -0.6 } },
-            { id: 'WETLANDS', isWater: false, maxT: 0.45, label: 'Болота',
-            colors: { cold: '#6f8877', temperate: '#8fae4f', hot: '#a9863e' },
-            resources: { food: 2, production: 0, manpower: 1, gold: 0, upkeep: -0.7 } },
-            { id: 'WOODLAND', isWater: false, maxT: 0.56, label: 'Редколесье',
-            colors: { cold: '#63796d', temperate: '#8fae4f', hot: '#9c7a3a' },
-            resources: { food: 1, production: 2, manpower: 1, gold: 0, upkeep: -0.6 } },
-            { id: 'FOREST', isWater: false, maxT: 0.68, label: 'Лес',
-            colors: { cold: '#566a5f', temperate: '#8fae4f', hot: '#8a6a35' },
-            resources: { food: 1, production: 3, manpower: 1, gold: 0, upkeep: -0.7 } },
-            { id: 'DENSE_FOREST', isWater: false, maxT: 0.80, label: 'Густой лес',
-            colors: { cold: '#4a5b53', temperate: '#8fae4f', hot: '#7a5c30' },
-            resources: { food: 0, production: 3, manpower: 1, gold: 0, upkeep: -0.8 } },
-            { id: 'HIGHLANDS', isWater: false, maxT: 0.92, label: 'Плоскогорье',
-            colors: { cold: '#8a9490', temperate: '#5c6b64', hot: '#8a7a5c' },
-            resources: { food: 0, production: 2, manpower: 0, gold: 2, upkeep: -0.9 } },
-            { id: 'PEAKS', isWater: false, maxT: Infinity, label: 'Пик',
-            colors: { cold: '#eef2f0', temperate: '#9a9d9a', hot: '#a89a86' },
-            resources: { food: 0, production: 1, manpower: 0, gold: 3, upkeep: -1.0 } },
-/*
-            { id: 'COAST', isWater: false, maxT: 0.08, label: 'Побережье',
             colors: { cold: '#9fb8a0', temperate: '#b5c95a', hot: '#d9c27a' },
             resources: { food: 2, production: 1, manpower: 1, gold: 1, upkeep: -0.5 } },
             { id: 'STEPPE', isWater: false, maxT: 0.16, label: 'Степь',
@@ -281,7 +254,7 @@ class MapGenerator {
             resources: { food: 0, production: 2, manpower: 0, gold: 2, upkeep: -0.9 } },
             { id: 'PEAKS', isWater: false, maxT: Infinity, label: 'Пик',
             colors: { cold: '#eef2f0', temperate: '#9a9d9a', hot: '#a89a86' },
-            resources: { food: 0, production: 1, manpower: 0, gold: 3, upkeep: -1.0 } },*/
+            resources: { food: 0, production: 1, manpower: 0, gold: 3, upkeep: -1.0 } },
         ];
 
         this.waterBiomes = this.biomeDefs.filter(b => b.isWater);
@@ -487,6 +460,7 @@ class MapGenerator {
             region.t = t[i];
             region.isWater = !!isWater[i];
             region.temperature = temperature[i];
+            region.name = this.utils.generateRegionName(region.isWater);
             const zone = temperature[i] < 0.20 ? 'cold' : temperature[i] > 0.60 ? 'hot' : 'temperate';
             region.climateZone = zone;
 
@@ -537,6 +511,7 @@ class MapGenerator {
     getRegionData(region) {
         return {
             id: region.id,
+            name: region.name,
             x: region.x,
             y: region.y,
             isWater: region.isWater,
@@ -688,11 +663,13 @@ class MapGenerator {
         this.ctx.scale(this.viewTransform.scale, this.viewTransform.scale);
     
         this.renderRegions(this.ctx, visibleRect);
+        this.paintCoastline(this.ctx, visibleRect);
         this.decorations.paintTextures(this.ctx, visibleRect);
         this.decorations.paint(this.ctx, visibleRect);
         this.factions.drawBorders(this.ctx, this.viewTransform.scale, visibleRect);
         this.renderDynamicObjects(this.ctx, this.viewTransform.scale);
-
+        this.renderRegionLabels(this.ctx, visibleRect, this.viewTransform.scale); 
+        
         if (this.fogEnabled && this.playerFactionId !== null && this.playerFactionId !== undefined) {
             const visible = this.factions.computeVisibility(this.playerFactionId, this.fogVisionHops ?? 2);
             for (let i = 0; i < this.terrain.regions.length; i++) {
@@ -716,6 +693,8 @@ class MapGenerator {
     renderDynamicObjects(ctx, zoomScale) {
         this.renderCities(ctx, zoomScale);
         this.renderSelection(ctx, zoomScale);
+        this.renderArmies(ctx, zoomScale);
+        
         // сюда позже: армии, туман войны — как отдельные renderArmies(ctx, zoomScale) и т.п.
     }
     
@@ -740,7 +719,7 @@ class MapGenerator {
 
             if (region.ownerId !== null && region.ownerId !== undefined && this.factions.list?.[region.ownerId]) {
                 ctx.save();
-                ctx.globalAlpha = this.viewMode === 'factions' ? 0.65 : (this.viewMode === 'political') ? 0.32 : 0;
+                ctx.globalAlpha = this.viewMode === 'factions' ? 0.65 : (this.viewMode === 'political') ? 0.52 : 0;
                 ctx.fillStyle = this.factions.list[region.ownerId].color;
                 ctx.fill();
                 ctx.restore();
@@ -761,6 +740,104 @@ class MapGenerator {
                 ctx.stroke();
             }
         });
+    }
+    renderArmies(ctx, zoomScale = 1) {
+        if (!this.armiesProvider) return; // подключается извне через setArmiesProvider
+        const armies = this.armiesProvider();
+    
+        const r = 3 / zoomScale;
+        armies.forEach(army => {
+            const region = this.terrain.regions[army.regionId];
+            if (!region) return;
+    
+            const faction = this.factions.list?.[army.factionId];
+            ctx.save();
+            ctx.fillStyle = faction ? faction.color : '#999999';
+            ctx.beginPath();
+            ctx.arc(region.x, region.y, r, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = 0.6 / zoomScale;
+            ctx.stroke();
+    
+            ctx.fillStyle = '#ffffff';
+            ctx.font = `${5 / zoomScale}px sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.fillText(army.strength, region.x, region.y + 2 / zoomScale);
+            ctx.restore();
+        });
+    }
+    renderRegionLabels(ctx, visibleRect, zoomScale) {
+        if (this.viewMode === 'factions') return; // на карте фракций подписи ни к чему, там свой язык
+    
+        const playerVisible = this.fogEnabled && this.playerFactionId !== null && this.playerFactionId !== undefined
+            ? this.factions.computeVisibility(this.playerFactionId, this.fogVisionHops ?? 2)
+            : null;
+    
+        for (let i = 0; i < this.terrain.regions.length; i++) {
+            const region = this.terrain.regions[i];
+            if (region.isWater) continue;
+            if (visibleRect && !this.bboxIntersects(region.bbox, visibleRect)) continue;
+    
+            // видимость: своя территория или ничья, и (если туман включён) — не скрыто туманом
+            const isOwnedByPlayer = region.ownerId === this.playerFactionId;
+            const isNeutral = region.ownerId === null || region.ownerId === undefined;
+            if (!isOwnedByPlayer && !isNeutral) continue;
+            if (playerVisible && !playerVisible[i]) continue;
+    
+            const res = this.getRegionResources(region);
+            if (!res) continue;
+    
+            const fontSize = 10.5 / zoomScale;
+            const padding = 1 / zoomScale;
+            const lineHeight = fontSize * 1.15;
+    
+            const lines = [
+                region.name,
+                `Еда: ${res.food.toFixed(1)} Производство: ${res.production.toFixed(1)}`,
+            ];
+    
+            ctx.font = `${fontSize}px sans-serif`;
+            const textWidth = Math.max(...lines.map(l => ctx.measureText(l).width));
+            function drawRoundedRect(ctx, x, y, width, height, radius) {
+                ctx.beginPath();
+                ctx.roundRect(x, y, width, height, radius);
+                ctx.fill();
+            }
+    
+            // Внутри цикла renderRegionLabels:
+            const boxW = textWidth + padding * 4;
+            const boxH = lineHeight * lines.length + padding * 3;
+            const boxX = region.x - boxW / 2;
+            const boxY = region.y - boxH - 6 / zoomScale;
+    
+            ctx.save();
+    
+            // Тень для объема
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+            ctx.shadowBlur = 8 / zoomScale;
+            ctx.shadowOffsetY = 2 / zoomScale;
+    
+            ctx.fillStyle = 'rgba(20, 25, 20, 0.85)';
+            drawRoundedRect(ctx, boxX, boxY, boxW, boxH, 4 / zoomScale);
+    
+            // Убираем тень для текста, чтобы он оставался четким
+            ctx.shadowColor = 'transparent';
+    
+            ctx.fillStyle = '#f0ead6';
+            ctx.textAlign = 'center';
+            lines.forEach((line, li) => {
+                // Делаем первую строку (название) жирной, а ресурсы чуть бледнее
+                if (li === 0) {
+                    ctx.font = `bold ${fontSize}px sans-serif`;
+                } else {
+                    ctx.font = `${fontSize * 0.95}px sans-serif`;
+                }
+                ctx.fillText(line, region.x, boxY + padding * 1.5 + lineHeight * (li + 0.7));
+            });
+    
+            ctx.restore();
+        }
     }
     getVisibleWorldRect(margin = 40) {
         const vt = this.viewTransform;
@@ -803,6 +880,7 @@ class MapGenerator {
         ctx.clearRect(0, 0, this.layers.terrain.canvas.width, this.layers.terrain.canvas.height);
         ctx.scale(this.mapLayerScale, this.mapLayerScale);
         this.renderRegions(ctx);
+        this.paintCoastline(ctx);
         this.decorations.paintTextures(ctx);
         this.decorations.paint(ctx);
         ctx.restore();
@@ -842,7 +920,32 @@ class MapGenerator {
         }
         ctx.restore();
     }
+    paintCoastline(ctx, visibleRect) {
+        if (!this.edgeMap) return;
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+        ctx.lineWidth = 1;
+        ctx.lineJoin = 'round';
+        ctx.filter = 'blur(2px)'
     
+        this.edgeMap.forEach(edge => {
+            if (visibleRect) {
+                const ex = Math.min(edge.p1[0], edge.p2[0]), eX = Math.max(edge.p1[0], edge.p2[0]);
+                const ey = Math.min(edge.p1[1], edge.p2[1]), eY = Math.max(edge.p1[1], edge.p2[1]);
+                if (eX < visibleRect.minX || ex > visibleRect.maxX || eY < visibleRect.minY || ey > visibleRect.maxY) return;
+            }
+            if (edge.regionIds.length < 2) return;
+            const [a, b] = edge.regionIds;
+            const ra = this.terrain.regions[a], rb = this.terrain.regions[b];
+            if (ra.isWater === rb.isWater) return; // рисуем линию только там, где по одну сторону суша, по другую вода
+    
+            const segments = this.getNoisyLineSegments(edge.p1[0], edge.p1[1], edge.p2[0], edge.p2[1]);
+            ctx.beginPath();
+            segments.forEach((pt, k) => k === 0 ? ctx.moveTo(pt.x, pt.y) : ctx.lineTo(pt.x, pt.y));
+            ctx.stroke();
+        });
+        ctx.restore();
+    }
     repaintLayersIfDirty() {
         if (this.layers.terrain.dirty) { this._paintTerrainLayer(); this.layers.terrain.dirty = false; }
         if (this.layers.political.dirty) { this._paintPoliticalLayer(); this.layers.political.dirty = false; }
@@ -1051,7 +1154,7 @@ const MapInteraction = {
         const wy = (py - this.viewTransform.y) / this.viewTransform.scale;
     
         if (wx < 0 || wy < 0 || wx > this.width || wy > this.height) {
-            this.clearSelection();
+            this.interaction.clearSelection();
             return null;
         }
     
@@ -1724,6 +1827,19 @@ const MapUtils = {
     findBand(bands, t) {
         for (const b of bands) if (t <= b.maxT) return b;
         return bands[bands.length - 1];
+    },
+    generateRegionName(isWater) {
+        const landPrefixes = ['Нов', 'Стар', 'Верх', 'Ниж', 'Крас', 'Бел', 'Чёрн', 'Зелен', 'Тих', 'Дальн'];
+        const landSuffixes = ['город', 'поль', 'озёрск', 'горск', 'дол', 'брод', 'лесье', 'край', 'вин', 'бург'];
+        const waterPrefixes = ['Синь', 'Глубь', 'Штиль', 'Волн', 'Прилив'];
+        const waterSuffixes = ['море', 'залив', 'пролив', 'воды', 'простор'];
+    
+        const prefixes = isWater ? waterPrefixes : landPrefixes;
+        const suffixes = isWater ? waterSuffixes : landSuffixes;
+    
+        const p = prefixes[Math.floor(this.utils.seededRandom() * prefixes.length)];
+        const s = suffixes[Math.floor(this.utils.seededRandom() * suffixes.length)];
+        return p + s;
     }
 }
 // ═══════════════════════════════════════════════════════════
@@ -1805,29 +1921,61 @@ const MapDecorations = {
         const minX = Math.min(...xs), maxX = Math.max(...xs);
         const minY = Math.min(...ys), maxY = Math.max(...ys);
         if (maxX - minX < 2 || maxY - minY < 2) return [];
-     
-        const refDim = Math.min(maxX - minX, maxY - minY); // база для процентного размера
+    
+        const refDim = Math.min(maxX - minX, maxY - minY);
         const [sizePctMin, sizePctMax] = set.sizePct || this.decorations.defaultSizePct;
     
         const count = set.count[0] + Math.floor(this.utils.seededRandom() * (set.count[1] - set.count[0] + 1));
         const placements = [];
-        const minGap = this.decorations.minGap;
-    
+        const gapFactor = this.decorations.gapFactor; // доля от суммы радиусов, требуемая как зазор
+
+        // Особый случай: один крупный доминирующий объект (например, единственная гора) — ставим в центр, без поиска места
+        
+        const isSingleDominant = set.count[0] === set.count[1] && set.count[0] <= 1 &&
+            (set.sizePct?.[0] ?? 0) > 0.7;
+
+        if (isSingleDominant) {
+            const xs = inner.map(p => p[0]), ys = inner.map(p => p[1]);
+            const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+            const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+            const refDim = Math.min(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+            const [sMin, sMax] = set.sizePct;
+            const size = refDim * (sMin + this.utils.seededRandom() * (sMax - sMin));
+            const key = set.keys[Math.floor(this.utils.seededRandom() * set.keys.length)];
+            const variant = 1 + Math.floor(this.utils.seededRandom() * (this.decorations.variantsPerKey[key] || 1));
+            return [{ assetName: `${key}_${variant}`, x: cx, y: cy, size, rotation: 0 }];
+        }
+        
         for (let n = 0; n < count; n++) {
-            for (let attempt = 0; attempt < 10; attempt++) {
+            for (let attempt = 0; attempt < 15; attempt++) {
                 const x = minX + this.utils.seededRandom() * (maxX - minX);
                 const y = minY + this.utils.seededRandom() * (maxY - minY);
                 if (!this.decorations.pointInPolygon(x, y, inner)) continue;
-    
-                const tooClose = placements.some(p => Math.hypot(p.x - x, p.y - y) < minGap);
+        
+                const sizePct = sizePctMin + this.utils.seededRandom() * (sizePctMax - sizePctMin);
+                const size = refDim * sizePct;
+        
+                // проверяем не только центр, но и что иконка целиком (по её половине размера в 4 стороны)
+                // остаётся внутри сжатого полигона — грубая, но дешёвая аппроксимация через 4 угла bounding box иконки
+                const half = size / 4;
+                const corners = [
+                    [x - half, y - half], [x + half, y - half],
+                    [x - half, y + half], [x + half, y + half],
+                ];
+                /*
+                const allInside = corners.every(([cx, cy]) => this.decorations.pointInPolygon(cx, cy, inner));
+                if (!allInside) continue;
+                */
+                const tooClose = placements.some(p => {
+                    const required = (p.size / 2 + size / 2) * gapFactor;
+                    return Math.hypot(p.x - x, p.y - y) < required;
+                });
                 if (tooClose) continue;
     
                 const key = set.keys[Math.floor(this.utils.seededRandom() * set.keys.length)];
                 const variantCount = this.decorations.variantsPerKey[key] || 1;
                 const variant = 1 + Math.floor(this.utils.seededRandom() * variantCount);
-                const sizePct = sizePctMin + this.utils.seededRandom() * (sizePctMax - sizePctMin);
-                const size = refDim * sizePct;
-                const rotation = (this.utils.seededRandom() - 0.5) * 0.5*0;
+                const rotation = 0;
     
                 placements.push({ assetName: `${key}_${variant}`, x, y, size, rotation });
                 break;

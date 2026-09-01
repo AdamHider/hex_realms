@@ -18,17 +18,16 @@ class FactionsManager {
 
     _enrich(mapFaction, isPlayer) {
         return {
-            // данные, пришедшие от карты — не дублируем, а переносим как есть
             id: mapFaction.id,
             name: mapFaction.name,
             color: mapFaction.color,
             capitalRegionId: mapFaction.capitalRegionId,
-
-            // игровые данные, которых карта не знает
             isPlayer,
             isAlive: true,
             personality: isPlayer ? null : this._randomPersonality(),
-            treasury: { gold: 1000, food: 0, production: 0 },
+            treasury: { gold: 50, manpower: 100 }, // накопительные ресурсы
+            currentFood: 0,       // поток — пересчитывается каждый ход, не хранится между ходами
+            currentProduction: 0, // поток — то же самое
         };
     }
 

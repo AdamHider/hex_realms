@@ -47,6 +47,10 @@ class Game {
         });
         const enrichedFactions = this.factionsManager.init(mapFactions, params.playerFactionId ?? 0);
         
+        this.armyManager = new ArmyManager(this, {
+            onArmyMoved: (army, from, to) => { /* колбэк наружу при желании */ },
+        });
+        this.armyManager.initFromFactions(enrichedFactions);
 
         this.diplomacyManager = new DiplomacyManager(this, {
             onWarDeclared: (a, b) => { if (this.callbacks.onWarDeclared) this.callbacks.onWarDeclared(a, b); },

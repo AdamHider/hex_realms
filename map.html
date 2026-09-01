@@ -11,6 +11,7 @@
     <script src="FactionsManager.js"></script>
     <script src="DiplomacyManager.js"></script>
     <script src="AIManager.js"></script>
+    <script src="ArmyManager.js"></script>
     <script src="Game.js"></script>
     <style>
         html, body { margin: 0; padding: 0; overflow: hidden; }
@@ -268,8 +269,9 @@
         function updateHud() {
             const player = game.factionsManager.getPlayer();
             if (player) {
+                console.log(player)
                 document.getElementById('hudTreasury').textContent =
-                    `🌾 ${Math.round(player.treasury.food)} · 🪙 ${Math.round(player.treasury.gold)} · ⚙️ ${Math.round(player.treasury.production)}`;
+                    `🪙 ${Math.round(player.treasury.gold)} · 🌾 ${Math.round(player.currentFood)} · ⚙️ ${Math.round(player.currentProduction)} · 🪙 ${Math.round(player.treasury.manpower)} `;
             }
             document.getElementById('hudFactionsAlive').textContent =
                 `Фракций: ${game.factionsManager.getAlive().length}`;
