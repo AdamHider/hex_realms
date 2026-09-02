@@ -1079,8 +1079,8 @@ class MapGenerator {
         if (!this.selection.reachableSet || !this.selection.reachableSet.size) return;
     
         const reachable = this.selection.reachableSet;
-        const borderWidth = 1.5 / zoomScale;
-        const fillAlpha = 0.18;
+        const borderWidth = 2.5 / zoomScale;
+        const fillAlpha = 0.28;
     
         // Лёгкая заливка каждого достижимого региона
         ctx.save();
