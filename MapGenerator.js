@@ -64,8 +64,10 @@ class MapGenerator {
 
         this.selection = {
             regionId: null,
+            armyId: null,
             color: '#fff200',
             onSelect: options.onSelect || null,
+            onArmySelect: options.onArmySelect || null,
         };
 
         this.factions = {
@@ -98,6 +100,9 @@ class MapGenerator {
             getFactionAdjacency: MapFaction.getFactionAdjacency.bind(this),
             getNeighboringFactions: MapFaction.getNeighboringFactions.bind(this),
             computeVisibility: MapFaction.computeVisibility.bind(this),
+            computeLabelPath: MapFaction.computeLabelPath.bind(this),
+            renderFactionLabels: MapFaction.renderFactionLabels.bind(this),
+            getLabelPath: MapFaction.getLabelPath.bind(this),
         }
 
 
@@ -131,7 +136,9 @@ class MapGenerator {
             seededRandom: MapUtils.seededRandom.bind(this),
             setSeed: MapUtils.setSeed.bind(this),
             findBand: MapUtils.findBand.bind(this),
-            generateRegionName: MapUtils.generateRegionName.bind(this)
+            generateRegionName: MapUtils.generateRegionName.bind(this),
+            drawCurvedLabel: MapUtils.drawCurvedLabel.bind(this)
+            
         }
         this.decorations = {
             enabled: options.iconsEnabled ?? true,
@@ -203,6 +210,14 @@ class MapGenerator {
         if (this.decorations.enabled) this.decorations.loadAssets();
         if (this.decorations.textures.enabled) this.decorations.loadTextures = MapDecorations._loadTextures.bind(this);
         if (this.decorations.textures.enabled) this.decorations.loadTextures();
+
+        this.armyAssets = {
+            ready: false,
+            images: {},
+            basePath: options.armyAssetsPath || 'icons/',
+            variantCount: options.armyVariantCount ?? 3, // army_1.png, army_2.png, army_3.png
+        };
+        this._loadArmyAssets();
 
         this._initConfig();
 
@@ -331,7 +346,21 @@ class MapGenerator {
         };
         this.seasonOrder = Object.keys(this.seasons);
     }
-
+    _loadArmyAssets() {
+        const loaders = [];
+        for (let v = 1; v <= this.armyAssets.variantCount; v++) {
+            loaders.push(new Promise(resolve => {
+                const img = new Image();
+                img.onload = () => { this.armyAssets.images[v] = img; resolve(); };
+                img.onerror = () => resolve();
+                img.src = `${this.armyAssets.basePath}army_${v}.png`;
+            }));
+        }
+        Promise.all(loaders).then(() => {
+            this.armyAssets.ready = true;
+            this.scheduleRender();
+        });
+    }
     // ═══════════════════════════════════════════════════════════
     // SECTION: MAP_GEOMETRY
     // Полигональная геометрия: шумные края, path региона,
@@ -463,7 +492,6 @@ class MapGenerator {
             region.name = this.utils.generateRegionName(region.isWater);
             const zone = temperature[i] < 0.20 ? 'cold' : temperature[i] > 0.60 ? 'hot' : 'temperate';
             region.climateZone = zone;
-
             if (region.isWater) {
                 const id = this.utils.findBand(this.waterBiomes, t[i]).id;
                 region.biomeBand = id;
@@ -485,6 +513,7 @@ class MapGenerator {
                     if (y < minY) minY = y; if (y > maxY) maxY = y;
                 }
                 region.bbox = { minX, minY, maxX, maxY };
+                region.labelPath = this.computeRegionLabelPath(region, polygon);
             } else {
                 region.bbox = { minX: region.x, minY: region.y, maxX: region.x, maxY: region.y };
             }
@@ -492,6 +521,7 @@ class MapGenerator {
         });
 
         this.factions.settle(regions, neighbors);
+        this.factions.labelPathCache = new Map();
 
         this.terrain.regions = regions;
         this.mapVoronoi = voronoi;
@@ -584,7 +614,7 @@ class MapGenerator {
     }
     setViewMode(mode){
         this.viewMode = mode
-        this.markDirty('terrain');
+        this.markDirty('terrain', 'political');
         this.render()
     }
     setSeason(season){
@@ -604,6 +634,9 @@ class MapGenerator {
         this.playerFactionId = factionId;
         this.markDirty('fog');
         this.render();
+    }
+    setArmiesProvider(fn) {
+        this.armiesProvider = fn;
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -668,7 +701,7 @@ class MapGenerator {
         this.decorations.paint(this.ctx, visibleRect);
         this.factions.drawBorders(this.ctx, this.viewTransform.scale, visibleRect);
         this.renderDynamicObjects(this.ctx, this.viewTransform.scale);
-        this.renderRegionLabels(this.ctx, visibleRect, this.viewTransform.scale); 
+        this.renderSelectedRegionLabel(this.ctx, this.viewTransform.scale);
         
         if (this.fogEnabled && this.playerFactionId !== null && this.playerFactionId !== undefined) {
             const visible = this.factions.computeVisibility(this.playerFactionId, this.fogVisionHops ?? 2);
@@ -689,13 +722,44 @@ class MapGenerator {
         const visibleCount = this.countVisibleRegions(visibleRect);
         this.viewLevel = visibleCount <= this.sharpRegionBudget ? 'detail' : 'overview';
     }
+    renderSelectedRegionLabel(ctx, zoomScale) {
+        if (this.selection.regionId === null) return;
+        if (this.viewMode === 'factions') return;
     
+        const region = this.terrain.regions[this.selection.regionId];
+        if (!region || region.isWater) return;
+    
+        const playerVisible = this.fogEnabled && this.playerFactionId !== null && this.playerFactionId !== undefined
+            ? this.factions.computeVisibility(this.playerFactionId, this.fogVisionHops ?? 2)
+            : null;
+        if (playerVisible && !playerVisible[region.id]) return;
+    
+        const path = region.labelPath;
+        if (!path || path.length < 4) return; // слишком маленький регион — подпись не влезет разумно
+    
+        // название — растянутое вдоль главной оси региона
+        this.utils.drawCurvedLabel(ctx, region.name, path.cx, path.cy, path.angle, path.length, zoomScale, {
+            fontSize: 5,
+            curveStrength: 0.1,
+            color: 'rgba(20, 15, 10, 0.9)',
+        });
+        // ресурсы — отдельной строкой ниже, обычным (не изогнутым) текстом, для читаемости
+        const res = this.getRegionResources(region);
+        if (!res) return;
+    
+        const fontSize = 4 / zoomScale;
+        ctx.save();
+        ctx.font = `${fontSize}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.fillStyle = 'rgba(20, 15, 10, 0.85)';
+        ctx.fillText(`🌾${res.food.toFixed(1)} ⚙️${res.production.toFixed(1)}`, region.x, region.y + fontSize * 2.2);
+        ctx.restore();
+    }
     renderDynamicObjects(ctx, zoomScale) {
         this.renderCities(ctx, zoomScale);
-        this.renderSelection(ctx, zoomScale);
         this.renderArmies(ctx, zoomScale);
-        
-        // сюда позже: армии, туман войны — как отдельные renderArmies(ctx, zoomScale) и т.п.
+        this.renderReachableArea(ctx, zoomScale);
+        this.renderSelection(ctx, zoomScale);
     }
     
     renderRegions(ctx, visibleRect = null) {
@@ -741,103 +805,53 @@ class MapGenerator {
             }
         });
     }
+    
     renderArmies(ctx, zoomScale = 1) {
-        if (!this.armiesProvider) return; // подключается извне через setArmiesProvider
+        if (!this.armiesProvider) return;
         const armies = this.armiesProvider();
     
-        const r = 3 / zoomScale;
+        const size = 8 / zoomScale;
         armies.forEach(army => {
             const region = this.terrain.regions[army.regionId];
             if (!region) return;
     
             const faction = this.factions.list?.[army.factionId];
+            const color = faction ? faction.color : '#999999';
+    
             ctx.save();
-            ctx.fillStyle = faction ? faction.color : '#999999';
+    
+            ctx.fillStyle = color;
             ctx.beginPath();
-            ctx.arc(region.x, region.y, r, 0, Math.PI * 2);
+            ctx.arc(region.x, region.y, size * 0.65, 0, Math.PI * 2);
             ctx.fill();
             ctx.strokeStyle = '#000000';
-            ctx.lineWidth = 0.6 / zoomScale;
+            ctx.lineWidth = 0.5 / zoomScale;
             ctx.stroke();
     
-            ctx.fillStyle = '#ffffff';
-            ctx.font = `${5 / zoomScale}px sans-serif`;
-            ctx.textAlign = 'center';
-            ctx.fillText(army.strength, region.x, region.y + 2 / zoomScale);
-            ctx.restore();
-        });
-    }
-    renderRegionLabels(ctx, visibleRect, zoomScale) {
-        if (this.viewMode === 'factions') return; // на карте фракций подписи ни к чему, там свой язык
-    
-        const playerVisible = this.fogEnabled && this.playerFactionId !== null && this.playerFactionId !== undefined
-            ? this.factions.computeVisibility(this.playerFactionId, this.fogVisionHops ?? 2)
-            : null;
-    
-        for (let i = 0; i < this.terrain.regions.length; i++) {
-            const region = this.terrain.regions[i];
-            if (region.isWater) continue;
-            if (visibleRect && !this.bboxIntersects(region.bbox, visibleRect)) continue;
-    
-            // видимость: своя территория или ничья, и (если туман включён) — не скрыто туманом
-            const isOwnedByPlayer = region.ownerId === this.playerFactionId;
-            const isNeutral = region.ownerId === null || region.ownerId === undefined;
-            if (!isOwnedByPlayer && !isNeutral) continue;
-            if (playerVisible && !playerVisible[i]) continue;
-    
-            const res = this.getRegionResources(region);
-            if (!res) continue;
-    
-            const fontSize = 10.5 / zoomScale;
-            const padding = 1 / zoomScale;
-            const lineHeight = fontSize * 1.15;
-    
-            const lines = [
-                region.name,
-                `Еда: ${res.food.toFixed(1)} Производство: ${res.production.toFixed(1)}`,
-            ];
-    
-            ctx.font = `${fontSize}px sans-serif`;
-            const textWidth = Math.max(...lines.map(l => ctx.measureText(l).width));
-            function drawRoundedRect(ctx, x, y, width, height, radius) {
-                ctx.beginPath();
-                ctx.roundRect(x, y, width, height, radius);
-                ctx.fill();
+            const img = this.armyAssets.ready ? this.armyAssets.images[army.assetVariant] : null;
+            if (img) {
+                ctx.drawImage(img, region.x - size / 2, region.y - size / 2, size, size);
             }
     
-            // Внутри цикла renderRegionLabels:
-            const boxW = textWidth + padding * 4;
-            const boxH = lineHeight * lines.length + padding * 3;
-            const boxX = region.x - boxW / 2;
-            const boxY = region.y - boxH - 6 / zoomScale;
-    
-            ctx.save();
-    
-            // Тень для объема
-            ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-            ctx.shadowBlur = 8 / zoomScale;
-            ctx.shadowOffsetY = 2 / zoomScale;
-    
-            ctx.fillStyle = 'rgba(20, 25, 20, 0.85)';
-            drawRoundedRect(ctx, boxX, boxY, boxW, boxH, 4 / zoomScale);
-    
-            // Убираем тень для текста, чтобы он оставался четким
-            ctx.shadowColor = 'transparent';
-    
-            ctx.fillStyle = '#f0ead6';
+            ctx.fillStyle = '#ffffff';
+            ctx.font = `bold ${4.5 / zoomScale}px sans-serif`;
             ctx.textAlign = 'center';
-            lines.forEach((line, li) => {
-                // Делаем первую строку (название) жирной, а ресурсы чуть бледнее
-                if (li === 0) {
-                    ctx.font = `bold ${fontSize}px sans-serif`;
-                } else {
-                    ctx.font = `${fontSize * 0.95}px sans-serif`;
-                }
-                ctx.fillText(line, region.x, boxY + padding * 1.5 + lineHeight * (li + 0.7));
-            });
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = 0.4 / zoomScale;
+            ctx.strokeText(army.strength, region.x, region.y + size * 0.9);
+            ctx.fillText(army.strength, region.x, region.y + size * 0.9);
+    
+            // подсветка выбранной армии
+            if (this.selection.armyId === army.id) {
+                ctx.strokeStyle = this.selection.color;
+                ctx.lineWidth = 1.2 / zoomScale;
+                ctx.beginPath();
+                ctx.arc(region.x, region.y, size * 0.8, 0, Math.PI * 2);
+                ctx.stroke();
+            }
     
             ctx.restore();
-        }
+        });
     }
     getVisibleWorldRect(margin = 40) {
         const vt = this.viewTransform;
@@ -892,7 +906,8 @@ class MapGenerator {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, this.layers.political.canvas.width, this.layers.political.canvas.height);
         ctx.scale(this.mapLayerScale, this.mapLayerScale);
-        this.factions.drawBorders(ctx, this.mapLayerScale); // фиксированная толщина под layer-масштаб
+        this.factions.drawBorders(ctx, this.mapLayerScale); 
+        this.factions.renderFactionLabels(ctx, this.mapLayerScale);
         ctx.restore();
     }
     _paintFogLayer(playerFactionId) {
@@ -985,6 +1000,117 @@ class MapGenerator {
         this.viewTransform.y = this.canvas.height / 2 - region.y * scale;
     
         this.scheduleRender();
+    }
+    computeRegionLabelPath(region, polygon) {
+        let cx = 0, cy = 0;
+        polygon.forEach(([x, y]) => { cx += x; cy += y; });
+        cx /= polygon.length; cy /= polygon.length;
+    
+        let sxx = 0, syy = 0, sxy = 0;
+        polygon.forEach(([x, y]) => {
+            const dx = x - cx, dy = y - cy;
+            sxx += dx * dx; syy += dy * dy; sxy += dx * dy;
+        });
+        const angle = 0.5 * Math.atan2(2 * sxy, sxx - syy);
+    
+        let minProj = Infinity, maxProj = -Infinity;
+        polygon.forEach(([x, y]) => {
+            const proj = (x - cx) * Math.cos(angle) + (y - cy) * Math.sin(angle);
+            if (proj < minProj) minProj = proj;
+            if (proj > maxProj) maxProj = proj;
+        });
+    
+        return { cx, cy, angle, length: maxProj - minProj };
+    }
+
+    computeReachableRegions(army) {
+        const visited = new Map(); // regionId -> оставшиеся очки при прибытии
+        const startAP = army.actionPoints;
+        if (startAP <= 0) return visited;
+    
+        visited.set(army.regionId, startAP);
+        const queue = [{ id: army.regionId, ap: startAP }];
+        let qi = 0;
+    
+        while (qi < queue.length) {
+            const { id, ap } = queue[qi++];
+            const neighbors = this.regionNeighbors?.[id] || [];
+    
+            for (const nb of neighbors) {
+                const region = this.terrain.regions[nb];
+                if (!region || region.isWater) continue;
+    
+                // Занято чужой армией — двигаться туда напрямую нельзя (это уже атака/бой, вне текущего скоупа)
+                const occupiedByEnemy = this.armiesProvider &&
+                    this.armiesProvider().some(a => a.regionId === nb && a.factionId !== army.factionId);
+                if (occupiedByEnemy) continue;
+    
+                // Стоимость шага в целевой регион: 1 очко, если регион не свой; на своей территории тоже 1 очко за шаг,
+                // просто там больше стартовых очков в резерве — сама механика "1 регион вне земель, 2-3 внутри"
+                // уже выражена через army.actionPoints, здесь считаем именно ПУТЬ по доступному бюджету очков
+                const cost = 1;
+                const remaining = ap - cost;
+                if (remaining < 0) continue;
+    
+                const already = visited.get(nb);
+                if (already !== undefined && already >= remaining) continue; // уже нашли путь не хуже
+    
+                visited.set(nb, remaining);
+                queue.push({ id: nb, ap: remaining });
+            }
+        }
+    
+        visited.delete(army.regionId); // сама клетка армии не считается "целью перемещения"
+        return visited;
+    }
+    selectArmy(armyId) {
+        if (!this.armiesProvider) return;
+        const army = this.armiesProvider().find(a => a.id === armyId);
+        if (!army) return;
+    
+        this.selection.armyId = armyId;
+        const reachable = this.computeReachableRegions(army);
+        this.selection.reachableSet = new Set(reachable.keys());
+    
+        if (this.selection.onArmySelect) this.selection.onArmySelect(army, [...this.selection.reachableSet]);
+        this.scheduleRender();
+    }
+    renderReachableArea(ctx, zoomScale) {
+        if (!this.selection.reachableSet || !this.selection.reachableSet.size) return;
+    
+        const reachable = this.selection.reachableSet;
+        const borderWidth = 1.5 / zoomScale;
+        const fillAlpha = 0.18;
+    
+        // Лёгкая заливка каждого достижимого региона
+        ctx.save();
+        ctx.globalAlpha = fillAlpha;
+        ctx.fillStyle = '#6fcf39';
+        reachable.forEach(regionId => {
+            const polygon = this.mapVoronoi.cellPolygon(regionId);
+            if (!polygon) return;
+            this.drawRegionPath(ctx, polygon);
+            ctx.fill();
+        });
+        ctx.restore();
+    
+        // Единая чёткая граница по контуру всей достижимой зоны — через edgeMap, тем же принципом, что и у фракций
+        ctx.save();
+        ctx.strokeStyle = '#6fcf39';
+        ctx.lineWidth = borderWidth;
+        ctx.lineJoin = 'round';
+        this.edgeMap.forEach(edge => {
+            if (edge.regionIds.length < 2) return;
+            const [a, b] = edge.regionIds;
+            const aIn = reachable.has(a), bIn = reachable.has(b);
+            if (aIn === bIn) return; // либо обе стороны внутри зоны, либо обе снаружи — граница тут не нужна
+    
+            const segments = this.getNoisyLineSegments(edge.p1[0], edge.p1[1], edge.p2[0], edge.p2[1]);
+            ctx.beginPath();
+            segments.forEach((pt, k) => k === 0 ? ctx.moveTo(pt.x, pt.y) : ctx.lineTo(pt.x, pt.y));
+            ctx.stroke();
+        });
+        ctx.restore();
     }
 }
 // ═══════════════════════════════════════════════════════════
@@ -1165,7 +1291,34 @@ const MapInteraction = {
         }
     
         const region = this.terrain.regions[idx];
+    
+        // Состояние 1: армия уже выбрана — этот клик либо запрашивает движение, либо снимает выбор армии
+        if (this.selection.armyId) {
+            if (this.selection.reachableSet && this.selection.reachableSet.has(idx)) {
+                if (this.selection.onMoveRequest) this.selection.onMoveRequest(this.selection.armyId, idx);
+                this.interaction.clearSelection(); // после хода — снимаем выбор целиком, следующий клик начинается с чистого состояния
+                return null;
+            }
+            // клик мимо достижимой зоны — снимаем выбор армии, дальше обрабатываем этот же клик как обычный
+            this.selection.armyId = null;
+            this.selection.reachableSet = null;
+        }
+    
+        // Состояние 2: армии не выбрано — проверяем, есть ли своя армия в этом регионе
+        const armiesHere = this.armiesProvider ? this.armiesProvider().filter(a => a.regionId === region.id) : [];
+        const ownArmy = armiesHere.find(a => a.factionId === this.playerFactionId);
+    
+        if (ownArmy) {
+            this.selection.regionId = null;
+            this.selectArmy(ownArmy.id);
+            if (this.selection.onSelect) this.selection.onSelect(null); // сообщаем наружу, что регион не выбран
+            return null;
+        }
+    
+        // Обычный выбор региона — армии здесь нет (или её только что сняли выше)
         this.selection.regionId = region.id;
+        this.selection.armyId = null;
+        this.selection.reachableSet = null;
         this.scheduleRender();
     
         const regionData = this.getRegionData(region);
@@ -1174,8 +1327,10 @@ const MapInteraction = {
     },
     
     clearSelection() {
-        if (this.selection.regionId === null) return;
+        if (this.selection.regionId === null && this.selection.armyId === null) return;
         this.selection.regionId = null;
+        this.selection.armyId = null;
+        this.selection.reachableSet = null;
         this.scheduleRender();
     },
     
@@ -1505,8 +1660,55 @@ const MapFaction = {
             frontier = next;
         }
         return visible;
-    }
-
+    },
+    computeLabelPath(factionId) {
+        const owned = this.terrain.regions.filter(r => r.ownerId === factionId && !r.isWater);
+        if (!owned.length) return null;
+    
+        // центр масс
+        let cx = 0, cy = 0;
+        owned.forEach(r => { cx += r.x; cy += r.y; });
+        cx /= owned.length; cy /= owned.length;
+    
+        // главная ось через 2x2 матрицу ковариации (упрощённый PCA)
+        let sxx = 0, syy = 0, sxy = 0;
+        owned.forEach(r => {
+            const dx = r.x - cx, dy = r.y - cy;
+            sxx += dx * dx; syy += dy * dy; sxy += dx * dy;
+        });
+        const angle = 0.5 * Math.atan2(2 * sxy, sxx - syy);
+    
+        // приблизительная длина владений вдоль главной оси
+        let minProj = Infinity, maxProj = -Infinity;
+        owned.forEach(r => {
+            const proj = (r.x - cx) * Math.cos(angle) + (r.y - cy) * Math.sin(angle);
+            if (proj < minProj) minProj = proj;
+            if (proj > maxProj) maxProj = proj;
+        });
+        const length = maxProj - minProj;
+    
+        return { cx, cy, angle, length };
+    },
+    renderFactionLabels(ctx, zoomScale) {
+        if (!['factions', 'political'].includes(this.viewMode)) return;
+        if (!this.factions.list?.length) return;
+    
+        this.factions.list.forEach(faction => {
+            const path = this.factions.getLabelPath(faction.id);
+            if (!path || path.length < 15) return; // слишком маленькая территория — подпись не влезет разумно
+    
+            this.utils.drawCurvedLabel(ctx, faction.name.toUpperCase(), path.cx, path.cy, path.angle, path.length, zoomScale, {
+                fontSize: 9,
+                color: 'rgba(20, 15, 10, 0.85)',
+            });
+        });
+    },
+    getLabelPath(factionId) {
+        if (this.factions.labelPathCache.has(factionId)) return this.factions.labelPathCache.get(factionId);
+        const path = this.factions.computeLabelPath(factionId);
+        this.factions.labelPathCache.set(factionId, path);
+        return path;
+    },
 }
 
 const MapTerrain = {
@@ -1840,7 +2042,46 @@ const MapUtils = {
         const p = prefixes[Math.floor(this.utils.seededRandom() * prefixes.length)];
         const s = suffixes[Math.floor(this.utils.seededRandom() * suffixes.length)];
         return p + s;
-    }
+    },
+    drawCurvedLabel(ctx, text, cx, cy, angle, length, zoomScale, options = {}) {
+        const fontSize = (options.fontSize ?? 8) / zoomScale;
+        const curveStrength = options.curveStrength ?? 0.15; // 0 = прямая линия, выше = сильнее дуга
+        const letterSpacingScale = options.letterSpacing ?? 1.1;
+
+        ctx.save();
+        ctx.font = `bold ${fontSize}px serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = options.color ?? 'rgba(20, 15, 10, 0.85)';
+
+        // ширина текста для равномерного распределения по доступной длине
+        const totalTextWidth = [...text].reduce((sum, ch) => sum + ctx.measureText(ch).width * letterSpacingScale, 0);
+        const usableLength = Math.min(length * 0.85, totalTextWidth * 2.2); // не растягиваем текст сильнее, чем нужно
+
+        let cursor = -usableLength / 2;
+        const dx = Math.cos(angle), dy = Math.sin(angle);
+        const perpX = -dy, perpY = dx; // перпендикуляр к главной оси — для дуги
+
+        [...text].forEach(ch => {
+            const w = ctx.measureText(ch).width * letterSpacingScale;
+            const t = (cursor + w / 2) / (usableLength / 2 || 1); // -1..1 вдоль линии
+            const bow = curveStrength * length * 0.15 * (1 - t * t); // парабола — выгиб сильнее в центре
+
+            const px = cx + dx * (cursor + w / 2) + perpX * bow;
+            const py = cy + dy * (cursor + w / 2) + perpY * bow;
+            const letterAngle = angle + t * curveStrength * 0.6; // лёгкий поворот букв по ходу дуги
+
+            ctx.save();
+            ctx.translate(px, py);
+            ctx.rotate(letterAngle);
+            ctx.fillText(ch, 0, 0);
+            ctx.restore();
+
+            cursor += w;
+        });
+
+        ctx.restore();
+    },
 }
 // ═══════════════════════════════════════════════════════════
 // SECTION: MAP_DECORATIONS

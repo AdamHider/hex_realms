@@ -263,8 +263,25 @@
                     html += `<div>${a.id} — сила ${a.strength}</div>`;
                 });
             }
+            const player = game.factionsManager.getPlayer();
+            const canRecruit = player && game.armyManager.canRecruitAt(player.id, region.id);
+
+            if (canRecruit) {
+                html += `<button onclick="recruitHere(${region.id})" class="mt-1 px-2 py-1 bg-emerald-700 hover:bg-emerald-600 rounded text-xs">
+                    Нанять армию (💰${game.armyManager.recruitCost.gold} 👥${game.armyManager.recruitCost.manpower})
+                </button>`;
+            }
 
             panel.innerHTML = html;
+        }
+        function recruitHere(regionId) {
+            const player = game.factionsManager.getPlayer();
+            const result = game.armyManager.recruitArmy(player.id, regionId);
+            if (!result.success) {
+                alert('Не удалось нанять армию: ' + result.reason);
+                return;
+            }
+            showRegionPanel(game.mapGen.getRegionData(game.mapGen.terrain.regions[regionId]));
         }
         function updateHud() {
             const player = game.factionsManager.getPlayer();
@@ -275,6 +292,15 @@
             }
             document.getElementById('hudFactionsAlive').textContent =
                 `Фракций: ${game.factionsManager.getAlive().length}`;
+        }
+        function showArmyPanel(army) {
+            const actions = game.armyManager.getAvailableActions(army.id);
+            const panel = document.getElementById('armyPanel');
+            panel.innerHTML = `
+                <div>Армия ${army.id} (сила ${army.strength}), очков хода: ${army.actionPoints}</div>
+                ${actions.includes('capture') ? `<button onclick="game.armyManager.captureRegion('${army.id}')">Захватить</button>` : ''}
+                ${actions.includes('pillage') ? `<button onclick="game.armyManager.pillageRegion('${army.id}')">Разграбить</button>` : ''}
+            `;
         }
 
         document.getElementById('menuRandomSeed').addEventListener('change', (e) => {

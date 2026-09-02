@@ -22,6 +22,7 @@ class FactionsManager {
             name: mapFaction.name,
             color: mapFaction.color,
             capitalRegionId: mapFaction.capitalRegionId,
+            armies: mapFaction.armies || [], // ← добавить
             isPlayer,
             isAlive: true,
             personality: isPlayer ? null : this._randomPersonality(),

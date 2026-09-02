@@ -39,7 +39,12 @@ class Game {
             factions: { count: params.factionCount, names: params.factionNames || null },
             onSelect: (region) => this._handleRegionSelected(region),
         });
-
+        this.mapGen.selection.onMoveRequest = (armyId, targetRegionId) => {
+            const result = this.armyManager.moveArmy(armyId, targetRegionId);
+            if (result.success) {
+                this.mapGen.selectArmy(armyId); // пересчитываем достижимую зону от новой позиции
+            }
+        };
         const { regions, factions: mapFactions } = this.mapGen.create(params.seed);
 
         this.factionsManager = new FactionsManager(this, {
@@ -52,6 +57,9 @@ class Game {
         });
         this.armyManager.initFromFactions(enrichedFactions);
 
+        this.armyManager.resetActionPoints();
+        this.mapGen.setArmiesProvider(() => this.armyManager.list);
+        
         this.diplomacyManager = new DiplomacyManager(this, {
             onWarDeclared: (a, b) => { if (this.callbacks.onWarDeclared) this.callbacks.onWarDeclared(a, b); },
             onPeaceMade: (a, b) => { if (this.callbacks.onPeaceMade) this.callbacks.onPeaceMade(a, b); },
@@ -126,9 +134,11 @@ class Game {
     endTurn() {
         const summary = this.turnManager?.endTurn() ?? null;
         if (summary) {
+            this.armyManager.collectUpkeep();
+            this.armyManager.resetActionPoints();
             this.factionsManager.checkElimination(this.mapGen);
             this.diplomacyManager.tick();
-            this.aiManager.runTurn(); 
+            this.aiManager.runTurn();
         }
         return summary;
     }
