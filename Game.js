@@ -12,6 +12,7 @@ class Game {
 
         this.callbacks = {
             onRegionSelected: options.onRegionSelected || null,
+            onArmySelected: options.onArmySelected || null,
             onGameReady: options.onGameReady || null,
             onTurnEnd: options.onTurnEnd || null,
             onSeasonChange: options.onSeasonChange || null,
@@ -36,8 +37,10 @@ class Game {
             landAmount: params.landAmount,
             relief: params.relief,
             chaos: params.chaos,
+            viewMode: 'political',
             factions: { count: params.factionCount, names: params.factionNames || null },
             onSelect: (region) => this._handleRegionSelected(region),
+            onArmySelect: (army, reachableIds) => this._handleArmySelected(army, reachableIds),
         });
         this.mapGen.selection.onMoveRequest = (armyId, targetRegionId) => {
             const result = this.armyManager.moveArmy(armyId, targetRegionId);
@@ -58,7 +61,7 @@ class Game {
         this.armyManager.initFromFactions(enrichedFactions);
 
         this.armyManager.resetActionPoints();
-        this.mapGen.setArmiesProvider(() => this.armyManager.list);
+        this.mapGen.setArmiesProvider(() => this.armyManager.getArmiesSnapshot());
         
         this.diplomacyManager = new DiplomacyManager(this, {
             onWarDeclared: (a, b) => { if (this.callbacks.onWarDeclared) this.callbacks.onWarDeclared(a, b); },
@@ -90,7 +93,26 @@ class Game {
 
         this.aiManager = new AIManager(this, {
             onAIAction: (factionId, action, details) => {
-                if (this.callbacks.onAIAction) this.callbacks.onAIAction(factionId, action, details);
+                const faction = game.factionsManager.get(factionId);
+                const log = document.getElementById('aiLog');
+                log.classList.remove('hidden');
+            
+                const labels = {
+                    declare_war: 'объявила войну',
+                    make_peace: 'заключила мир с',
+                    recruit_army: 'наняла армию',
+                    capture_region: 'захватила территорию',
+                    move_army: 'двинула армию',
+                };
+            
+                let text = `${faction.name} ${labels[action]}`;
+                if (action === 'declare_war' || action === 'make_peace') {
+                    text += ' ' + game.factionsManager.get(details.target)?.name;
+                }
+            
+                const line = document.createElement('div');
+                line.textContent = text;
+                log.prepend(line);
             },
         });
         const playerFaction = this.factionsManager.getPlayer();
@@ -135,10 +157,10 @@ class Game {
         const summary = this.turnManager?.endTurn() ?? null;
         if (summary) {
             this.armyManager.collectUpkeep();
-            this.armyManager.resetActionPoints();
+            this.armyManager.resetActionPoints(); // сначала обновляем очки хода — ИИ должен видеть свежий запас
             this.factionsManager.checkElimination(this.mapGen);
             this.diplomacyManager.tick();
-            this.aiManager.runTurn();
+            this.aiManager.runTurn(); // теперь ИИ управляет армиями/наймом с актуальными очками
         }
         return summary;
     }
@@ -159,7 +181,11 @@ class Game {
     getDiplomacyStatus(a, b) { return this.diplomacyManager?.getStatus(a, b) ?? 'peace'; }
 
     _handleRegionSelected(region) {
+        if (!region) return;
         if (this.callbacks.onRegionSelected) this.callbacks.onRegionSelected(region, this.state);
+    }
+    _handleArmySelected(army, reachableIds) {
+        if (this.callbacks.onArmySelected) this.callbacks.onArmySelected(army, reachableIds, this.state);
     }
 
     setViewMode(mode) { this.mapGen?.setViewMode(mode); }

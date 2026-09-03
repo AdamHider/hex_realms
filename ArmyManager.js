@@ -8,6 +8,8 @@ class ArmyManager {
         this.reinforceCostPerStrength = options.reinforceCostPerStrength ?? { gold: 2, manpower: 1.5 };
         this.upkeepPerStrength = options.upkeepPerStrength ?? 0.3; // золото за очко силы за ход
 
+        this.rankThresholds = options.rankThresholds ?? [10, 25, 50, 90]; 
+
         this.callbacks = {
             onArmyMoved: options.onArmyMoved || null,
             onArmyRecruited: options.onArmyRecruited || null,
@@ -33,7 +35,7 @@ class ArmyManager {
             regionId,
             strength,
             actionPoints: 0,
-            assetVariant: 1 + Math.floor(Math.random() * (this.game.mapGen.armyAssets.variantCount || 1)),
+            assetVariant: 1 + Math.floor(Math.random() * this.game.mapGen.armyAssets.variantsPerRank),
         };
     }
 
@@ -43,6 +45,17 @@ class ArmyManager {
 
     getArmiesOf(factionId) {
         return this.list.filter(a => a.factionId === factionId);
+    }
+    getArmyRank(strength) {
+        let rank = 1;
+        for (const threshold of this.rankThresholds) {
+            if (strength >= threshold) rank++;
+            else break;
+        }
+        return Math.min(rank, 5);
+    }
+    getArmiesSnapshot() {
+        return this.list.map(army => ({ ...army, rank: this.getArmyRank(army.strength) }));
     }
 
     // ── Найм / пополнение — только на своей территории ──
@@ -107,18 +120,21 @@ class ArmyManager {
     canMoveTo(armyId, targetRegionId) {
         const army = this.list.find(a => a.id === armyId);
         if (!army || army.actionPoints <= 0) return false;
-
+        if (army.regionId === targetRegionId) return false;
+    
         const mapGen = this.game.mapGen;
-        const neighbors = mapGen.regionNeighbors?.[army.regionId] || [];
-        if (!neighbors.includes(targetRegionId)) return false;
-
         const targetRegion = mapGen.terrain.regions[targetRegionId];
         if (!targetRegion || targetRegion.isWater) return false;
-
-        // если в целевом регионе стоит армия другой живой фракции — движение блокируется (нужен отдельный экшен боя, вне текущего скоупа)
-        const enemyThere = this.getArmiesAt(targetRegionId).some(a => a.factionId !== army.factionId);
-        if (enemyThere) return false;
-
+    
+        // проверяем через тот же BFS, что и подсветка зоны — targetRegionId должен быть среди достижимых
+        const reachable = mapGen.computeReachableRegions(army);
+        if (!reachable.has(targetRegionId)) return false;
+    
+        // проверка на занятость вражеской армией — переносим сюда из старой логики
+        const occupiedByEnemy = mapGen.armiesProvider &&
+            mapGen.armiesProvider().some(a => a.regionId === targetRegionId && a.factionId !== army.factionId);
+        if (occupiedByEnemy) return false;
+    
         return true;
     }
 
