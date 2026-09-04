@@ -35,7 +35,7 @@ class ArmyManager {
             regionId,
             strength,
             actionPoints: 0,
-            assetVariant: 1 + Math.floor(Math.random() * this.game.mapGen.armyAssets.variantsPerRank),
+            assetVariant: 1 + Math.floor(Math.random() * this.game.mapGen.armies.assets.variantsPerRank),
         };
     }
 
@@ -127,7 +127,7 @@ class ArmyManager {
         if (!targetRegion || targetRegion.isWater) return false;
     
         // проверяем через тот же BFS, что и подсветка зоны — targetRegionId должен быть среди достижимых
-        const reachable = mapGen.computeReachableRegions(army);
+        const reachable = mapGen.armies.computeReachable(army);
         if (!reachable.has(targetRegionId)) return false;
     
         // проверка на занятость вражеской армией — переносим сюда из старой логики
@@ -144,54 +144,22 @@ class ArmyManager {
         const army = this.list.find(a => a.id === armyId);
         const fromRegionId = army.regionId;
         army.regionId = targetRegionId;
-        army.actionPoints = 0; // весь ход считается использованным, независимо от пройденной дистанции
+        army.actionPoints = 0;
     
-        if (this.callbacks.onArmyMoved) this.callbacks.onArmyMoved(army, fromRegionId, targetRegionId);
+        this.game.mapGen.armies.animations.move(armyId, fromRegionId, targetRegionId); // ← новое
+        
+    
+        if (this.callbacks.onArmyMoved) {
+            this.resolveOccupations();
+            this.callbacks.onArmyMoved(army, fromRegionId, targetRegionId);
+        }
         this.game.mapGen.scheduleRender();
         return { success: true, army };
     }
 
     // ── Действия на вражеской/нейтральной territории: захват / разграбление ──
 
-    getAvailableActions(armyId) {
-        const army = this.list.find(a => a.id === armyId);
-        if (!army || army.actionPoints <= 0) return [];
     
-        const region = this.game.mapGen.terrain.regions[army.regionId];
-        if (!region || region.ownerId === army.factionId) return [];
-    
-        const actions = [];
-        if (region.ownerId === null || region.ownerId === undefined) actions.push('capture');
-        // pillage требует занятой чужой территории — пока недоступно, раз бой ещё не реализован; оставляю задел:
-        // else actions.push('pillage');
-    
-        return actions;
-    }
-    captureRegion(armyId) {
-        const army = this.list.find(a => a.id === armyId);
-        if (!army || army.actionPoints <= 0) return { success: false, reason: 'no_action_points' };
-    
-        const mapGen = this.game.mapGen;
-        const region = mapGen.terrain.regions[army.regionId];
-        if (!region) return { success: false, reason: 'invalid_target' };
-    
-        // пока разрешаем захват только нейтральной (ничейной) территории — вражеские регионы не берутся до системы боя
-        if (region.ownerId !== null && region.ownerId !== undefined) {
-            return { success: false, reason: 'not_neutral' };
-        }
-    
-        region.ownerId = army.factionId;
-        army.actionPoints = 0;
-    
-        this._refreshFactionOwnedRegions(army.factionId);
-    
-        mapGen.factions.labelPathCache?.delete(army.factionId);
-        mapGen.markDirty('terrain', 'political', 'fog');
-        mapGen.render();
-    
-        if (this.callbacks.onRegionCaptured) this.callbacks.onRegionCaptured(army, region, null);
-        return { success: true, region };
-    }
 
     pillageRegion(armyId) {
         const army = this.list.find(a => a.id === armyId);
@@ -233,5 +201,61 @@ class ArmyManager {
             if (faction) faction.treasury.gold -= cost;
         });
         return upkeepByFaction;
+    }
+    // в ArmyManager:
+    resolveOccupations() {
+        const mapGen = this.game.mapGen;
+        const capturedRegions = [];
+        
+        mapGen.terrain.regions.forEach(region => {
+            if (region.isWater) return;
+
+            const occupierId = this._findOccupierAt(region.id);
+            if(occupierId === 0){
+                console.log(region.id)
+            }
+            if (region.occupiedBy !== null && region.occupiedBy === occupierId) {
+                const previousOwner = region.ownerId;
+                region.ownerId = occupierId;
+                region.occupiedBy = null;
+
+                this._refreshFactionOwnedRegions(previousOwner);
+                this._refreshFactionOwnedRegions(occupierId);
+                mapGen.factions.labelPathCache?.delete(occupierId);
+                if (previousOwner !== null) mapGen.factions.labelPathCache?.delete(previousOwner);
+
+                capturedRegions.push({ regionId: region.id, factionId: occupierId, previousOwner });
+                if (this.callbacks.onRegionCaptured) this.callbacks.onRegionCaptured(null, region, previousOwner);
+                return;
+            }
+
+            // Иначе — просто обновляем текущее состояние оккупации (новая, сменившаяся, или снятая)
+            region.occupiedBy = occupierId;
+        });
+
+        if (capturedRegions.length) {
+            mapGen.markDirty('terrain', 'political', 'fog');
+        }
+        mapGen.render();
+        return capturedRegions;
+    }
+
+    // Кто оккупирует регион прямо сейчас — по факту стоящих там армий
+    _findOccupierAt(regionId) {
+        const region = this.game.mapGen.terrain.regions[regionId];
+        if (!region) return null;
+
+        const armiesHere = this.getArmiesAt(regionId);
+        if (!armiesHere.length) return null;
+
+        const foreignArmies = armiesHere.filter(a => a.factionId !== region.ownerId);
+        if (!foreignArmies.length) return null;
+
+        // если стоят армии нескольких разных чужих фракций одновременно — оккупации нет (спорная территория),
+        // это заготовка под будущий бой между ними
+        const distinctFactions = new Set(foreignArmies.map(a => a.factionId));
+        if (distinctFactions.size > 1) return null;
+
+        return foreignArmies[0].factionId;
     }
 }

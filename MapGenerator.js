@@ -59,7 +59,6 @@ class MapGenerator {
             _handleMouseUp: MapInteraction._handleMouseUp.bind(this),
             _handleMouseMove: MapInteraction._handleMouseMove.bind(this),
             selectRegionAt: MapInteraction.selectRegionAt.bind(this),
-            clearSelection: MapInteraction.clearSelection.bind(this)
         }
 
         this.selection = {
@@ -68,11 +67,14 @@ class MapGenerator {
             color: '#fff200',
             onSelect: options.onSelect || null,
             onArmySelect: options.onArmySelect || null,
+            render: MapSelection.renderSelection.bind(this),
+            clear: MapSelection.clearSelection.bind(this),
+            renderLabel: MapSelection.renderLabel.bind(this),
         };
 
         this.factions = {
             config: options.factions || { count: 0 },
-            startHops: options.startHops ?? 2,
+            startHops: options.startHops ?? 1,
             capitalPopulation: options.capitalPopulation ?? 120,
             populationDecay: options.populationDecay ?? 0.62,
             colors: { 
@@ -84,11 +86,11 @@ class MapGenerator {
                 neutral: 'rgba(148, 163, 184, 0)'
             },
             diplomacyColors: {
-                player: '#facc15',   // жёлтый
-                war: '#ef4444',      // красный
-                alliance: '#3b82f6', // синий
-                peace: '#94a3b8',    // нейтральный серый — не враг, не друг, не игрок
-                neutral: 'rgba(148, 163, 184, 0)', // ничейная территория — как было
+                player: '#facc15',
+                war: '#ef4444',
+                alliance: '#3b82f6',
+                peace: '#94a3b8',
+                neutral: 'rgba(148, 163, 184, 0)',
             },
             getTotal: MapFaction.getTotal.bind(this),
             pickCapitals: MapFaction.pickCapitals.bind(this),
@@ -118,7 +120,10 @@ class MapGenerator {
                 edgeRoughness: options.edgeRoughness || 0.42,
                 edgeDepth: options.edgeDepth || 5
             },
-            regions: [],
+            regions: {
+                all: [],
+                render: MapTerrain.renderRegions.bind(this)
+            },
             createTemperatures: MapTerrain.createTemperatures.bind(this),
             createRegions: MapTerrain.createRegions.bind(this),
             addBlob: MapTerrain.addBlob.bind(this),
@@ -176,13 +181,12 @@ class MapGenerator {
                 FOREST:       { count: [2, 3], keys: ['palm_cluster'], sizePct: [0.3, 0.4]  },
                 DENSE_FOREST: { count: [3, 4], keys: ['palm_cluster'], sizePct: [0.3, 0.4]  },
                 WOODLAND:     { count: [5, 6], keys: ['palm_lone'], sizePct: [0.3, 0.4]  },
-                // сухие безлесные биомы в жаркой зоне логично отдать под пустыню:
-                WETLANDS:  { count: [1, 2], keys: ['palm_lone'], sizePct: [0.3, 0.4] },
+                WETLANDS:     { count: [1, 2], keys: ['palm_lone'], sizePct: [0.3, 0.4] },
             },
             waterSets: {
-                DEEP_OCEAN: { count: [1, 2], keys: ['wave'], sizePct: [0.7, 0.8] },
-                OCEAN:      { count: [1, 2], keys: ['wave'], sizePct: [0.7, 0.8] },
-                SHALLOW:    { count: [1, 2], keys: ['wave'], sizePct: [0.7, 0.8] },
+                DEEP_OCEAN:   { count: [1, 2], keys: ['wave'], sizePct: [0.7, 0.8] },
+                OCEAN:        { count: [1, 2], keys: ['wave'], sizePct: [0.7, 0.8] },
+                SHALLOW:      { count: [1, 2], keys: ['wave'], sizePct: [0.7, 0.8] },
             },
             variantsPerKey: {
                 grass_tuft: 3, tree_lone: 3, tree_cluster: 3, tree_snow: 3,  tree_snow_cluster: 3,
@@ -196,7 +200,6 @@ class MapGenerator {
                 variantCount: 4,
                 alpha: options.textureAlpha ?? 0.5,
             },
-            // методы
             loadAssets: MapDecorations._loadAssets.bind(this),
             shrinkPolygon: MapDecorations.shrinkPolygon.bind(this),
             pointInPolygon: MapDecorations.pointInPolygon.bind(this),
@@ -212,22 +215,30 @@ class MapGenerator {
         if (this.decorations.textures.enabled) this.decorations.loadTextures();
 
         this.armies = {
-            computeReachableRegions: MapArmies.computeReachableRegions.bind(this),
-            selectArmy: MapArmies.selectArmy.bind(this),
+            animations: {
+                all: new Map(),
+                duration: options.armyAnimDuration ?? 400,
+                move: MapArmies.moveAnimation.bind(this),
+                runLoop: MapArmies.runAnimationLoop.bind(this),
+            },
+            assets: {
+                ready: false,
+                images: {}, 
+                basePath: options.armyAssetsPath || 'icons/',
+                ranks: options.armyRanks ?? 5,
+                variantsPerRank: options.armyVariantsPerRank ?? 3,
+            },
+            computeReachable: MapArmies.computeReachable.bind(this),
+            select: MapArmies.select.bind(this),
+            render: MapArmies.render.bind(this),
             renderReachableArea: MapArmies.renderReachableArea.bind(this),
-            renderArmies: MapArmies.renderArmies.bind(this),
+            loadAssets: MapArmies.loadAssets.bind(this),
+            renderOccupationHatching: MapArmies.renderOccupationHatching.bind(this)
         }
 
-        this.armyAssets = {
-            ready: false,
-            images: {}, // ключ вида "3_2" — ранг 3, вариант 2
-            basePath: options.armyAssetsPath || 'icons/',
-            ranks: options.armyRanks ?? 5,
-            variantsPerRank: options.armyVariantsPerRank ?? 3, // army_{rank}_1.png .. army_{rank}_3.png
-        };
-        this._loadArmyAssets();
-
         this._initConfig();
+
+        this.armies.loadAssets();
 
         if (this.canvas) {
             this.interaction.initEvents();
@@ -353,24 +364,15 @@ class MapGenerator {
             },
         };
         this.seasonOrder = Object.keys(this.seasons);
-    }
-    _loadArmyAssets() {
-        const loaders = [];
-        for (let rank = 1; rank <= this.armyAssets.ranks; rank++) {
-            for (let v = 1; v <= this.armyAssets.variantsPerRank; v++) {
-                loaders.push(new Promise(resolve => {
-                    const img = new Image();
-                    const key = `${rank}_${v}`;
-                    img.onload = () => { this.armyAssets.images[key] = img; resolve(); };
-                    img.onerror = () => resolve();
-                    img.src = `${this.armyAssets.basePath}army_${key}.png`;
-                }));
-            }
-        }
-        Promise.all(loaders).then(() => {
-            this.armyAssets.ready = true;
-            this.scheduleRender();
-        });
+        this.specializationDefs = [
+            { id: 'NONE', label: 'Нет', modifiers: {} },
+            { id: 'AGRICULTURE', label: 'Сельское хозяйство', modifiers: { food: 1.5, production: 0.8 } },
+            { id: 'INDUSTRY', label: 'Промышленность', modifiers: { production: 1.5, food: 0.8 } },
+            { id: 'TRADE', label: 'Торговля', modifiers: { gold: 1.5, production: 0.8, food: 0.8 } },
+        ];
+        
+        this.specializationsMap = {};
+        this.specializationDefs.forEach(s => { this.specializationsMap[s.id] = s; });
     }
     // ═══════════════════════════════════════════════════════════
     // SECTION: MAP_GEOMETRY
@@ -432,7 +434,7 @@ class MapGenerator {
             const b = `${Math.round(p2[0] * 10)},${Math.round(p2[1] * 10)}`;
             return a < b ? `${a}|${b}` : `${b}|${a}`;
         }
-        for (let i = 0; i < this.terrain.regions.length; i++) {
+        for (let i = 0; i < this.terrain.regions.all.length; i++) {
             const polygon = this.mapVoronoi.cellPolygon(i);
             if (!polygon) continue;
             for (let j = 0; j < polygon.length - 1; j++) {
@@ -448,7 +450,7 @@ class MapGenerator {
     // ═══════════════════════════════════════════════════════════
     // SECTION: MAP_SETUP
     // Точка входа первичного этапа: собирает terrain + факции
-    // в this.terrain.regions, кэширует edgeMap. create() — публичная
+    // в this.terrain.regions.all, кэширует edgeMap. create() — публичная
     // обёртка, которая сразу же вызывает первый render() и отдаёт
     // наружу данные для дальнейшей динамической синхронизации.
     // ═══════════════════════════════════════════════════════════
@@ -473,6 +475,9 @@ class MapGenerator {
             id: i, x: s.x, y: s.y, elevation: 0, t: 0, biome: 'OCEAN', biomeBand: 'OCEAN',
             biomeClimate: 'OCEAN', biomeNeutral: 'OCEAN', climateZone: null, isWater: true, city: null,
             ownerId: null,
+            occupiedBy: null,
+            specialization: 'NONE',
+            pendingSpecialization: null,
         }));
 
         const points = new Float64Array(regions.length * 2);
@@ -534,7 +539,7 @@ class MapGenerator {
         this.factions.settle(regions, neighbors);
         this.factions.labelPathCache = new Map();
 
-        this.terrain.regions = regions;
+        this.terrain.regions.all = regions;
         this.mapVoronoi = voronoi;
         this.edgeMap = this.createEdgeMap();
         this.regionNeighbors = neighbors;
@@ -566,23 +571,24 @@ class MapGenerator {
     }
     
     getRegionsData() {
-        return this.terrain.regions.map(region => this.getRegionData(region));
+        return this.terrain.regions.all.map(region => this.getRegionData(region));
     }
 
     getFactionsData() {
         return this.factions.list || [];
     }
-
     getRegionResources(region, season = this.currentSeason) {
         const base = this.biomeResourceBase[region.biomeBand];
         if (!base) return null;
-
+    
         const zone = region.climateZone || 'temperate';
         const mod = this.seasons[season].modifiers[zone];
-
+        const specMod = this.specializationsMap[region.specialization]?.modifiers || {};
+    
         const result = {};
         for (const key of Object.keys(base)) {
-            const value = base[key] * (mod[key] ?? 1);
+            let value = base[key] * (mod[key] ?? 1);
+            if (key !== 'upkeep') value *= (specMod[key] ?? 1); // специализация не трогает upkeep
             result[key] = key === 'upkeep' ? -Math.abs(value) : value;
         }
         if (region.city) {
@@ -596,7 +602,7 @@ class MapGenerator {
         const totals = { food: 0, production: 0, manpower: 0, gold: 0, upkeep: 0 };
         let regionCount = 0;
     
-        this.terrain.regions.forEach(region => {
+        this.terrain.regions.all.forEach(region => {
             if (region.ownerId !== factionId) return;
             const res = this.getRegionResources(region);
             if (!res) return;
@@ -620,7 +626,7 @@ class MapGenerator {
     }
     getSelectedRegion() {
         if (this.selection.regionId === null) return null;
-        const region = this.terrain.regions[this.selection.regionId];
+        const region = this.terrain.regions.all[this.selection.regionId];
         return region ? this.getRegionData(region) : null;
     }
     setViewMode(mode){
@@ -649,10 +655,26 @@ class MapGenerator {
     setArmiesProvider(fn) {
         this.armiesProvider = fn;
     }
+    setRegionSpecialization(regionId, specializationId) {
+        if (!this.specializationsMap[specializationId]) return false;
+        const region = this.terrain.regions.all[regionId];
+        if (!region || region.isWater) return false;
+    
+        region.pendingSpecialization = specializationId;
+        return true;
+    }
+    applyPendingSpecializations() {
+        this.terrain.regions.all.forEach(region => {
+            if (region.pendingSpecialization !== null) {
+                region.specialization = region.pendingSpecialization;
+                region.pendingSpecialization = null;
+            }
+        });
+    }
 
     // ═══════════════════════════════════════════════════════════
     // SECTION: MAP_RENDER
-    // Второй этап: перекладывает уже готовые this.terrain.regions на canvas.
+    // Второй этап: перекладывает уже готовые this.terrain.regions.all на canvas.
     // Ничего не мутирует в данных — вызывается на каждую смену
     // сезона/слоя/фильтра без повторного setup().
     // ═══════════════════════════════════════════════════════════
@@ -686,6 +708,7 @@ class MapGenerator {
         this.ctx.save();
         this.ctx.translate(this.viewTransform.x, this.viewTransform.y);
         this.ctx.scale(this.viewTransform.scale, this.viewTransform.scale);
+        this.armies.renderOccupationHatching(this.ctx);
         this.renderDynamicObjects(this.ctx, this.viewTransform.scale);
         this.ctx.restore();
     }
@@ -706,19 +729,20 @@ class MapGenerator {
         this.ctx.translate(this.viewTransform.x, this.viewTransform.y);
         this.ctx.scale(this.viewTransform.scale, this.viewTransform.scale);
     
-        this.renderRegions(this.ctx, visibleRect);
+        this.terrain.regions.render(this.ctx, visibleRect);
         this.paintCoastline(this.ctx, visibleRect);
         this.decorations.paintTextures(this.ctx, visibleRect);
         this.decorations.paint(this.ctx, visibleRect);
         this.factions.drawBorders(this.ctx, this.viewTransform.scale, visibleRect);
+        this.armies.renderOccupationHatching(this.ctx, visibleRect);
         this.renderDynamicObjects(this.ctx, this.viewTransform.scale);
-        this.renderSelectedRegionLabel(this.ctx, this.viewTransform.scale);
+        this.selection.renderLabel(this.ctx, this.viewTransform.scale);
         
         if (this.fogEnabled && this.playerFactionId !== null && this.playerFactionId !== undefined) {
             const visible = this.factions.computeVisibility(this.playerFactionId, this.fogVisionHops ?? 2);
-            for (let i = 0; i < this.terrain.regions.length; i++) {
+            for (let i = 0; i < this.terrain.regions.all.length; i++) {
                 if (visible[i]) continue;
-                const region = this.terrain.regions[i];
+                const region = this.terrain.regions.all[i];
                 if (visibleRect && !this.bboxIntersects(region.bbox, visibleRect)) continue;
                 const polygon = this.mapVoronoi.cellPolygon(i);
                 if (!polygon) continue;
@@ -733,78 +757,19 @@ class MapGenerator {
         const visibleCount = this.countVisibleRegions(visibleRect);
         this.viewLevel = visibleCount <= this.sharpRegionBudget ? 'detail' : 'overview';
     }
-    renderSelectedRegionLabel(ctx, zoomScale) {
-        if (this.selection.regionId === null) return;
-        if (this.viewMode === 'factions') return;
     
-        const region = this.terrain.regions[this.selection.regionId];
-        if (!region || region.isWater) return;
-    
-        const playerVisible = this.fogEnabled && this.playerFactionId !== null && this.playerFactionId !== undefined
-            ? this.factions.computeVisibility(this.playerFactionId, this.fogVisionHops ?? 2)
-            : null;
-        if (playerVisible && !playerVisible[region.id]) return;
-    
-        const path = region.labelPath;
-        if (!path || path.length < 4) return; // слишком маленький регион — подпись не влезет разумно
-    
-        // название — растянутое вдоль главной оси региона
-        this.utils.drawCurvedLabel(ctx, region.name, path.cx, path.cy, path.angle, path.length, zoomScale, {
-            fontSize: 5,
-            curveStrength: 0.1,
-            color: 'rgba(20, 15, 10, 0.9)',
-        });
-        // ресурсы — отдельной строкой ниже, обычным (не изогнутым) текстом, для читаемости
-        const res = this.getRegionResources(region);
-        if (!res) return;
-    
-        const fontSize = 4 / zoomScale;
-        ctx.save();
-        ctx.font = `${fontSize}px sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.fillStyle = 'rgba(20, 15, 10, 0.85)';
-        ctx.fillText(`🌾${res.food.toFixed(1)} ⚙️${res.production.toFixed(1)}`, region.x, region.y + fontSize * 2.2);
-        ctx.restore();
-    }
     renderDynamicObjects(ctx, zoomScale) {
         this.renderCities(ctx, zoomScale);
         this.armies.renderReachableArea(ctx, zoomScale);
-        this.renderSelection(ctx, zoomScale);
+        this.selection.render(ctx, zoomScale);
         this.armies.render(ctx, zoomScale);
     }
     
-    renderRegions(ctx, visibleRect = null) {
-        const resourceRange = ['food', 'gold', 'production', 'manpower'].includes(this.viewMode)
-        ? this.color.getResourceRange(this.viewMode)
-        : null;
-
-        for (let i = 0; i < this.terrain.regions.length; i++) {
-            const polygon = this.mapVoronoi.cellPolygon(i);
-            if (!polygon) continue;
-
-            const region = this.terrain.regions[i];
-            if (visibleRect && !this.bboxIntersects(region.bbox, visibleRect)) continue;
-            ctx.fillStyle = this.color.getBase(region, resourceRange);
-            ctx.strokeStyle = this.viewMode === 'factions' ? 'rgba(0, 0, 0, 0.25)' : 'rgba(2, 44, 44, 0.25)';
-            ctx.lineWidth = 0.1;
-
-            this.drawRegionPath(ctx, polygon);
-            ctx.fill();
-            ctx.stroke();
-
-            if (region.ownerId !== null && region.ownerId !== undefined && this.factions.list?.[region.ownerId]) {
-                ctx.save();
-                ctx.globalAlpha = this.viewMode === 'factions' ? 0.65 : (this.viewMode === 'political') ? 0.52 : 0;
-                ctx.fillStyle = this.factions.list[region.ownerId].color;
-                ctx.fill();
-                ctx.restore();
-            }
-        }
-    }
+    
     
     renderCities(ctx, zoomScale = 1) {
         const r = 2.5 / zoomScale;
-        this.terrain.regions.forEach(region => {
+        this.terrain.regions.all.forEach(region => {
             if (region.city) {
                 ctx.fillStyle = '#facc15';
                 ctx.beginPath();
@@ -858,7 +823,7 @@ class MapGenerator {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, this.layers.terrain.canvas.width, this.layers.terrain.canvas.height);
         ctx.scale(this.mapLayerScale, this.mapLayerScale);
-        this.renderRegions(ctx);
+        this.terrain.regions.render(ctx);
         this.paintCoastline(ctx);
         this.decorations.paintTextures(ctx);
         this.decorations.paint(ctx);
@@ -889,7 +854,7 @@ class MapGenerator {
         ctx.scale(this.mapLayerScale, this.mapLayerScale);
         const visible = this.factions.computeVisibility(playerFactionId, this.fogVisionHops ?? 2);
     
-        for (let i = 0; i < this.terrain.regions.length; i++) {
+        for (let i = 0; i < this.terrain.regions.all.length; i++) {
             if (visible[i]) continue; // видимые регионы не затемняем
             const polygon = this.mapVoronoi.cellPolygon(i);
             if (!polygon) continue;
@@ -916,7 +881,7 @@ class MapGenerator {
             }
             if (edge.regionIds.length < 2) return;
             const [a, b] = edge.regionIds;
-            const ra = this.terrain.regions[a], rb = this.terrain.regions[b];
+            const ra = this.terrain.regions.all[a], rb = this.terrain.regions.all[b];
             if (ra.isWater === rb.isWater) return; // рисуем линию только там, где по одну сторону суша, по другую вода
     
             const segments = this.getNoisyLineSegments(edge.p1[0], edge.p1[1], edge.p2[0], edge.p2[1]);
@@ -933,30 +898,15 @@ class MapGenerator {
     }
     countVisibleRegions(visibleRect) {
         let count = 0;
-        for (let i = 0; i < this.terrain.regions.length; i++) {
-            if (this.bboxIntersects(this.terrain.regions[i].bbox, visibleRect)) count++;
+        for (let i = 0; i < this.terrain.regions.all.length; i++) {
+            if (this.bboxIntersects(this.terrain.regions.all[i].bbox, visibleRect)) count++;
         }
         return count;
     }
-    renderSelection(ctx, zoomScale) {
-        if (this.selection.regionId === null) return;
-        const region = this.terrain.regions[this.selection.regionId];
-        if (!region) return;
     
-        const polygon = this.mapVoronoi.cellPolygon(region.id);
-        if (!polygon) return;
     
-        ctx.save();
-        ctx.lineWidth = 3 / zoomScale;
-        ctx.strokeStyle = this.selection.color;
-        ctx.shadowColor = this.selection.color;
-        ctx.shadowBlur = 4 / zoomScale;
-        this.drawRegionPath(ctx, polygon);
-        ctx.stroke();
-        ctx.restore();
-    }
     focusOnRegion(regionId, targetScale = 2.5) {
-        const region = this.terrain.regions[regionId];
+        const region = this.terrain.regions.all[regionId];
         if (!region) return;
     
         const scale = Math.min(this.maxScale, Math.max(this.minScale, targetScale));
@@ -1050,7 +1000,7 @@ const MapColor = {
     },
     getResourceRange(key) {
         let min = Infinity, max = -Infinity;
-        this.terrain.regions.forEach(region => {
+        this.terrain.regions.all.forEach(region => {
             const res = this.getRegionResources(region);
             if (!res) return;
             const v = res[key];
@@ -1123,7 +1073,7 @@ const MapInteraction = {
                lines.map(l => `<div>${l}</div>`).join('');
     },
     handlePointerAt(clientX, clientY) {
-        if (!this.terrain.regions.length) return;
+        if (!this.terrain.regions.all.length) return;
         const rect = this.canvas.getBoundingClientRect();
         const scaleX = this.canvas.width / rect.width;
         const scaleY = this.canvas.height / rect.height;
@@ -1135,15 +1085,15 @@ const MapInteraction = {
 
         if (wx < 0 || wy < 0 || wx > this.width || wy > this.height) { this.interaction.hideTooltip(); return; }
 
-        const idx = this.terrain.findNeighbor(this.terrain.regions, wx, wy);
+        const idx = this.terrain.findNeighbor(this.terrain.regions.all, wx, wy);
         if (idx === -1) { this.hideTooltip(); return; }
-        this.tooltip.innerHTML = this.interaction.describeRegion(this.terrain.regions[idx]);
+        this.tooltip.innerHTML = this.interaction.describeRegion(this.terrain.regions.all[idx]);
         this.tooltip.style.left = (clientX + 16) + 'px';
         this.tooltip.style.top = (clientY + 16) + 'px';
         this.tooltip.classList.remove('hidden');
     },
     selectRegionAt(clientX, clientY) {
-        if (!this.terrain.regions.length) return null;
+        if (!this.terrain.regions.all.length) return null;
     
         const rect = this.canvas.getBoundingClientRect();
         const scaleX = this.canvas.width / rect.width;
@@ -1155,17 +1105,17 @@ const MapInteraction = {
         const wy = (py - this.viewTransform.y) / this.viewTransform.scale;
     
         if (wx < 0 || wy < 0 || wx > this.width || wy > this.height) {
-            this.interaction.clearSelection();
+            this.selection.clear();
             return null;
         }
     
-        const idx = this.terrain.findNeighbor(this.terrain.regions, wx, wy);
+        const idx = this.terrain.findNeighbor(this.terrain.regions.all, wx, wy);
         if (idx === -1) {
-            this.interaction.clearSelection();
+            this.selection.clear();
             return null;
         }
     
-        const region = this.terrain.regions[idx];
+        const region = this.terrain.regions.all[idx];
         const wasArmySelected = this.selection.armyId;
         const previousArmyRegionId = wasArmySelected
             ? this.armiesProvider?.().find(a => a.id === this.selection.armyId)?.regionId
@@ -1175,7 +1125,7 @@ const MapInteraction = {
         if (wasArmySelected) {
             if (this.selection.reachableSet && this.selection.reachableSet.has(idx)) {
                 if (this.selection.onMoveRequest) this.selection.onMoveRequest(this.selection.armyId, idx);
-                this.interaction.clearSelection();
+                this.selection.clear();
                 return null;
             }
             // снимаем армию безусловно
@@ -1201,7 +1151,7 @@ const MapInteraction = {
     
         if (ownArmy) {
             this.selection.regionId = null;
-            this.armies.selectArmy(ownArmy.id);
+            this.armies.select(ownArmy.id);
             return null;
         }
     
@@ -1214,15 +1164,6 @@ const MapInteraction = {
         if (this.selection.onSelect) this.selection.onSelect(regionData);
         return regionData;
     },
-    
-    clearSelection() {
-        if (this.selection.regionId === null && this.selection.armyId === null) return;
-        this.selection.regionId = null;
-        this.selection.armyId = null;
-        this.selection.reachableSet = null;
-        this.scheduleRender();
-    },
-    
     _handleWheel(e) {
         e.preventDefault();
         const rect = this.canvas.getBoundingClientRect();
@@ -1471,7 +1412,7 @@ const MapFaction = {
         this.edgeMap.forEach(edge => {
             if (edge.regionIds.length < 2) return;
             const [a, b] = edge.regionIds;
-            const regionA = this.terrain.regions[a], regionB = this.terrain.regions[b];
+            const regionA = this.terrain.regions.all[a], regionB = this.terrain.regions.all[b];
             
             if (regionA.ownerId === regionB.ownerId) return;
 
@@ -1507,16 +1448,16 @@ const MapFaction = {
         const count = this.factions.list.length;
         const adjacency = Array.from({ length: count }, () => new Set());
     
-        for (let i = 0; i < this.terrain.regions.length; i++) {
-            const ownerI = this.terrain.regions[i].ownerId;
+        for (let i = 0; i < this.terrain.regions.all.length; i++) {
+            const ownerI = this.terrain.regions.all[i].ownerId;
             if (ownerI === null || ownerI === undefined) continue;
         }
     
         this.edgeMap.forEach(edge => {
             if (edge.regionIds.length < 2) return;
             const [a, b] = edge.regionIds;
-            const ownerA = this.terrain.regions[a].ownerId;
-            const ownerB = this.terrain.regions[b].ownerId;
+            const ownerA = this.terrain.regions.all[a].ownerId;
+            const ownerB = this.terrain.regions.all[b].ownerId;
             if (ownerA === null || ownerB === null || ownerA === undefined || ownerB === undefined) return;
             if (ownerA === ownerB) return;
             adjacency[ownerA].add(ownerB);
@@ -1530,12 +1471,12 @@ const MapFaction = {
         return adjacency[factionId] ? [...adjacency[factionId]] : [];
     },
     computeVisibility(factionId, visionHops = 1) {
-        const n = this.terrain.regions.length;
+        const n = this.terrain.regions.all.length;
         const visible = new Uint8Array(n);
         if (factionId === null || factionId === undefined) return visible;
     
         let frontier = [];
-        this.terrain.regions.forEach((r, i) => {
+        this.terrain.regions.all.forEach((r, i) => {
             if (r.ownerId === factionId) { visible[i] = 1; frontier.push(i); }
         });
     
@@ -1551,7 +1492,7 @@ const MapFaction = {
         return visible;
     },
     computeLabelPath(factionId) {
-        const owned = this.terrain.regions.filter(r => r.ownerId === factionId && !r.isWater);
+        const owned = this.terrain.regions.all.filter(r => r.ownerId === factionId && !r.isWater);
         if (!owned.length) return null;
     
         // центр масс
@@ -1601,6 +1542,34 @@ const MapFaction = {
 }
 
 const MapTerrain = {
+    renderRegions(ctx, visibleRect = null) {
+        const resourceRange = ['food', 'gold', 'production', 'manpower'].includes(this.viewMode)
+        ? this.color.getResourceRange(this.viewMode)
+        : null;
+
+        for (let i = 0; i < this.terrain.regions.all.length; i++) {
+            const polygon = this.mapVoronoi.cellPolygon(i);
+            if (!polygon) continue;
+
+            const region = this.terrain.regions.all[i];
+            if (visibleRect && !this.bboxIntersects(region.bbox, visibleRect)) continue;
+            ctx.fillStyle = this.color.getBase(region, resourceRange);
+            ctx.strokeStyle = this.viewMode === 'factions' ? 'rgba(0, 0, 0, 0.25)' : 'rgba(2, 44, 44, 0.25)';
+            ctx.lineWidth = 0.1;
+
+            this.drawRegionPath(ctx, polygon);
+            ctx.fill();
+            ctx.stroke();
+
+            if (region.ownerId !== null && region.ownerId !== undefined && this.factions.list?.[region.ownerId]) {
+                ctx.save();
+                ctx.globalAlpha = this.viewMode === 'factions' ? 0.65 : (this.viewMode === 'political') ? 0.52 : 0;
+                ctx.fillStyle = this.factions.list[region.ownerId].color;
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+    },
     createRegions(width, height, iterations = 2) {
         let regions = [];
         for (let i = 0; i < this.terrain.config.regionCount; i++) {
@@ -1970,7 +1939,7 @@ const MapUtils = {
         });
 
         ctx.restore();
-    },
+    }
 }
 // ═══════════════════════════════════════════════════════════
 // SECTION: MAP_DECORATIONS
@@ -1994,7 +1963,7 @@ const MapDecorations = {
 
         Promise.all(loaders).then(() => {
             this.decorations.ready = true;
-            if (this.terrain.regions.length) { this.markDirty('terrain'); this.render(); }
+            if (this.terrain.regions.all.length) { this.markDirty('terrain'); this.render(); }
         });
     },
     _loadTextures() {
@@ -2009,7 +1978,7 @@ const MapDecorations = {
         }
         Promise.all(loaders).then(() => {
             this.decorations.textures.ready = true;
-            if (this.terrain.regions.length) { this.markDirty('terrain'); this.render(); }
+            if (this.terrain.regions.all.length) { this.markDirty('terrain'); this.render(); }
         });
     },
     shrinkPolygon(polygon, factor) {
@@ -2125,7 +2094,7 @@ const MapDecorations = {
         if (!this.decorations.ready || this.viewMode === 'factions' ||
             ['food', 'gold', 'production', 'manpower'].includes(this.viewMode)) return;
 
-        this.terrain.regions.forEach(region => {
+        this.terrain.regions.all.forEach(region => {
             if (!region.icons || !region.icons.length) return;
             if (visibleRect && !this.bboxIntersects(region.bbox, visibleRect)) return;
 
@@ -2143,7 +2112,7 @@ const MapDecorations = {
     paintTextures(ctx, visibleRect = null) {
         if (!this.decorations.textures.ready) return;
     
-        this.terrain.regions.forEach((region, i) => {
+        this.terrain.regions.all.forEach((region, i) => {
             if (!region.textureVariant) return;
             if (visibleRect && !this.bboxIntersects(region.bbox, visibleRect)) return;
     
@@ -2176,7 +2145,7 @@ const MapDecorations = {
 };
 
 const MapArmies = {
-    computeReachableRegions(army) {
+    computeReachable(army) {
         const visited = new Map(); // regionId -> оставшиеся очки при прибытии
         const startAP = army.actionPoints;
         if (startAP <= 0) return visited;
@@ -2190,7 +2159,7 @@ const MapArmies = {
             const neighbors = this.regionNeighbors?.[id] || [];
     
             for (const nb of neighbors) {
-                const region = this.terrain.regions[nb];
+                const region = this.terrain.regions.all[nb];
                 if (!region || region.isWater) continue;
     
                 // Занято чужой армией — двигаться туда напрямую нельзя (это уже атака/бой, вне текущего скоупа)
@@ -2216,13 +2185,13 @@ const MapArmies = {
         visited.delete(army.regionId); // сама клетка армии не считается "целью перемещения"
         return visited;
     },
-    selectArmy(armyId) {
+    select(armyId) {
         if (!this.armiesProvider) return;
         const army = this.armiesProvider().find(a => a.id === armyId);
         if (!army) return;
     
         this.selection.armyId = armyId;
-        const reachable = this.armies.computeReachableRegions(army);
+        const reachable = this.armies.computeReachable(army);
         this.selection.reachableSet = new Set(reachable.keys());
     
         if (this.selection.onArmySelect) this.selection.onArmySelect(army, [...this.selection.reachableSet]);
@@ -2265,64 +2234,210 @@ const MapArmies = {
         });
         ctx.restore();
     },
-    renderArmies(ctx, zoomScale = 1) {
+    render(ctx, zoomScale = 1) {
         if (!this.armiesProvider) return;
         const armies = this.armiesProvider();
         const spriteSize = Math.max(20, Math.min(20 / (zoomScale*0.2), 50)); // сам юнит крупнее, чем было
-        const plateHeight = 4.5 * (zoomScale * 0.05);
-        const plateWidth = 9 * (zoomScale * 0.05);
-    
+        const plateHeight = 1 / (zoomScale * 0.05);
+        const plateWidth = 1.3 / (zoomScale * 0.05);
+        
         armies.forEach(army => {
-            const region = this.terrain.regions[army.regionId];
+            const region = this.terrain.regions.all[army.regionId];
             if (!region) return;
-    
+
+            let drawX = region.x, drawY = region.y;
+
+            const anim = this.armies.animations.all.get(army.id);
+            if (anim) {
+                const t = Math.min(1, (performance.now() - anim.startTime) / anim.duration);
+                const eased = 1 - Math.pow(1 - t, 2); // ease-out — быстрый старт, плавное торможение
+                drawX = anim.fromX + (anim.toX - anim.fromX) * eased;
+                drawY = anim.fromY + (anim.toY - anim.fromY) * eased;
+            }
+
             const faction = this.factions.list?.[army.factionId];
             const color = faction ? faction.color : '#999999';
             const rank = army.rank || 1;
             const key = `${rank}_${army.assetVariant}`;
-            const img = this.armyAssets.ready ? this.armyAssets.images[key] : null;
-    
+            const img = this.armies.assets.ready ? this.armies.assets.images[key] : null;
+
             ctx.save();
-    
-            // якорь спрайта — низ картинки на центре региона (как юнит "стоит" на клетке в HoMM)
-            const spriteBottomY = 4+region.y - plateHeight;
+            const spriteBottomY = drawY - plateHeight * 0.5;
             const spriteTopY = spriteBottomY - spriteSize;
-    
+
             if (img) {
-                ctx.drawImage(img, region.x - spriteSize / 2, spriteTopY, spriteSize, spriteSize);
+                ctx.drawImage(img, drawX - spriteSize / 2, spriteTopY, spriteSize, spriteSize);
             } else {
-                // запасной вариант, пока картинки не загрузились — простой силуэт, чтобы не было пустоты
                 ctx.fillStyle = color;
                 ctx.beginPath();
-                ctx.arc(region.x, spriteTopY + spriteSize / 2, spriteSize / 2.5, 0, Math.PI * 2);
+                ctx.arc(drawX, spriteTopY + spriteSize / 2, spriteSize / 2.5, 0, Math.PI * 2);
                 ctx.fill();
             }
-    
             // табличка с числом под юнитом — цвет фракции, как рамка/фон
             const plateY = spriteBottomY;
             ctx.fillStyle = color;
-            ctx.fillRect(region.x - plateWidth / 2, plateY, plateWidth, plateHeight);
+            ctx.fillRect(drawX - plateWidth / 2, plateY, plateWidth, plateHeight);
             ctx.strokeStyle = '#000000';
             ctx.lineWidth = 0.4 / zoomScale;
-            ctx.strokeRect(region.x - plateWidth / 2, plateY, plateWidth, plateHeight);
+            ctx.strokeRect(drawX - plateWidth / 2, plateY, plateWidth, plateHeight);
     
             ctx.fillStyle = '#ffffff';
             ctx.font = `bold ${plateHeight * 0.75}px sans-serif`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText(army.strength, region.x, plateY + plateHeight / 2 + 0.3 / zoomScale);
+            ctx.fillText(army.strength, drawX, plateY + plateHeight / 2 + 0.3 / zoomScale);
     
             // подсветка выбранной армии — рамка вокруг всей связки спрайт+табличка
             if (this.selection.armyId === army.id) {
                 ctx.strokeStyle = this.selection.color;
                 ctx.lineWidth = 1 / zoomScale;
                 ctx.strokeRect(
-                    region.x - plateWidth / 2, plateY, plateWidth, plateHeight
+                    drawX - plateWidth / 2, plateY, plateWidth, plateHeight
                 );
             }
-    
+
             ctx.restore();
         });
+    },
+    moveAnimation(armyId, fromRegionId, toRegionId) {
+        const fromRegion = this.terrain.regions.all[fromRegionId];
+        const toRegion = this.terrain.regions.all[toRegionId];
+        if (!fromRegion || !toRegion) return;
+    
+        this.armies.animations.all.set(armyId, {
+            fromX: fromRegion.x, fromY: fromRegion.y,
+            toX: toRegion.x, toY: toRegion.y,
+            startTime: performance.now(),
+            duration: this.armies.animations.duration,
+        });
+    
+        this.armies.animations.runLoop();
+    },
+    runAnimationLoop() {
+        if (this._armyAnimLoopActive) { console.log('anim loop already active, skip'); return; }
+        this._armyAnimLoopActive = true;
+        const step = () => {
+            const now = performance.now();
+            let anyActive = false;
+            this.armies.animations.all.forEach((anim, armyId) => {
+                const t = (now - anim.startTime) / anim.duration;
+                if (t >= 1) { this.armies.animations.all.delete(armyId); }
+                else { anyActive = true; }
+            });
+            this.render();
+            if (anyActive) requestAnimationFrame(step);
+            else { this._armyAnimLoopActive = false; console.log('anim loop STOPPED'); }
+        };
+        requestAnimationFrame(step);
+    },
+    loadAssets() {
+        const loaders = [];
+        for (let rank = 1; rank <= this.armies.assets.ranks; rank++) {
+            for (let v = 1; v <= this.armies.assets.variantsPerRank; v++) {
+                loaders.push(new Promise(resolve => {
+                    const img = new Image();
+                    const key = `${rank}_${v}`;
+                    img.onload = () => { this.armies.assets.images[key] = img; resolve(); };
+                    img.onerror = () => resolve();
+                    img.src = `${this.armies.assets.basePath}army_${key}.png`;
+                }));
+            }
+        }
+        Promise.all(loaders).then(() => {
+            this.armies.assets.ready = true;
+            this.scheduleRender();
+        });
+    },
+    renderOccupationHatching(ctx, visibleRect = null) {
+        for (let i = 0; i < this.terrain.regions.all.length; i++) {
+            const region = this.terrain.regions.all[i];
+            if (region.occupiedBy === null) continue;
+            if (visibleRect && !this.bboxIntersects(region.bbox, visibleRect)) continue;
+    
+            const polygon = this.mapVoronoi.cellPolygon(i);
+            if (!polygon) continue;
+    
+            const faction = this.factions.list?.[region.occupiedBy];
+            const color = faction ? faction.color : '#ff0000';
+    
+            ctx.save();
+            this.drawRegionPath(ctx, polygon);
+            ctx.clip();
+    
+            // диагональная штриховка — набор параллельных линий поверх клипнутой области региона
+            const { minX, minY, maxX, maxY } = region.bbox;
+            const spacing = 2.5;
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 0.4;
+            ctx.globalAlpha = 0.6;
+            const diag = (maxX - minX) + (maxY - minY);
+            for (let offset = -diag; offset < diag; offset += spacing) {
+                ctx.beginPath();
+                ctx.moveTo(minX + offset, minY);
+                ctx.lineTo(minX + offset + (maxY - minY), maxY);
+                ctx.stroke();
+            }
+            ctx.restore();
+        }
     }
 }
 
+const MapSelection = {
+    clearSelection() {
+        if (this.selection.regionId === null && this.selection.armyId === null) return;
+        this.selection.regionId = null;
+        this.selection.armyId = null;
+        this.selection.reachableSet = null;
+        this.scheduleRender();
+    },
+    renderSelection(ctx, zoomScale) {
+        if (this.selection.regionId === null) return;
+        const region = this.terrain.regions.all[this.selection.regionId];
+        if (!region) return;
+    
+        const polygon = this.mapVoronoi.cellPolygon(region.id);
+        if (!polygon) return;
+    
+        ctx.save();
+        ctx.lineWidth = 3 / zoomScale;
+        ctx.strokeStyle = this.selection.color;
+        ctx.shadowColor = this.selection.color;
+        ctx.shadowBlur = 4 / zoomScale;
+        this.drawRegionPath(ctx, polygon);
+        ctx.stroke();
+        ctx.restore();
+    },
+    renderLabel(ctx, zoomScale) {
+        if (this.selection.regionId === null) return;
+        if (this.viewMode === 'factions') return;
+    
+        const region = this.terrain.regions.all[this.selection.regionId];
+        if (!region || region.isWater) return;
+    
+        const playerVisible = this.fogEnabled && this.playerFactionId !== null && this.playerFactionId !== undefined
+            ? this.factions.computeVisibility(this.playerFactionId, this.fogVisionHops ?? 2)
+            : null;
+        if (playerVisible && !playerVisible[region.id]) return;
+    
+        const path = region.labelPath;
+        if (!path || path.length < 4) return; // слишком маленький регион — подпись не влезет разумно
+    
+        // название — растянутое вдоль главной оси региона
+        this.utils.drawCurvedLabel(ctx, region.name, path.cx, path.cy, path.angle, path.length, zoomScale, {
+            fontSize: 5,
+            curveStrength: 0.1,
+            color: 'rgba(20, 15, 10, 0.9)',
+        });
+        // ресурсы — отдельной строкой ниже, обычным (не изогнутым) текстом, для читаемости
+        const res = this.getRegionResources(region);
+        if (!res) return;
+    
+        const fontSize = 4 / zoomScale;
+        ctx.save();
+        ctx.font = `${fontSize}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.fillStyle = 'rgba(20, 15, 10, 0.85)';
+        ctx.fillText(`🌾${res.food.toFixed(1)} ⚙️${res.production.toFixed(1)}`, region.x, region.y + fontSize * 2.2);
+        ctx.restore();
+    }
+}

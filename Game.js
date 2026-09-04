@@ -45,7 +45,7 @@ class Game {
         this.mapGen.selection.onMoveRequest = (armyId, targetRegionId) => {
             const result = this.armyManager.moveArmy(armyId, targetRegionId);
             if (result.success) {
-                this.mapGen.selectArmy(armyId); // пересчитываем достижимую зону от новой позиции
+                this.mapGen.armies.select(armyId); // пересчитываем достижимую зону от новой позиции
             }
         };
         const { regions, factions: mapFactions } = this.mapGen.create(params.seed);
@@ -154,13 +154,15 @@ class Game {
     }
 
     endTurn() {
+        this.mapGen.applyPendingSpecializations(); // ← новое, самым первым — до расчёта economies в TurnManager
         const summary = this.turnManager?.endTurn() ?? null;
         if (summary) {
             this.armyManager.collectUpkeep();
-            this.armyManager.resetActionPoints(); // сначала обновляем очки хода — ИИ должен видеть свежий запас
+            this.armyManager.resetActionPoints();
             this.factionsManager.checkElimination(this.mapGen);
             this.diplomacyManager.tick();
-            this.aiManager.runTurn(); // теперь ИИ управляет армиями/наймом с актуальными очками
+            this.aiManager.runTurn();
+            this.armyManager.resolveOccupations();
         }
         return summary;
     }
