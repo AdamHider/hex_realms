@@ -21,10 +21,10 @@ class MapGenerator {
         this._panStart = { x: 0, y: 0 };
         this.viewTransform = { x: 0, y: 0, scale: 1 };
         this.minScale = 0.6;
-        this.maxScale = 10;
+        this.maxScale = 6;
 
         this._renderScheduled = false;
-        this.mapLayerScale = 6;
+        this.mapLayerScale = 5;
         this.sharpRegionBudget = 160;
 
         this.viewLevel = 'overview';
@@ -742,7 +742,7 @@ class MapGenerator {
         this.ctx.translate(this.viewTransform.x, this.viewTransform.y);
         this.ctx.scale(this.viewTransform.scale, this.viewTransform.scale);
         this.armies.renderOccupationHatching(this.ctx);
-        this.renderDynamicObjects(this.ctx, this.viewTransform.scale);
+        //this.renderDynamicObjects(this.ctx, this.viewTransform.scale);
         
         this.ctx.restore();
     }
@@ -1064,7 +1064,7 @@ class MapGenerator {
         if (!cache.valid || !cache.coveredRect) return true;
 
         const scaleDrift = Math.abs(this.viewTransform.scale - cache.scale) / cache.scale;
-        if (scaleDrift > 0.30) return true; // зум ушёл больше чем на 15% от момента запекания
+        if (scaleDrift > 0.15) return true; // зум ушёл больше чем на 15% от момента запекания
 
         const r = cache.coveredRect;
         const outOfBounds =
