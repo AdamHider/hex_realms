@@ -61,7 +61,7 @@ class ArmyManager {
     // ── Найм / пополнение — только на своей территории ──
 
     canRecruitAt(factionId, regionId) {
-        const region = this.game.mapGen.terrain.regions[regionId];
+        const region = this.game.mapGen.terrain.regions.all[regionId];
         return !!region && !region.isWater && region.ownerId === factionId;
     }
 
@@ -109,7 +109,7 @@ class ArmyManager {
 
     resetActionPoints() {
         this.list.forEach(army => {
-            const region = this.game.mapGen.terrain.regions[army.regionId];
+            const region = this.game.mapGen.terrain.regions.all[army.regionId];
             const onOwnLand = region && region.ownerId === army.factionId;
             army.actionPoints = onOwnLand ? 2 : 1; // внутри своих владений — 2-3 хода, за пределами — 1
         });
@@ -123,7 +123,7 @@ class ArmyManager {
         if (army.regionId === targetRegionId) return false;
     
         const mapGen = this.game.mapGen;
-        const targetRegion = mapGen.terrain.regions[targetRegionId];
+        const targetRegion = mapGen.terrain.regions.all[targetRegionId];
         if (!targetRegion || targetRegion.isWater) return false;
     
         // проверяем через тот же BFS, что и подсветка зоны — targetRegionId должен быть среди достижимых
@@ -166,7 +166,7 @@ class ArmyManager {
         if (!army || army.actionPoints <= 0) return { success: false, reason: 'no_action_points' };
 
         const mapGen = this.game.mapGen;
-        const region = mapGen.terrain.regions[army.regionId];
+        const region = mapGen.terrain.regions.all[army.regionId];
         if (!region || region.ownerId === army.factionId) return { success: false, reason: 'invalid_target' };
 
         const faction = this.game.factionsManager.get(army.factionId);
@@ -184,7 +184,7 @@ class ArmyManager {
         if (factionId === null || factionId === undefined) return;
         const faction = this.game.factionsManager.get(factionId);
         if (!faction) return;
-        const owned = this.game.mapGen.terrain.regions.filter(r => r.ownerId === factionId);
+        const owned = this.game.mapGen.terrain.regions.all.filter(r => r.ownerId === factionId);
         faction.ownedRegions = owned.map(r => r.id);
         faction.totalPopulation = owned.reduce((sum, r) => sum + r.population, 0);
     }
@@ -207,13 +207,10 @@ class ArmyManager {
         const mapGen = this.game.mapGen;
         const capturedRegions = [];
         
-        mapGen.terrain.regions.forEach(region => {
+        mapGen.terrain.regions.all.forEach(region => {
             if (region.isWater) return;
 
             const occupierId = this._findOccupierAt(region.id);
-            if(occupierId === 0){
-                console.log(region.id)
-            }
             if (region.occupiedBy !== null && region.occupiedBy === occupierId) {
                 const previousOwner = region.ownerId;
                 region.ownerId = occupierId;
@@ -236,13 +233,14 @@ class ArmyManager {
         if (capturedRegions.length) {
             mapGen.markDirty('terrain', 'political', 'fog');
         }
+        this.game.mapGen._invalidateVisibilityCache();
         mapGen.render();
         return capturedRegions;
     }
 
     // Кто оккупирует регион прямо сейчас — по факту стоящих там армий
     _findOccupierAt(regionId) {
-        const region = this.game.mapGen.terrain.regions[regionId];
+        const region = this.game.mapGen.terrain.regions.all[regionId];
         if (!region) return null;
 
         const armiesHere = this.getArmiesAt(regionId);

@@ -38,7 +38,7 @@ class AIManager {
         armies.forEach(army => {
             console.log(`[AI ${faction.name}] army ${army.id}: ap=${army.actionPoints}, region=${army.regionId}`);
     
-            const region = this.game.mapGen.terrain.regions[army.regionId];
+            const region = this.game.mapGen.terrain.regions.all[army.regionId];
             if (!region) { console.log('  -> no region found, skip'); return; }
                   
             const roll = Math.random();
@@ -119,7 +119,7 @@ class AIManager {
 
         let best = null, bestAP = -Infinity; // предпочитаем цель, до которой останется больше очков (то есть ближе)
         reachable.forEach((remainingAP, regionId) => {
-            const region = mapGen.terrain.regions[regionId];
+            const region = mapGen.terrain.regions.all[regionId];
             if (!region || region.ownerId !== null && region.ownerId !== undefined) return; // только нейтральные
             if (remainingAP > bestAP) { bestAP = remainingAP; best = regionId; }
         });

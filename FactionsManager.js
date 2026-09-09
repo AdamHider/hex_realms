@@ -57,7 +57,7 @@ class FactionsManager {
     checkElimination(mapGen) {
         this.list.forEach(faction => {
             if (!faction.isAlive) return;
-            const stillHasRegions = mapGen.terrain.regions.some(r => r.ownerId === faction.id);
+            const stillHasRegions = mapGen.terrain.regions.all.some(r => r.ownerId === faction.id);
             if (!stillHasRegions) {
                 faction.isAlive = false;
                 if (this.callbacks.onFactionEliminated) this.callbacks.onFactionEliminated(faction);

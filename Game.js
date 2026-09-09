@@ -144,8 +144,8 @@ class Game {
     
         return {
             region,          // x, y, isWater, biome, climateZone, city, ownerId, population, resources
-            temperature: this.mapGen.terrain.regions[region.id]?.temperature ?? null,
-            elevation: this.mapGen.terrain.regions[region.id]?.t ?? null,
+            temperature: this.mapGen.terrain.regions.all[region.id]?.temperature ?? null,
+            elevation: this.mapGen.terrain.regions.all[region.id]?.t ?? null,
             faction,         // null если ничей
             diplomacy,       // null если faction === null или faction === player
             isPlayerOwned: faction?.isPlayer ?? false,

@@ -144,13 +144,39 @@
             </select>
         </div>
     </div>
-
-    <div id="regionPanel" class="hidden fixed bottom-3 left-3 z-30 bg-slate-900/95 border border-slate-700 rounded-xl p-3 text-xs max-w-xs"></div>
-    <div id="armyPanel" class="hidden fixed bottom-3 right-3 z-30 bg-slate-900/95 border border-slate-700 rounded-xl p-3 text-xs max-w-xs"></div>
+    <div id="infoPanel" class="fixed bottom-3 left-3 z-30 bg-slate-900/95 border border-slate-700 rounded-xl text-xs w-72 overflow-hidden flex flex-col">
+        <div class="flex border-b border-slate-700">
+            <button id="tabRegionBtn" onclick="switchTab('region')"
+                    class="flex-1 px-3 py-2 text-xs font-semibold transition">
+                Регион
+            </button>
+            <button id="tabArmyBtn" onclick="switchTab('army')"
+                    class="flex-1 px-3 py-2 text-xs font-semibold transition border-l border-slate-700">
+                Армия
+            </button>
+        </div>
+        <div id="tabRegionContent" class="p-3"></div>
+        <div id="tabArmyContent" class="p-3 hidden"></div>
+    </div>
     <div id="aiLog" class="hidden fixed bottom-3 right-3 z-30 bg-slate-900/95 border border-slate-700 rounded-xl p-3 text-xs max-w-xs max-h-40 overflow-y-auto"></div>
     <script>
         let game;
+        let activeTab = 'region';
+        let lastRegion = null;
+        let lastArmy = null;
+        let lastArmyReachable = [];
 
+        function switchTab(tab) {
+            activeTab = tab;
+
+            document.getElementById('tabRegionContent').classList.toggle('hidden', tab !== 'region');
+            document.getElementById('tabArmyContent').classList.toggle('hidden', tab !== 'army');
+
+            document.getElementById('tabRegionBtn').className =
+                `flex-1 px-3 py-2 text-xs font-semibold transition ${tab === 'region' ? 'bg-emerald-700 text-white' : 'bg-slate-900 text-slate-400 hover:bg-slate-800'}`;
+            document.getElementById('tabArmyBtn').className =
+                `flex-1 px-3 py-2 text-xs font-semibold transition border-l border-slate-700 ${tab === 'army' ? 'bg-emerald-700 text-white' : 'bg-slate-900 text-slate-400 hover:bg-slate-800'}`;
+        }
         function startGame() {
             const isRandom = document.getElementById('menuRandomSeed').checked;
             const seed = isRandom
@@ -160,20 +186,31 @@
             document.getElementById('newGameMenu').classList.add('hidden');
             document.getElementById('gameHud').classList.remove('hidden');
 
-            // канвас должен уже занимать весь экран (CSS fixed inset-0) —
-            // читаем его реальный размер только теперь, когда меню скрыто
             game = new Game({
                 canvas: document.getElementById('gameCanvas'),
                 tooltip: document.getElementById('mapTooltip'),
-                onRegionSelected: (region, state) => showRegionPanel(region),
-                onArmySelected: (army, reachableIds) => showArmyPanel(army, reachableIds),
+                onRegionSelected: (region) => {
+                    if (region) {
+                        switchTab('region');
+                        renderRegionTab(region);
+                    } else {
+                        renderRegionTab(null);
+                    }
+                },
+                onArmySelected: (army, reachableIds) => {
+                    switchTab('army');
+                    renderArmyTab(army, reachableIds);
+                },
                 onGameReady: (state) => { updateHud(); },
                 onTurnEnd: (summary) => {
                     document.getElementById('hudTurn').textContent = `Ход ${summary.turnNumber}`;
                     updateHud();
                     // если открыта панель региона — держим её в актуальном состоянии
-                    const selected = game.getSelectedRegion();
-                    if (selected) showRegionPanel(selected);
+                    if (lastRegion) renderRegionTab(game.mapGen.getRegionData(game.mapGen.terrain.regions.all[lastRegion.id]));
+                    if (lastArmy) {
+                        const freshArmy = game.armyManager.list.find(a => a.id === lastArmy.id);
+                        renderArmyTab(freshArmy || null, freshArmy ? [] : []); // если армия погибла/пропала — покажет "не выбрана"
+                    }
                 },
                 onSeasonChange: (season) => {
                     document.getElementById('hudSeason').value = season;
@@ -204,6 +241,7 @@
                 factionCount: parseInt(document.getElementById('menuFactionCount').value),
                 playerFactionId: 0,
             });
+            initInfoPanel()
         }
 
         function showRegionPanel(region) {
@@ -271,25 +309,139 @@
                     Нанять армию (💰${game.armyManager.recruitCost.gold} 👥${game.armyManager.recruitCost.manpower})
                 </button>`;
             }
+
+            const mapRegion = game.mapGen.terrain.regions.all[region.id];
+            const effectiveSpec = mapRegion.pendingSpecialization ?? mapRegion.specialization;
+
             html += `
                 <select onchange="setSpecialization(${region.id}, this.value)" class="mt-1 text-xs bg-slate-800 rounded px-1">
                     ${game.mapGen.specializationDefs.map(s =>
-                        `<option value="${s.id}" ${region.specialization === s.id ? 'selected' : ''}>${s.label}</option>`
+                        `<option value="${s.id}" ${effectiveSpec === s.id ? 'selected' : ''}>${s.label}</option>`
                     ).join('')}
                 </select>
-                ${region.pendingSpecialization ? `<div class="text-amber-400 text-[10px]">Изменится в след. ход на: ${game.mapGen.specializationsMap[region.pendingSpecialization].label}</div>` : ''}
+                ${mapRegion.pendingSpecialization !== null
+                    ? `<div class="text-amber-400 text-[10px]">Вступит в силу в след. ход</div>`
+                    : ''}
             `;
 
             panel.innerHTML = html;
         }
+        function renderRegionTab(region) {
+            lastRegion = region;
+            const container = document.getElementById('tabRegionContent');
+
+            if (!region) {
+                container.innerHTML = `<div class="text-slate-500 italic">Регион не выбран</div>`;
+                return;
+            }
+
+            const info = game.getRegionFullInfo(region);
+            if (info.hidden) {
+                container.innerHTML = `<div class="text-slate-400 italic">Территория неизвестна</div>`;
+                return;
+            }
+
+            const mapRegion = game.getRegionFullInfo(region);
+            const biomeLabel = game.mapGen.elevationBandLabels[region.biome] || region.biome;
+            const res = region.resources;
+            console.log(region)
+            const forecast = game.mapGen.getRegionResourcesForecast(mapRegion);
+            const hasPendingChange = mapRegion.pendingSpecialization !== null && mapRegion.pendingSpecialization !== undefined;
+            const effectiveSpec = mapRegion.pendingSpecialization ?? mapRegion.specialization;
+
+            let html = `
+                <div class="font-semibold text-emerald-400 mb-1">${region.name} · ${biomeLabel}</div>
+                <div>Еда ${res.food.toFixed(1)} · Произв. ${res.production.toFixed(1)}</div>
+                <div>Золото ${res.gold.toFixed(1)} · Содержание ${res.upkeep.toFixed(1)}</div>
+                ${hasPendingChange ? `<div class="text-amber-400 text-[10px] mt-1">След. ход: 🌾${forecast.food.toFixed(1)} ⚙️${forecast.production.toFixed(1)} 🪙${forecast.gold.toFixed(1)}</div>` : ''}
+            `;
+
+            if (region.city) html += `<div class="mt-1">Поселение: ${region.city.name}</div>`;
+            if (region.population > 0) html += `<div>Население: ${region.population}</div>`;
+
+            if (info.faction) {
+                html += `<hr class="my-2 border-slate-700">
+                        <div class="font-semibold" style="color: ${info.faction.color}">${info.faction.name}${info.isPlayerOwned ? ' (игрок)' : ''}</div>`;
+                if (info.diplomacy) {
+                    const labels = { peace: 'Мир', war: 'Война', alliance: 'Союз' };
+                    html += `<div>Отношения: ${labels[info.diplomacy]}</div>`;
+                }
+            } else {
+                html += `<div class="mt-2 text-slate-400">Ничейная территория</div>`;
+            }
+
+            if (!mapRegion.isWater) {
+                html += `
+                    <hr class="my-2 border-slate-700">
+                    <label class="text-slate-400 text-[10px]">Специализация:</label>
+                    <select onchange="setSpecialization(${region.id}, this.value)" class="w-full mt-1 text-xs bg-slate-800 rounded px-1 py-1">
+                        ${game.mapGen.specializationDefs.map(s =>
+                            `<option value="${s.id}" ${effectiveSpec === s.id ? 'selected' : ''}>${s.label}</option>`
+                        ).join('')}
+                    </select>
+                    ${hasPendingChange ? `<div class="text-amber-400 text-[10px] mt-1">Вступит в силу в след. ход</div>` : ''}
+                `;
+            }
+
+            const player = game.factionsManager.getPlayer();
+            const canRecruit = player && game.armyManager.canRecruitAt(player.id, region.id);
+            if (canRecruit) {
+                html += `<hr class="my-2 border-slate-700">
+                        <button onclick="recruitHere(${region.id})" class="w-full px-2 py-1 bg-emerald-700 hover:bg-emerald-600 rounded text-xs">
+                            Нанять армию (💰${game.armyManager.recruitCost.gold} 👥${game.armyManager.recruitCost.manpower})
+                        </button>`;
+            }
+
+            container.innerHTML = html;
+        }
+        function renderArmyTab(army, reachableIds) {
+            lastArmy = army;
+            lastArmyReachable = reachableIds || [];
+            const container = document.getElementById('tabArmyContent');
+
+            if (!army) {
+                container.innerHTML = `<div class="text-slate-500 italic">Армия не выбрана</div>`;
+                return;
+            }
+
+            const faction = game.factionsManager.get(army.factionId);
+            const region = game.mapGen.terrain.regions.all[army.regionId];
+
+            let html = `
+                <div class="font-semibold" style="color: ${faction?.color}">${faction?.name}</div>
+                <div>Сила: ${army.strength}</div>
+                <div>Очков хода: ${army.actionPoints}</div>
+                <div>Регион: ${region?.name ?? '—'}</div>
+                <div class="text-slate-400">Доступно клеток для перемещения: ${lastArmyReachable.length}</div>
+            `;
+
+            const canReinforce = game.armyManager.canRecruitAt(army.factionId, army.regionId);
+            if (canReinforce) {
+                html += `<hr class="my-2 border-slate-700">
+                        <button onclick="reinforceSelectedArmy(5)" class="w-full px-2 py-1 bg-emerald-700 hover:bg-emerald-600 rounded text-xs">
+                            Пополнить +5 (💰${(5 * game.armyManager.reinforceCostPerStrength.gold).toFixed(0)} 👥${(5 * game.armyManager.reinforceCostPerStrength.manpower).toFixed(0)})
+                        </button>`;
+            }
+
+            container.innerHTML = html;
+        }
+
+        function reinforceSelectedArmy(amount) {
+            if (!lastArmy) return;
+            const result = game.armyManager.reinforceArmy(lastArmy.id, amount);
+            if (!result.success) { alert('Не удалось пополнить армию: ' + result.reason); return; }
+            renderArmyTab(result.army, lastArmyReachable);
+        }
+        function setSpecialization(regionId, specId) {
+            game.mapGen.setRegionSpecialization(regionId, specId);
+            renderRegionTab(game.mapGen.getRegionData(game.mapGen.terrain.regions.all[regionId]));
+        }
+
         function recruitHere(regionId) {
             const player = game.factionsManager.getPlayer();
             const result = game.armyManager.recruitArmy(player.id, regionId);
-            if (!result.success) {
-                alert('Не удалось нанять армию: ' + result.reason);
-                return;
-            }
-            showRegionPanel(game.mapGen.getRegionData(game.mapGen.terrain.regions[regionId]));
+            if (!result.success) { alert('Не удалось нанять армию: ' + result.reason); return; }
+            renderRegionTab(game.mapGen.getRegionData(game.mapGen.terrain.regions.all[regionId]));
         }
         function updateHud() {
             const player = game.factionsManager.getPlayer();
@@ -314,11 +466,12 @@
                 <div class="text-slate-400">Доступно клеток: ${reachableIds.length}</div>
             `;
         }
-        function setSpecialization(regionId, specId) {
-            game.mapGen.setRegionSpecialization(regionId, specId);
-            showRegionPanel(game.mapGen.getRegionData(game.mapGen.terrain.regions[regionId]));
-        }
 
+        function initInfoPanel() {
+            switchTab('region');
+            renderRegionTab(null);
+            renderArmyTab(null);
+        }
         document.getElementById('menuRandomSeed').addEventListener('change', (e) => {
             document.getElementById('menuSeed').disabled = e.target.checked;
         });
