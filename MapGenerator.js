@@ -6,7 +6,7 @@ class MapGenerator {
 
         this.showClimate = options.showClimate ?? true;
         this.currentSeason = options.currentSeason ?? 'SPRING';
-        this.viewMode = options.viewMode;
+        this.viewMode = options.viewMode ?? 'terrain';
 
         this.canvas = options.canvas;
         this.ctx = this.canvas.getContext('2d');
@@ -21,11 +21,11 @@ class MapGenerator {
         this._panStart = { x: 0, y: 0 };
         this.viewTransform = { x: 0, y: 0, scale: 1 };
         this.minScale = 0.6;
-        this.maxScale = 6;
+        this.maxScale = 10;
 
         this._renderScheduled = false;
         this.mapLayerScale = 5;
-        this.sharpRegionBudget = 160;
+        this.sharpRegionBudget = 260;
 
         this.viewLevel = 'overview';
         this.layers = {
@@ -33,14 +33,14 @@ class MapGenerator {
             political: this._createLayer(),
             fog: this._createLayer(),
         };
-        this.fogEnabled = options.fogEnabled ?? true;
+        this.fogEnabled = options.fogEnabled ?? false;
 
         this.detailCache = {
             canvas: document.createElement('canvas'),
             ctx: null,
             valid: false,
-            coveredRect: null, // мировой прямоугольник, который реально закэширован (шире экрана, с запасом)
-            scale: 1, // мировых единиц на пиксель кэша в момент запекания
+            coveredRect: null,
+            scale: 1,
         };
         this.detailCache.ctx = this.detailCache.canvas.getContext('2d');
 
@@ -78,7 +78,7 @@ class MapGenerator {
 
         this.factions = {
             config: options.factions || { count: 0 },
-            startHops: options.startHops ?? 1,
+            startHops: options.startHops ?? 3,
             capitalPopulation: options.capitalPopulation ?? 120,
             populationDecay: options.populationDecay ?? 0.62,
             colors: { 
@@ -116,7 +116,7 @@ class MapGenerator {
             config: {
                 regionCount: options.regionCount || 3000,
                 peakCount: options.peakCount || 4,
-                peakShape: options.peakShape || 0.5,
+                peakShape: options.peakShape || 0.7,
                 shapeType: options.shapeType || 'continent',
                 landAmount: options.landAmount || 0.8,
                 relief: options.relief || 0.9,
@@ -126,8 +126,7 @@ class MapGenerator {
             },
             regions: {
                 all: [],
-                render: MapTerrain.renderRegions.bind(this),
-                renderLabels: MapTerrain.renderRegionLabels.bind(this)
+                render: MapTerrain.renderRegions.bind(this)
             },
             createTemperatures: MapTerrain.createTemperatures.bind(this),
             createRegions: MapTerrain.createRegions.bind(this),
@@ -155,48 +154,58 @@ class MapGenerator {
             ready: false,
             assets: {},
             basePath: options.iconBasePath || 'icons/',
-            edgeMargin: options.iconEdgeMargin ?? 0.6,
+            edgeMargin: options.iconEdgeMargin ?? 1.1,
             defaultSizePct: options.iconDefaultSizePct || [0.5, 0.6],
-            gapFactor: options.iconGapFactor ?? 1, 
+            gapFactor: options.iconGapFactor ?? 0.7, 
             sets: {
-                STEPPE:       { count: [2, 4], keys: ['grass_tuft'], sizePct: [0.3, 0.4] },
-                PLAINS:       { count: [4, 6], keys: ['grass_tuft'], sizePct: [0.3, 0.4] },
-                GRASSLAND:    { count: [2, 3], keys: ['grass_tuft'], sizePct: [0.3, 0.4] },
-                WETLANDS:     { count: [2, 3], keys: ['reed'], sizePct: [0.3, 0.4] },
-                WOODLAND:     { count: [4, 6], keys: ['tree_lone'], sizePct: [0.3, 0.35] },
-                FOREST:       { count: [3, 5], keys: ['tree_cluster'], sizePct: [0.6, 0.65] },
-                DENSE_FOREST: { count: [4, 6], keys: ['tree_cluster', 'tree_snow_cluster'], sizePct: [0.6, 0.65] },
-                HIGHLANDS:    { count: [2, 3], keys: ['rock', 'tree_snow_cluster'], sizePct: [0.7, 0.8] },
-                PEAKS:        { count: [2, 3], keys: ['mountain'], sizePct: [0.7, 0.8]  },
-                COAST:        { count: [1, 2], keys: ['grass_tuft'], sizePct: [0.3, 0.4] },
+                STEPPE:       { count: [0, 0], keys: ['grass_tuft'], sizePct: [0.15, 0.18] },
+                PLAINS:       { count: [4, 6], keys: ['grass_tuft'], sizePct: [0.15, 0.18] },
+                GRASSLAND:    { count: [2, 3], keys: ['grass_tuft'], sizePct: [0.15, 0.18] },
+                WETLANDS:     { count: [2, 3], keys: ['reed'], sizePct: [0.15, 0.18] },
+                WOODLAND:     { count: [3, 6], keys: ['tree_lone'], sizePct: [0.15, 0.18] },
+                DENSE_FOREST: { count: [8, 10], keys: ['tree_lone'], sizePct: [0.15, 0.18] },
+                FOREST:       { count: [4, 7], keys: ['tree_lone'], sizePct: [0.15, 0.18] },
+                //DENSE_FOREST: { count: [4, 8], keys: ['tree_cluster', 'tree_snow_cluster'], sizePct: [0.3, 0.35] },
+                //FOREST:       { count: [4, 7], keys: ['tree_cluster'], sizePct: [0.3, 0.35] },
+                HIGHLANDS:    { count: [2, 3], keys: ['rock'], sizePct: [0.5, 0.55] },
+                PEAKS:        { count: [2, 3], keys: ['mountain'], sizePct: [0.5, 0.55]  },
+                COAST:        { count: [0, 0], keys: ['grass_tuft'], sizePct: [0.15, 0.18] },
             },
             snowSets: {
-                FOREST:       { count: [3, 5], keys: ['tree_snow'], sizePct: [0.3, 0.35]  },
-                DENSE_FOREST: { count: [3, 4], keys: ['tree_snow_cluster'], sizePct: [0.6, 0.65]  },
-                WOODLAND:     { count: [5, 6], keys: ['tree_snow_cluster'], sizePct: [0.6, 0.65]  },
-                PEAKS:        { count: [2, 3], keys: ['mountain_snow'], sizePct: [0.7, 0.8]  },
-                HIGHLANDS:    { count: [2, 3], keys: ['mountain_snow'], sizePct: [0.7, 0.8] },
+                FOREST:       { count: [4, 8], keys: ['tree_snow'], sizePct: [0.15, 0.18]  },
+                DENSE_FOREST: { count: [8, 12], keys: ['tree_snow'], sizePct: [0.15, 0.18]  },
+                WOODLAND:     { count: [6, 8], keys: ['tree_snow'], sizePct: [0.15, 0.18]  },
+                //DENSE_FOREST: { count: [4, 7], keys: ['tree_snow_cluster'], sizePct: [0.3, 0.35]  },
+                //WOODLAND:     { count: [5, 8], keys: ['tree_snow_cluster'], sizePct: [0.3, 0.35]  },
+                PEAKS:        { count: [2, 3], keys: ['mountain_snow'], sizePct: [0.5, 0.55]  },
+                HIGHLANDS:    { count: [2, 3], keys: ['mountain_snow'], sizePct: [0.5, 0.55] },
             },
             hotSets: {
-                COAST:        { count: [1, 2], keys: ['sand'], sizePct: [0.7, 0.8] },
-                STEPPE:       { count: [2, 3], keys: ['sand'], sizePct: [0.5, 0.8] },
-                PLAINS:       { count: [3, 4], keys: ['cactus'], sizePct: [0.2, 0.3] },
-                GRASSLAND:    { count: [2, 3], keys: ['palm_lone'], sizePct: [0.3, 0.4] },
-                COAST:        { count: [2, 3], keys: ['sand'], sizePct: [0.5, 0.8] },
-                FOREST:       { count: [2, 3], keys: ['palm_cluster'], sizePct: [0.3, 0.4]  },
-                DENSE_FOREST: { count: [3, 4], keys: ['palm_cluster'], sizePct: [0.3, 0.4]  },
-                WOODLAND:     { count: [5, 6], keys: ['palm_lone'], sizePct: [0.3, 0.4]  },
-                WETLANDS:     { count: [1, 2], keys: ['palm_lone'], sizePct: [0.3, 0.4] },
+                COAST:        { count: [0, 0], keys: ['sand'], sizePct: [0.5, 0.6] },
+                STEPPE:       { count: [0, 0], keys: ['sand'], sizePct: [0.65, 0.8] },
+                PLAINS:       { count: [3, 4], keys: ['sand'], sizePct: [0.65, 0.8] },
+                GRASSLAND:    { count: [2, 3], keys: ['palm_lone'], sizePct: [0.15, 0.18] },
+                FOREST:       { count: [2, 3], keys: ['palm_cluster'], sizePct: [0.15, 0.18]  },
+                DENSE_FOREST: { count: [3, 4], keys: ['palm_cluster'], sizePct: [0.15, 0.18]  },
+                WOODLAND:     { count: [5, 6], keys: ['palm_lone'], sizePct: [0.15, 0.18]  },
+                WETLANDS:     { count: [1, 2], keys: ['palm_lone'], sizePct: [0.15, 0.18] },
             },
             waterSets: {
-                DEEP_OCEAN:   { count: [1, 2], keys: ['wave'], sizePct: [0.7, 0.8] },
-                OCEAN:        { count: [1, 2], keys: ['wave'], sizePct: [0.7, 0.8] },
-                SHALLOW:      { count: [1, 2], keys: ['wave'], sizePct: [0.7, 0.8] },
+                DEEP_OCEAN:   { count: [1, 2], keys: ['wave'], sizePct: [0.5, 0.6] },
+                OCEAN:        { count: [1, 2], keys: ['wave'], sizePct: [0.5, 0.6] },
+                SHALLOW:      { count: [1, 2], keys: ['wave'], sizePct: [0.5, 0.6] },
             },
             variantsPerKey: {
                 grass_tuft: 3, tree_lone: 3, tree_cluster: 3, tree_snow: 3,  tree_snow_cluster: 3,
                 reed: 1, rock: 3, mountain: 3, mountain_snow: 2, wave: 3, sand: 3,
-                palm_lone: 3, palm_cluster: 3, cactus: 1, oasis: 2,
+                palm_lone: 3, palm_cluster: 3, cactus: 1, oasis: 2, red_dot: 1
+            },
+            biomeAffinity: {
+                FOREST: { FOREST: 1.0, DENSE_FOREST: 0.8, WOODLAND: 0.6 },
+                DENSE_FOREST: { DENSE_FOREST: 1.0, FOREST: 0.8, WOODLAND: 0.5 },
+                WOODLAND: { WOODLAND: 1.0, FOREST: 0.6, DENSE_FOREST: 0.5 },
+                HIGHLANDS: { HIGHLANDS: 1.0, PEAKS: 0.9 },
+                PEAKS: { PEAKS: 1.0, HIGHLANDS: 0.9 },
             },
             textures: {
                 enabled: options.texturesEnabled ?? true,
@@ -213,11 +222,31 @@ class MapGenerator {
             assignTo: MapDecorations.assignTo.bind(this),
             paint: MapDecorations.paint.bind(this),
             paintTextures: MapDecorations.paintTextures.bind(this),
+            computeBias: MapDecorations.computeBias.bind(this),
+            
              
         };
         if (this.decorations.enabled) this.decorations.loadAssets();
         if (this.decorations.textures.enabled) this.decorations.loadTextures = MapDecorations._loadTextures.bind(this);
         if (this.decorations.textures.enabled) this.decorations.loadTextures();
+
+        this.rivers = {
+            enabled: options.riversEnabled ?? true,
+            ready: false,
+            segments: [],
+            count: options.riverCount ?? 32,          // сколько рек пытаемся проложить
+            minLength: options.riverMinLength ?? 5,   // минимум сегментов, иначе не считается рекой
+            sourceBias: options.riverSourceBias ?? 0.4, // доля попыток стартовать именно с гор/плоскогорий, а не случайно
+            widthMin: options.riverWidthMin ?? 0.4,
+            widthMax: options.riverWidthMax ?? 1.6,
+            color: options.riverColor ?? '#e50202', //'rgba(70, 120, 175, 0.8)',
+        
+            generate: MapRivers.generate.bind(this),
+            tracePath: MapRivers.tracePath.bind(this),
+            buildSegments: MapRivers.buildSegments.bind(this),
+            paint: MapRivers.paint.bind(this),
+            findSharedEdge: MapRivers.findSharedEdge.bind(this),
+        };
 
         this.armies = {
             animations: {
@@ -240,6 +269,16 @@ class MapGenerator {
             loadAssets: MapArmies.loadAssets.bind(this),
             renderOccupationHatching: MapArmies.renderOccupationHatching.bind(this)
         }
+
+        this.townResourceBonus = options.townResourceBonus ?? { food: 1.25, production: 1.25, gold: 1.4 };
+        this.townChance = options.townChance ?? 0.06; 
+        this.townAssets = {
+            ready: false,
+            images: {},
+            basePath: options.townAssetsPath || 'icons/',
+            variantCount: options.townVariantCount ?? 3, // town_1.png .. town_3.png
+        };
+        this._loadTownAssets();
 
         this.perf = {
             enabled: options.perfEnabled ?? true,
@@ -267,15 +306,64 @@ class MapGenerator {
     // Статичная конфигурация — биомы, сезоны, палитра фракций.
     // Вычисляется один раз в конструкторе, не меняется в рантайме.
     // ═══════════════════════════════════════════════════════════
-
+    _loadTownAssets() {
+        const loaders = [];
+        for (let v = 1; v <= this.townAssets.variantCount; v++) {
+            loaders.push(new Promise(resolve => {
+                const img = new Image();
+                img.onload = () => { this.townAssets.images[v] = img; resolve(); };
+                img.onerror = () => resolve();
+                img.src = `${this.townAssets.basePath}town_${v}.png`;
+            }));
+        }
+        Promise.all(loaders).then(() => {
+            this.townAssets.ready = true;
+            this._invalidateDetailCache();
+            this.markDirty('terrain', 'political');
+            this.render();
+        });
+    }
     _initConfig() {
         this.biomeDefs = [
             { id: 'DEEP_OCEAN', isWater: true, maxT: 0.45, label: 'Глубокий океан',
-              color: '#1f2a54', resources: { food: 0, production: 0, manpower: 0, gold: 0, upkeep: -0.2 } },
+              color: '#2E444F', resources: { food: 0, production: 0, manpower: 0, gold: 0, upkeep: -0.2 } },
             { id: 'OCEAN', isWater: true, maxT: 0.80, label: 'Океан',
-              color: '#232f5e', resources: { food: 1, production: 0, manpower: 0, gold: 1, upkeep: -0.3 } },
+              color: '#344C59', resources: { food: 1, production: 0, manpower: 0, gold: 1, upkeep: -0.3 } },
             { id: 'SHALLOW', isWater: true, maxT: Infinity, label: 'Мелководье',
-              color: '#2a3973', resources: { food: 2, production: 0, manpower: 0, gold: 0, upkeep: -0.3 } },
+              color: '#395463', resources: { food: 2, production: 0, manpower: 0, gold: 0, upkeep: -0.3 } },
+            { id: 'COAST', isWater: false, maxT: 0.08, label: 'Побережье',
+            colors: { cold: '#A6AD84', temperate: '#A1AD62', hot: '#CCC08D' },
+            resources: { food: 2, production: 1, manpower: 1, gold: 1, upkeep: -0.5 } },
+            { id: 'STEPPE', isWater: false, maxT: 0.16, label: 'Степь',
+            colors: { cold: '#9AA179', temperate: '#929E53', hot: '#C2B57A' },
+            resources: { food: 1, production: 1, manpower: 2, gold: 0, upkeep: -0.5 } },
+            { id: 'PLAINS', isWater: false, maxT: 0.25, label: 'Равнина',
+            colors: { cold: '#9AA179', temperate: '#929E53', hot: '#C2B57A' },
+            resources: { food: 3, production: 1, manpower: 1, gold: 0, upkeep: -0.6 } },
+            { id: 'GRASSLAND', isWater: false, maxT: 0.35, label: 'Луга',
+            colors: { cold: '#9AA179', temperate: '#929E53', hot: '#C2B57A' },
+            resources: { food: 3, production: 1, manpower: 2, gold: 0, upkeep: -0.6 } },
+            { id: 'WETLANDS', isWater: false, maxT: 0.45, label: 'Болота',
+            colors: { cold: '#9AA179', temperate: '#929E53', hot: '#C2B57A' },
+            resources: { food: 2, production: 0, manpower: 1, gold: 0, upkeep: -0.7 } },
+            { id: 'WOODLAND', isWater: false, maxT: 0.56, label: 'Редколесье',
+            colors: { cold: '#9AA179', temperate: '#929E53', hot: '#C2B57A' },
+            resources: { food: 1, production: 2, manpower: 1, gold: 0, upkeep: -0.6 } },
+            { id: 'FOREST', isWater: false, maxT: 0.68, label: 'Лес',
+            colors: { cold: '#9AA179', temperate: '#929E53', hot: '#C2B57A' },
+            resources: { food: 1, production: 3, manpower: 1, gold: 0, upkeep: -0.7 } },
+            { id: 'DENSE_FOREST', isWater: false, maxT: 0.80, label: 'Густой лес',
+            colors: { cold: '#9AA179', temperate: '#929E53', hot: '#C2B57A' },
+            resources: { food: 0, production: 3, manpower: 1, gold: 0, upkeep: -0.8 } },
+            { id: 'HIGHLANDS', isWater: false, maxT: 0.92, label: 'Плоскогорье',
+            colors: { cold: '#9AA179', temperate: '#929E53', hot: '#C2B57A' },
+            resources: { food: 0, production: 2, manpower: -1, gold: 2, upkeep: -0.9 } },
+            { id: 'PEAKS', isWater: false, maxT: Infinity, label: 'Пик',
+            colors: { cold: '#909672', temperate: '#86914E', hot: '#B5A870' },
+            resources: { food: 0, production: 1, manpower: -2, gold: 3, upkeep: -1.0 } }
+              
+
+            /*  
             { id: 'COAST', isWater: false, maxT: 0.08, label: 'Побережье',
             colors: { cold: '#9fb8a0', temperate: '#b5c95a', hot: '#d9c27a' },
             resources: { food: 2, production: 1, manpower: 1, gold: 1, upkeep: -0.5 } },
@@ -305,7 +393,7 @@ class MapGenerator {
             resources: { food: 0, production: 2, manpower: 0, gold: 2, upkeep: -0.9 } },
             { id: 'PEAKS', isWater: false, maxT: Infinity, label: 'Пик',
             colors: { cold: '#eef2f0', temperate: '#9a9d9a', hot: '#a89a86' },
-            resources: { food: 0, production: 1, manpower: 0, gold: 3, upkeep: -1.0 } },
+            resources: { food: 0, production: 1, manpower: 0, gold: 3, upkeep: -1.0 } },*/
         ];
 
         this.waterBiomes = this.biomeDefs.filter(b => b.isWater);
@@ -521,6 +609,7 @@ class MapGenerator {
             region.elevation = elevation[i];
             region.t = t[i];
             region.isWater = !!isWater[i];
+            region.isTown = false;
             region.temperature = temperature[i];
             region.name = this.utils.generateRegionName(region.isWater);
             const zone = temperature[i] < 0.20 ? 'cold' : temperature[i] > 0.60 ? 'hot' : 'temperate';
@@ -536,7 +625,11 @@ class MapGenerator {
                 region.biomeClimate = band.id + '_' + zone;
                 region.biomeNeutral = band.id + '_temperate';
             }
+            region.decorBias = this.decorations.computeBias(region, regions, neighbors);
         });
+
+        const distanceToWater = this.computeDistanceToWater(regions, neighbors);
+
         regions.forEach((region, i) => {
             const polygon = voronoi.cellPolygon(i);
             if (polygon) {
@@ -551,19 +644,57 @@ class MapGenerator {
                 region.bbox = { minX: region.x, minY: region.y, maxX: region.x, maxY: region.y };
             }
             this.decorations.assignTo(region, polygon || []);
+            region.distanceToWater = distanceToWater[i];
         });
 
         this.factions.settle(regions, neighbors);
+
+        (this.factions.list || []).forEach(faction => {
+            const capital = regions[faction.capitalRegionId];
+            if (capital) capital.isTown = true;
+        });
+        
+        // плюс случайный процент прочих сухопутных регионов
+        regions.forEach(region => {
+            if (region.isWater || region.isTown) return;
+            if (this.utils.seededRandom() < this.townChance) region.isTown = true;
+        });
+
+        regions.forEach(region => {
+            if (region.isTown) {
+                region.townAssetVariant = 1 + Math.floor(this.utils.seededRandom() * this.townAssets.variantCount);
+            }
+        });
+
         this.factions.labelPathCache = new Map();
 
         this.terrain.regions.all = regions;
         this.mapVoronoi = voronoi;
         this.edgeMap = this.createEdgeMap();
         this.regionNeighbors = neighbors;
-    
+        this.rivers.generate(regions, neighbors);
+
         this.viewTransform = { x: 0, y: 0, scale: 1 };
     }
-
+    computeDistanceToWater(regions, neighborsList) {
+        const n = regions.length;
+        const dist = new Int16Array(n).fill(-1);
+        let frontier = [];
+        regions.forEach((r, i) => { if (r.isWater) { dist[i] = 0; frontier.push(i); } });
+    
+        let hop = 0;
+        while (frontier.length) {
+            hop++;
+            const next = [];
+            frontier.forEach(id => {
+                (neighborsList[id] || []).forEach(nb => {
+                    if (dist[nb] === -1) { dist[nb] = hop; next.push(nb); }
+                });
+            });
+            frontier = next;
+        }
+        return dist;
+    }
     // ═══════════════════════════════════════════════════════════
     // SECTION: MAP_DATA
     // Динамический синтез: превращает статичные mapRegions + текущие
@@ -597,15 +728,19 @@ class MapGenerator {
     getRegionResources(region, season = this.currentSeason) {
         const base = this.biomeResourceBase[region.biomeBand];
         if (!base) return null;
-    
+
         const zone = region.climateZone || 'temperate';
         const mod = this.seasons[season].modifiers[zone];
         const specMod = this.specializationsMap[region.specialization]?.modifiers || {};
-    
+        const townMod = region.isTown ? this.townResourceBonus : {};
+
         const result = {};
         for (const key of Object.keys(base)) {
             let value = base[key] * (mod[key] ?? 1);
-            if (key !== 'upkeep') value *= (specMod[key] ?? 1); // специализация не трогает upkeep
+            if (key !== 'upkeep') {
+                value *= (specMod[key] ?? 1);
+                value *= (townMod[key] ?? 1);
+            }
             result[key] = key === 'upkeep' ? -Math.abs(value) : value;
         }
         if (region.city) {
@@ -742,7 +877,7 @@ class MapGenerator {
         this.ctx.translate(this.viewTransform.x, this.viewTransform.y);
         this.ctx.scale(this.viewTransform.scale, this.viewTransform.scale);
         this.armies.renderOccupationHatching(this.ctx);
-        //this.renderDynamicObjects(this.ctx, this.viewTransform.scale);
+        this.renderDynamicObjects(this.ctx, this.viewTransform.scale);
         
         this.ctx.restore();
     }
@@ -781,9 +916,7 @@ class MapGenerator {
         this.ctx.translate(this.viewTransform.x, this.viewTransform.y);
         this.ctx.scale(this.viewTransform.scale, this.viewTransform.scale);
     
-        this._perfMarkStart('regions.renderLabels');
-        this.terrain.regions.renderLabels(this.ctx, visibleRect, this.viewTransform.scale);
-        this._perfMarkEnd('regions.renderLabels');
+      
     
         this._perfMarkStart('armies.renderOccupationHatching');
         this.armies.renderOccupationHatching(this.ctx, visibleRect);
@@ -821,6 +954,7 @@ class MapGenerator {
     
     renderDynamicObjects(ctx, zoomScale) {
         this.renderCities(ctx, zoomScale);
+        this.renderTowns(ctx, zoomScale);
         this.armies.renderReachableArea(ctx, zoomScale);
         this.selection.render(ctx, zoomScale);
         this.armies.render(ctx, zoomScale);
@@ -842,7 +976,35 @@ class MapGenerator {
             }
         });
     }
+    renderTowns(ctx) {
+        if (!this.townAssets.ready) return;
     
+        this.terrain.regions.all.forEach(region => {
+            if (!region.isTown) return;
+    
+            const img = this.townAssets.images[region.townAssetVariant];
+            const size = 8.5;
+    
+            if (img) {
+                ctx.drawImage(img, region.x - size / 2, region.y - size + 2, size, size);
+            } else {
+                ctx.fillStyle = '#e8d9a0';
+                ctx.beginPath();
+                ctx.arc(region.x, region.y - size / 2, size / 3, 0, Math.PI * 2);
+                ctx.fill();
+            }
+    
+            ctx.save();
+            ctx.font = `bold 2.7px serif`;
+            ctx.textAlign = 'center';
+            ctx.fillStyle = '#2a2015';
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+            ctx.lineWidth = 0.4;
+            ctx.strokeText(region.name, region.x, region.y + 3.5);
+            ctx.fillText(region.name, region.x, region.y + 3.5);
+            ctx.restore();
+        });
+    }
     
     getVisibleWorldRect(margin = 40) {
         const vt = this.viewTransform;
@@ -888,6 +1050,7 @@ class MapGenerator {
         this.paintCoastline(ctx);
         this.decorations.paintTextures(ctx);
         this.decorations.paint(ctx);
+        this.rivers.paint(ctx);
         ctx.restore();
     }
     
@@ -929,10 +1092,10 @@ class MapGenerator {
     paintCoastline(ctx, visibleRect) {
         if (!this.edgeMap) return;
         ctx.save();
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
         ctx.lineWidth = 1;
         ctx.lineJoin = 'round';
-        ctx.filter = 'blur(2px)'
+        ctx.filter = 'blur(4px)'
     
         this.edgeMap.forEach(edge => {
             if (visibleRect) {
@@ -1062,15 +1225,9 @@ class MapGenerator {
     _needsDetailRepaint(visibleRect) {
         const cache = this.detailCache;
         if (!cache.valid || !cache.coveredRect) return true;
-
-        const scaleDrift = Math.abs(this.viewTransform.scale - cache.scale) / cache.scale;
-        if (scaleDrift > 0.15) return true; // зум ушёл больше чем на 15% от момента запекания
-
         const r = cache.coveredRect;
-        const outOfBounds =
-            visibleRect.minX < r.minX || visibleRect.maxX > r.maxX ||
+        return visibleRect.minX < r.minX || visibleRect.maxX > r.maxX ||
             visibleRect.minY < r.minY || visibleRect.maxY > r.maxY;
-        return outOfBounds;
     }
     _repaintDetailCache(visibleRect) {
         const margin = (visibleRect.maxX - visibleRect.minX) * 0.6; // запас в 60% ширины экрана в каждую сторону
@@ -1100,6 +1257,7 @@ class MapGenerator {
         this.paintCoastline(ctx, coveredRect);
         this.decorations.paintTextures(ctx, coveredRect);
         this.decorations.paint(ctx, coveredRect);
+        this.rivers.paint(ctx, coveredRect);
         this.factions.drawBorders(ctx, this.viewTransform.scale, coveredRect);
 
         ctx.restore();
@@ -1326,8 +1484,15 @@ const MapInteraction = {
         this.viewTransform.scale = newScale;
         this.viewTransform.x = px - worldX * newScale;
         this.viewTransform.y = py - worldY * newScale;
+    
+        this.scheduleRender(); 
 
-        this.scheduleRender();
+        clearTimeout(this.interaction.wheelDebounceTimer);
+        this.interaction.wheelDebounceTimer = setTimeout(() => {
+            this._invalidateDetailCache(); // форсируем свежую перезаливку под финальный масштаб
+            this.markDirty('political');
+            this.render();
+        }, 120);
     },
     _handleMouseDown(e) {
         this._isPanning = true;
@@ -1673,6 +1838,7 @@ const MapFaction = {
             this.utils.drawCurvedLabel(ctx, faction.name.toUpperCase(), path.cx, path.cy, path.angle, path.length, zoomScale, {
                 fontSize: 9,
                 color: 'rgba(20, 15, 10, 0.85)',
+                
             });
         });
     },
@@ -1695,9 +1861,10 @@ const MapTerrain = {
 
             const region = this.terrain.regions.all[i];
             if (visibleRect && !this.bboxIntersects(region.bbox, visibleRect)) continue;
-            ctx.fillStyle = this.color.getBase(region, resourceRange);
-            ctx.strokeStyle = this.viewMode === 'factions' ? 'rgba(0, 0, 0, 0.25)' : 'rgba(2, 44, 44, 0.25)';
-            ctx.lineWidth = 0.1;
+            const color = this.color.getBase(region, resourceRange);
+            ctx.fillStyle = color;
+            ctx.strokeStyle = (this.viewLevel === 'overview') ? color :  'rgba(0, 5, 0, 0.45)' ;
+            ctx.lineWidth = 0.05;
 
             this.drawRegionPath(ctx, polygon);
             ctx.fill();
@@ -1705,7 +1872,7 @@ const MapTerrain = {
 
             if (region.ownerId !== null && region.ownerId !== undefined && this.factions.list?.[region.ownerId]) {
                 ctx.save();
-                ctx.globalAlpha = this.viewMode === 'factions' ? 0.65 : (this.viewMode === 'political') ? 0.52 : 0;
+                ctx.globalAlpha = this.viewMode === 'factions' ? 0.65 : (this.viewMode === 'political') ? 0.42 : 0;
                 ctx.fillStyle = this.factions.list[region.ownerId].color;
                 ctx.fill();
                 ctx.restore();
@@ -2001,32 +2168,6 @@ const MapTerrain = {
                 for (const id of component) isWater[id] = 1;
             }
         }
-    },
-    renderRegionLabels(ctx, visibleRect, zoomScale) {
-        if (this.viewMode === 'factions') return;
-    
-        const playerVisible = this.fogEnabled && this.playerFactionId !== null && this.playerFactionId !== undefined
-            ? this.factions.computeVisibility(this.playerFactionId, this.fogVisionHops ?? 2)
-            : null;
-        
-        for (let i = 0; i < this.terrain.regions.all.length; i++) {
-            const region = this.terrain.regions.all[i];
-            if (region.isWater) continue;
-            if (visibleRect && !this.bboxIntersects(region.bbox, visibleRect)) continue;
-    
-            const isOwnedByPlayer = region.ownerId === this.playerFactionId;
-            const isNeutral = region.ownerId === null || region.ownerId === undefined;
-            if (!isOwnedByPlayer && !isNeutral) continue;
-            if (playerVisible && !playerVisible[i]) continue;
-            
-            const path = region.labelPath;
-            if (!path || path.length < 4) continue;
-    
-            this.utils.drawCurvedLabel(ctx, region.name, path.cx, path.cy, path.angle, path.length, zoomScale, {
-                fontSize: 3.5,
-                color: 'rgba(20, 15, 10, 0.75)',
-            });
-        }
     }
 }
 
@@ -2070,7 +2211,7 @@ const MapUtils = {
         return p + s;
     },
     drawCurvedLabel(ctx, text, cx, cy, angle, length, zoomScale, options = {}) {
-        const fontSize = (options.fontSize ?? 8) / (zoomScale*0.2) ;
+        const fontSize = (options.fontSize ?? 8)  * (length * 0.013) ;
         const curveStrength = options.curveStrength ?? 0.15; // 0 = прямая линия, выше = сильнее дуга
         const letterSpacingScale = options.letterSpacing ?? 1.1;
 
@@ -2079,6 +2220,9 @@ const MapUtils = {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillStyle = options.color ?? 'rgba(20, 15, 10, 0.85)';
+
+        ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+        ctx.lineWidth = 1.2;
 
         // ширина текста для равномерного распределения по доступной длине
         const totalTextWidth = [...text].reduce((sum, ch) => sum + ctx.measureText(ch).width * letterSpacingScale, 0);
@@ -2100,6 +2244,7 @@ const MapUtils = {
             ctx.save();
             ctx.translate(px, py);
             ctx.rotate(letterAngle);
+            ctx.strokeText(ch, 0, 0);
             ctx.fillText(ch, 0, 0);
             ctx.restore();
 
@@ -2191,62 +2336,60 @@ const MapDecorations = {
     
         const refDim = Math.min(maxX - minX, maxY - minY);
         const [sizePctMin, sizePctMax] = set.sizePct || this.decorations.defaultSizePct;
+        const bias = region.decorBias || { dirX: 0, dirY: 0, strength: 0 };
+        const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+        const halfDiag = refDim / 2 || 1;
     
         const count = set.count[0] + Math.floor(this.utils.seededRandom() * (set.count[1] - set.count[0] + 1));
         const placements = [];
-        const gapFactor = this.decorations.gapFactor; // доля от суммы радиусов, требуемая как зазор
-
-        // Особый случай: один крупный доминирующий объект (например, единственная гора) — ставим в центр, без поиска места
-        
-        const isSingleDominant = set.count[0] === set.count[1] && set.count[0] <= 1 &&
-            (set.sizePct?.[0] ?? 0) > 0.7;
-
-        if (isSingleDominant) {
-            const xs = inner.map(p => p[0]), ys = inner.map(p => p[1]);
-            const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
-            const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
-            const refDim = Math.min(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
-            const [sMin, sMax] = set.sizePct;
-            const size = refDim * (sMin + this.utils.seededRandom() * (sMax - sMin));
-            const key = set.keys[Math.floor(this.utils.seededRandom() * set.keys.length)];
-            const variant = 1 + Math.floor(this.utils.seededRandom() * (this.decorations.variantsPerKey[key] || 1));
-            return [{ assetName: `${key}_${variant}`, x: cx, y: cy, size, rotation: 0 }];
-        }
-        
+        const gapFactor = this.decorations.gapFactor;
+    
         for (let n = 0; n < count; n++) {
-            for (let attempt = 0; attempt < 15; attempt++) {
+            // Собираем НЕСКОЛЬКО геометрически валидных кандидатов, затем выбираем среди них лучший по bias
+            const candidates = [];
+            for (let attempt = 0; attempt < 12 && candidates.length < 4; attempt++) {
                 const x = minX + this.utils.seededRandom() * (maxX - minX);
                 const y = minY + this.utils.seededRandom() * (maxY - minY);
                 if (!this.decorations.pointInPolygon(x, y, inner)) continue;
-        
+    
                 const sizePct = sizePctMin + this.utils.seededRandom() * (sizePctMax - sizePctMin);
                 const size = refDim * sizePct;
-        
-                // проверяем не только центр, но и что иконка целиком (по её половине размера в 4 стороны)
-                // остаётся внутри сжатого полигона — грубая, но дешёвая аппроксимация через 4 угла bounding box иконки
-                const half = size / 4;
-                const corners = [
-                    [x - half, y - half], [x + half, y - half],
-                    [x - half, y + half], [x + half, y + half],
-                ];
-                /*
-                const allInside = corners.every(([cx, cy]) => this.decorations.pointInPolygon(cx, cy, inner));
-                if (!allInside) continue;
-                */
+                const half = size / 2;
+    
+                // мягкая геометрическая проверка: центр + УМЕНЬШЕННЫЙ инсет вместо всех 4 полных углов —
+                // полные углы слишком строги для крупных иконок относительно небольших/неправильных полигонов
+                const insetHalf = half * 0.6;
+                const corners = [[x - insetHalf, y - insetHalf], [x + insetHalf, y - insetHalf],
+                                  [x - insetHalf, y + insetHalf], [x + insetHalf, y + insetHalf]];
+                if (!corners.every(([px, py]) => this.decorations.pointInPolygon(px, py, inner))) continue;
+    
                 const tooClose = placements.some(p => {
                     const required = (p.size / 2 + size / 2) * gapFactor;
                     return Math.hypot(p.x - x, p.y - y) < required;
                 });
                 if (tooClose) continue;
     
-                const key = set.keys[Math.floor(this.utils.seededRandom() * set.keys.length)];
-                const variantCount = this.decorations.variantsPerKey[key] || 1;
-                const variant = 1 + Math.floor(this.utils.seededRandom() * variantCount);
-                const rotation = 0;
-    
-                placements.push({ assetName: `${key}_${variant}`, x, y, size, rotation });
-                break;
+                candidates.push({ x, y, size });
             }
+    
+            if (!candidates.length) continue; // за все попытки не нашли ни одного валидного места — пропускаем эту декорацию, не весь регион
+    
+            // Выбираем кандидата, максимально согласованного с bias-направлением
+            let chosen = candidates[0];
+            if (bias.strength > 0 && candidates.length > 1) {
+                let bestScore = -Infinity;
+                candidates.forEach(c => {
+                    const px = (c.x - cx) / halfDiag, py = (c.y - cy) / halfDiag;
+                    const alignment = px * bias.dirX + py * bias.dirY; // -1..1
+                    if (alignment > bestScore) { bestScore = alignment; chosen = c; }
+                });
+            } else {
+                chosen = candidates[Math.floor(this.utils.seededRandom() * candidates.length)];
+            }
+    
+            const key = set.keys[Math.floor(this.utils.seededRandom() * set.keys.length)];
+            const variant = 1 + Math.floor(this.utils.seededRandom() * (this.decorations.variantsPerKey[key] || 1));
+            placements.push({ assetName: `${key}_${variant}`, x: chosen.x, y: chosen.y, size: chosen.size, rotation: 0 });
         }
         return placements;
     },
@@ -2307,6 +2450,29 @@ const MapDecorations = {
     
             ctx.restore();
         });
+    },
+    computeBias(region, regions, neighborsList) {
+        const affinity = this.decorations.biomeAffinity[region.biomeBand];
+        if (!affinity) return { dirX: 0, dirY: 0, strength: 0 };
+    
+        let sumX = 0, sumY = 0, totalWeight = 0;
+        (neighborsList[region.id] || []).forEach(nbId => {
+            const nb = regions[nbId];
+            const weight = affinity[nb.biomeBand] || 0;
+            if (weight <= 0) return;
+            sumX += (nb.x - region.x) * weight;
+            sumY += (nb.y - region.y) * weight;
+            totalWeight += weight;
+        });
+    
+        if (totalWeight === 0) return { dirX: 0, dirY: 0, strength: 0 };
+    
+        const len = Math.hypot(sumX, sumY) || 1;
+        return {
+            dirX: sumX / len,
+            dirY: sumY / len,
+            strength: Math.min(1, totalWeight / 3), // насколько выражено смещение — больше похожих соседей = сильнее
+        };
     },
 };
 
@@ -2403,7 +2569,7 @@ const MapArmies = {
     render(ctx, zoomScale = 1) {
         if (!this.armiesProvider) return;
         const armies = this.armiesProvider();
-        const spriteSize = Math.max(20, Math.min(20 / (zoomScale*0.2), 50)); // сам юнит крупнее, чем было
+        const spriteSize = Math.max(20, Math.min(20 / (zoomScale*0.2), 40)); // сам юнит крупнее, чем было
         const plateHeight = 1 / (zoomScale * 0.05);
         const plateWidth = 1.3 / (zoomScale * 0.05);
         
@@ -2428,7 +2594,7 @@ const MapArmies = {
             const img = this.armies.assets.ready ? this.armies.assets.images[key] : null;
 
             ctx.save();
-            const spriteBottomY = drawY - plateHeight * 0.5;
+            const spriteBottomY = drawY - plateHeight * 0.5  + 4;
             const spriteTopY = spriteBottomY - spriteSize;
 
             if (img) {
@@ -2574,3 +2740,138 @@ const MapSelection = {
         ctx.restore();
     }
 }
+const MapRivers = {
+    tracePath(regions, neighborsList, sourceId) {
+        const path = [sourceId];
+        let current = sourceId;
+        const visited = new Set([current]);
+        let guard = 0;
+        
+        while (guard++ < 500) {
+            const region = regions[current];
+            if (region.isWater) break;
+    
+            const candidates = (neighborsList[current] || []).filter(nb => !visited.has(nb));
+            if (!candidates.length) break;
+    
+            // приоритет — соседи, реально приближающие к морю
+            const closer = candidates.filter(nb => regions[nb].distanceToWater < region.distanceToWater);
+            const pool = closer.length ? closer : candidates; // если таких нет (тупик) — fallback на старое поведение
+    
+            let best = pool[0], bestScore = regions[pool[0]].elevation;
+            pool.forEach(nb => {
+                if (regions[nb].elevation < bestScore) { bestScore = regions[nb].elevation; best = nb; }
+            });
+    
+            visited.add(best);
+            path.push(best);
+            current = best;
+    
+            // если fallback не приближал к морю несколько раз подряд — считаем это тупиком и обрываем
+            if (!closer.length && regions[best].distanceToWater >= region.distanceToWater) break;
+        }
+        return path;
+    },
+
+    generate(regions, neighborsList) {
+        if (!this.rivers.enabled) { this.rivers.segments = []; this.rivers.ready = true; return; }
+
+        const mountainSources = regions.filter(r => !r.isWater && (r.biomeBand === 'PEAKS' || r.biomeBand === 'HIGHLANDS'));
+        const landSources = regions.filter(r => !r.isWater);
+
+        const paths = [];
+        let attempts = 0;
+        while (paths.length < this.rivers.count && attempts < this.rivers.count * 8) {
+            attempts++;
+            const useMountain = this.utils.seededRandom() < this.rivers.sourceBias && mountainSources.length;
+            const pool = useMountain ? mountainSources : landSources;
+            if (!pool.length) break;
+
+            const source = pool[Math.floor(this.utils.seededRandom() * pool.length)];
+            const path = this.rivers.tracePath(regions, neighborsList, source.id);
+
+            if (path.length >= this.rivers.minLength && regions[path[path.length - 1]].isWater) {
+                paths.push(path);
+            }
+        }
+        
+        this.rivers.segments = this.rivers.buildSegments(paths);
+        console.log(this.rivers.segments)
+        this.rivers.ready = true;
+    },
+
+    buildSegments(paths) {
+        const rivers = [];
+
+        paths.forEach(path => {
+            let current = [];
+
+            for (let i = 0; i < path.length - 1; i++) {
+                const edge = this.rivers.findSharedEdge(path[i], path[i + 1]);
+                if (!edge) {
+                    // разрыв в цепочке — сохраняем накопленный кусок и начинаем новый, НЕ соединяя их прямой
+                    if (current.length >= 1) rivers.push(current);
+                    current = [];
+                    continue;
+                }
+
+                const segPoints = this.getNoisyLineSegments(edge.p1[0], edge.p1[1], edge.p2[0], edge.p2[1]);
+
+                let ordered = segPoints;
+                if (current.length) {
+                    const last = current[current.length - 1];
+                    const distToStart = Math.hypot(segPoints[0].x - last.x, segPoints[0].y - last.y);
+                    const distToEnd = Math.hypot(segPoints[segPoints.length - 1].x - last.x, segPoints[segPoints.length - 1].y - last.y);
+                    if (distToEnd < distToStart) ordered = [...segPoints].reverse();
+                }
+
+                const startIdx = current.length ? 1 : 0;
+                for (let k = startIdx; k < ordered.length; k++) current.push(ordered[k]);
+            }
+
+            if (current.length >= 2) rivers.push(current);
+        });
+
+        return rivers;
+    },
+
+    paint(ctx, visibleRect = null) {
+        if (!this.rivers.ready || !this.rivers.segments.length) return;
+        this.rivers.segments.forEach(points => {
+            ctx.strokeStyle = this.rivers.color;
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+    
+            // рисуем короткими отрезками с нарастающей толщиной, чтобы река визуально расширялась к устью
+            for (let i = 0; i < points.length - 1; i++) {
+                const t = i / (points.length - 1);
+                ctx.lineWidth = this.rivers.widthMin + (this.rivers.widthMax - this.rivers.widthMin) * t;
+                ctx.beginPath();
+                ctx.moveTo(points[i].x, points[i].y);
+                ctx.lineTo(points[i + 
+                    1].x, points[i + 1].y);
+                ctx.stroke();
+            }
+        });
+    },
+    
+    findSharedEdge(regionIdA, regionIdB) {
+        const polyA = this.mapVoronoi.cellPolygon(regionIdA);
+        const polyB = this.mapVoronoi.cellPolygon(regionIdB);
+        if (!polyA || !polyB) return null;
+
+        const eps = 0.05;
+        const close = (p, q) => Math.abs(p[0] - q[0]) < eps && Math.abs(p[1] - q[1]) < eps;
+
+        for (let i = 0; i < polyA.length - 1; i++) {
+            const a1 = polyA[i], a2 = polyA[i + 1];
+            for (let j = 0; j < polyB.length - 1; j++) {
+                const b1 = polyB[j], b2 = polyB[j + 1];
+                if ((close(a1, b1) && close(a2, b2)) || (close(a1, b2) && close(a2, b1))) {
+                    return { p1: a1, p2: a2 };
+                }
+            }
+        }
+        return null;
+    }
+};

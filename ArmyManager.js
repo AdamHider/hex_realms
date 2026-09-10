@@ -150,7 +150,7 @@ class ArmyManager {
         
     
         if (this.callbacks.onArmyMoved) {
-            this.resolveOccupations();
+            //this.resolveOccupations();
             this.callbacks.onArmyMoved(army, fromRegionId, targetRegionId);
         }
         this.game.mapGen.scheduleRender();

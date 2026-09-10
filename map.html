@@ -49,7 +49,7 @@
                     <span class="text-slate-300">Плотность полигонов:</span>
                     <span id="menuValRegionCount" class="text-emerald-400 font-mono">3000</span>
                 </div>
-                <input type="range" id="menuRegionCount" min="500" max="4000" step="100" value="1500"
+                <input type="range" id="menuRegionCount" min="500" max="4000" step="100" value="4000"
                     oninput="document.getElementById('menuValRegionCount').textContent = this.value"
                     class="w-full accent-emerald-500 cursor-pointer">
             </div>
@@ -244,88 +244,7 @@
             initInfoPanel()
         }
 
-        function showRegionPanel(region) {
-            const info = game.getRegionFullInfo(region);
-            const panel = document.getElementById('regionPanel');
-            panel.classList.remove('hidden');
-
-            if (info.hidden) {
-                panel.innerHTML = `<div class="text-slate-400 italic">Территория неизвестна</div>`;
-                return;
-            }
-
-            const biomeLabel = game.mapGen.elevationBandLabels[info.region.biome] || info.region.biome;
-            const climateLabel = info.region.climateZone ? game.mapGen.climateZoneLabels[info.region.climateZone] : null;
-
-            let html = `
-                <div class="font-semibold text-emerald-400 mb-1">${biomeLabel}</div>
-                <div>Высота: ${info.elevation !== null ? (info.elevation * 100).toFixed(0) + '%' : '—'}</div>
-                <div>Температура: ${info.temperature !== null ? (info.temperature * 100).toFixed(0) + '%' : '—'}${climateLabel ? ' (' + climateLabel + ')' : ''}</div>
-            `;
-
-            if (info.region.isWater) {
-                html += `<div>Тип: вода</div>`;
-            } else {
-                const res = info.region.resources;
-                html += `
-                    <hr class="my-1 border-slate-700">
-                    <div>Еда ${res.food.toFixed(1)} · Произв. ${res.production.toFixed(1)} · Manpower ${res.manpower.toFixed(1)}</div>
-                    <div>Золото ${res.gold.toFixed(1)} · Содержание ${res.upkeep.toFixed(1)}</div>
-                    <div>Население: ${info.region.population}</div>
-                `;
-            }
-
-            if (info.region.city) {
-                html += `<hr class="my-1 border-slate-700"><div>Поселение: ${info.region.city.name}</div>`;
-            }
-
-            html += `<hr class="my-1 border-slate-700">`;
-            if (info.faction) {
-                html += `<div class="font-semibold" style="color: ${info.faction.color}">${info.faction.name}${info.isPlayerOwned ? ' (игрок)' : ''}</div>`;
-                if (info.diplomacy) {
-                    const labels = { peace: 'Мир', war: 'Война', alliance: 'Союз' };
-                    html += `<div>Отношения: ${labels[info.diplomacy]}</div>`;
-                    if (info.diplomacy === 'peace') {
-                        html += `<button onclick="game.declareWar(game.factionsManager.getPlayer().id, ${info.faction.id}); showRegionPanel(game.getSelectedRegion())" class="mt-1 px-2 py-1 bg-red-700 hover:bg-red-600 rounded text-xs">Объявить войну</button>`;
-                    } else if (info.diplomacy === 'war') {
-                        html += `<button onclick="game.makePeace(game.factionsManager.getPlayer().id, ${info.faction.id})" class="mt-1 px-2 py-1 bg-blue-700 hover:bg-blue-600 rounded text-xs">Предложить мир</button>`;
-                    }
-                }
-            } else {
-                html += `<div class="text-slate-400">Ничейная территория</div>`;
-            }
-
-            if (info.armies.length) {
-                html += `<hr class="my-1 border-slate-700"><div class="font-semibold">Армии здесь:</div>`;
-                info.armies.forEach(a => {
-                    html += `<div>${a.id} — сила ${a.strength}</div>`;
-                });
-            }
-            const player = game.factionsManager.getPlayer();
-            const canRecruit = player && game.armyManager.canRecruitAt(player.id, region.id);
-
-            if (canRecruit) {
-                html += `<button onclick="recruitHere(${region.id})" class="mt-1 px-2 py-1 bg-emerald-700 hover:bg-emerald-600 rounded text-xs">
-                    Нанять армию (💰${game.armyManager.recruitCost.gold} 👥${game.armyManager.recruitCost.manpower})
-                </button>`;
-            }
-
-            const mapRegion = game.mapGen.terrain.regions.all[region.id];
-            const effectiveSpec = mapRegion.pendingSpecialization ?? mapRegion.specialization;
-
-            html += `
-                <select onchange="setSpecialization(${region.id}, this.value)" class="mt-1 text-xs bg-slate-800 rounded px-1">
-                    ${game.mapGen.specializationDefs.map(s =>
-                        `<option value="${s.id}" ${effectiveSpec === s.id ? 'selected' : ''}>${s.label}</option>`
-                    ).join('')}
-                </select>
-                ${mapRegion.pendingSpecialization !== null
-                    ? `<div class="text-amber-400 text-[10px]">Вступит в силу в след. ход</div>`
-                    : ''}
-            `;
-
-            panel.innerHTML = html;
-        }
+        
         function renderRegionTab(region) {
             lastRegion = region;
             const container = document.getElementById('tabRegionContent');
@@ -336,10 +255,11 @@
             }
 
             const info = game.getRegionFullInfo(region);
+            /*
             if (info.hidden) {
                 container.innerHTML = `<div class="text-slate-400 italic">Территория неизвестна</div>`;
                 return;
-            }
+            }*/
 
             const mapRegion = game.getRegionFullInfo(region);
             const biomeLabel = game.mapGen.elevationBandLabels[region.biome] || region.biome;
