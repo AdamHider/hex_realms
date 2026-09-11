@@ -126,11 +126,11 @@ class ArmyManager {
         const targetRegion = mapGen.terrain.regions.all[targetRegionId];
         if (!targetRegion || targetRegion.isWater) return false;
     
-        // проверяем через тот же BFS, что и подсветка зоны — targetRegionId должен быть среди достижимых
+        if (mapGen.rivers.isBlocking(army.regionId, targetRegionId)) return false; // прямой сосед за рекой — точно нельзя
+    
         const reachable = mapGen.armies.computeReachable(army);
         if (!reachable.has(targetRegionId)) return false;
     
-        // проверка на занятость вражеской армией — переносим сюда из старой логики
         const occupiedByEnemy = mapGen.armiesProvider &&
             mapGen.armiesProvider().some(a => a.regionId === targetRegionId && a.factionId !== army.factionId);
         if (occupiedByEnemy) return false;

@@ -87,14 +87,14 @@ class MapGenerator {
                     '#ffbe0b', '#06d6a0', '#ef476f', '#118ab2', '#f77f00',
                     '#8338ec', '#06a77d', '#d62828', '#3a86ff', '#ffd60a',
                 ],
-                neutral: 'rgba(148, 163, 184, 0)'
+                neutral: 'rgba(255, 255, 255, 0)'
             },
             diplomacyColors: {
                 player: '#facc15',
                 war: '#ef4444',
                 alliance: '#3b82f6',
                 peace: '#94a3b8',
-                neutral: 'rgba(148, 163, 184, 0)',
+                neutral: 'rgba(255, 255, 255, 0)',
             },
             getTotal: MapFaction.getTotal.bind(this),
             pickCapitals: MapFaction.pickCapitals.bind(this),
@@ -102,7 +102,7 @@ class MapGenerator {
             setColors: MapFaction.setColors.bind(this),
             getColorOf: MapFaction.getColorOf.bind(this),
             drawBorders: MapFaction.drawBorders.bind(this),
-            mapFactionEdges: MapFaction.mapFactionEdges.bind(this),
+            drawBorderEdges: MapFaction.drawBorderEdges.bind(this),
             getFactionAdjacency: MapFaction.getFactionAdjacency.bind(this),
             getNeighboringFactions: MapFaction.getNeighboringFactions.bind(this),
             computeVisibility: MapFaction.computeVisibility.bind(this),
@@ -148,6 +148,7 @@ class MapGenerator {
             generateRegionName: MapUtils.generateRegionName.bind(this),
             drawCurvedLabel: MapUtils.drawCurvedLabel.bind(this)
             
+            
         }
         this.decorations = {
             enabled: options.iconsEnabled ?? true,
@@ -156,6 +157,7 @@ class MapGenerator {
             basePath: options.iconBasePath || 'icons/',
             edgeMargin: options.iconEdgeMargin ?? 1.1,
             defaultSizePct: options.iconDefaultSizePct || [0.5, 0.6],
+            townExclusionRadius: options.townExclusionRadius ?? 8,
             gapFactor: options.iconGapFactor ?? 0.7, 
             sets: {
                 STEPPE:       { count: [0, 0], keys: ['grass_tuft'], sizePct: [0.15, 0.18] },
@@ -165,8 +167,6 @@ class MapGenerator {
                 WOODLAND:     { count: [3, 6], keys: ['tree_lone'], sizePct: [0.15, 0.18] },
                 DENSE_FOREST: { count: [8, 10], keys: ['tree_lone'], sizePct: [0.15, 0.18] },
                 FOREST:       { count: [4, 7], keys: ['tree_lone'], sizePct: [0.15, 0.18] },
-                //DENSE_FOREST: { count: [4, 8], keys: ['tree_cluster', 'tree_snow_cluster'], sizePct: [0.3, 0.35] },
-                //FOREST:       { count: [4, 7], keys: ['tree_cluster'], sizePct: [0.3, 0.35] },
                 HIGHLANDS:    { count: [2, 3], keys: ['rock'], sizePct: [0.5, 0.55] },
                 PEAKS:        { count: [2, 3], keys: ['mountain'], sizePct: [0.5, 0.55]  },
                 COAST:        { count: [0, 0], keys: ['grass_tuft'], sizePct: [0.15, 0.18] },
@@ -175,8 +175,6 @@ class MapGenerator {
                 FOREST:       { count: [4, 8], keys: ['tree_snow'], sizePct: [0.15, 0.18]  },
                 DENSE_FOREST: { count: [8, 12], keys: ['tree_snow'], sizePct: [0.15, 0.18]  },
                 WOODLAND:     { count: [6, 8], keys: ['tree_snow'], sizePct: [0.15, 0.18]  },
-                //DENSE_FOREST: { count: [4, 7], keys: ['tree_snow_cluster'], sizePct: [0.3, 0.35]  },
-                //WOODLAND:     { count: [5, 8], keys: ['tree_snow_cluster'], sizePct: [0.3, 0.35]  },
                 PEAKS:        { count: [2, 3], keys: ['mountain_snow'], sizePct: [0.5, 0.55]  },
                 HIGHLANDS:    { count: [2, 3], keys: ['mountain_snow'], sizePct: [0.5, 0.55] },
             },
@@ -234,18 +232,27 @@ class MapGenerator {
             enabled: options.riversEnabled ?? true,
             ready: false,
             segments: [],
-            count: options.riverCount ?? 32,          // сколько рек пытаемся проложить
-            minLength: options.riverMinLength ?? 5,   // минимум сегментов, иначе не считается рекой
-            sourceBias: options.riverSourceBias ?? 0.4, // доля попыток стартовать именно с гор/плоскогорий, а не случайно
+            count: options.riverCount ?? 26,
+            minPoints: options.riverMinPoints ?? 6,       // минимум точек схождения в пути
+            maxPoints: options.riverMaxPoints ?? 20,       // "установленный максимум точек" из вашего описания
+            minSourceLandDistance: options.riverMinSourceLandDistance ?? 1, // насколько глубоко в сушу должен быть исток
+            branchChance: options.riverBranchChance ?? 0.35,
+            branchMinLength: options.riverBranchMinLength ?? 6, 
             widthMin: options.riverWidthMin ?? 0.4,
-            widthMax: options.riverWidthMax ?? 1.6,
-            color: options.riverColor ?? '#e50202', //'rgba(70, 120, 175, 0.8)',
-        
-            generate: MapRivers.generate.bind(this),
+            widthMax: options.riverWidthMax ?? 0.9,
+            color: options.riverColor ?? '#395463',
+            blockedPairs: new Set(), 
+            buildVertexGraph: MapRivers.buildVertexGraph.bind(this),
+            annotateVertices: MapRivers.annotateVertices.bind(this),
+            findMouthCandidates: MapRivers.findMouthCandidates.bind(this),
+            findSourceCandidates: MapRivers.findSourceCandidates.bind(this),
             tracePath: MapRivers.tracePath.bind(this),
-            buildSegments: MapRivers.buildSegments.bind(this),
+            _findNextConfluence: MapRivers._findNextConfluence.bind(this),
+            generate: MapRivers.generate.bind(this),
+            createPolylines: MapRivers.createPolylines.bind(this),
             paint: MapRivers.paint.bind(this),
-            findSharedEdge: MapRivers.findSharedEdge.bind(this),
+            isBlocking: MapRivers.isBlocking.bind(this),
+            
         };
 
         this.armies = {
@@ -272,11 +279,25 @@ class MapGenerator {
 
         this.townResourceBonus = options.townResourceBonus ?? { food: 1.25, production: 1.25, gold: 1.4 };
         this.townChance = options.townChance ?? 0.06; 
+        
         this.townAssets = {
             ready: false,
             images: {},
             basePath: options.townAssetsPath || 'icons/',
-            variantCount: options.townVariantCount ?? 3, // town_1.png .. town_3.png
+            variantsPerKey: options.townVariantsPerKey ?? 3,
+            // соответствие biomeBand (+опционально climateZone) → базовое имя ассета
+            keysByBiome: options.townKeysByBiome || {
+                COAST: 'town_coast', STEPPE: 'town_plains', PLAINS: 'town_plains', GRASSLAND: 'town_plains',
+                WETLANDS: 'town_wetlands', WOODLAND: 'town_forest', FOREST: 'town_forest', DENSE_FOREST: 'town_forest',
+                HIGHLANDS: 'town_hills', PEAKS: 'town_mountain',
+            },
+            keysByBiomeSnow: options.townKeysByBiomeSnow || {
+                WOODLAND: 'town_forest_snow', FOREST: 'town_forest_snow', DENSE_FOREST: 'town_forest_snow',
+                PEAKS: 'town_mountain_snow', HIGHLANDS: 'town_hills_snow',
+            },
+            keysByBiomeHot: options.townKeysByBiomeHot || {
+                STEPPE: 'town_desert', PLAINS: 'town_desert', COAST: 'town_desert_coast',
+            },
         };
         this._loadTownAssets();
 
@@ -299,6 +320,14 @@ class MapGenerator {
         if (this.canvas) {
             this.interaction.initEvents();
         }
+        // конфиг движения — рядом с прочими настройками terrain/армий:
+        this.movementCost = {
+            STEPPE: 1, PLAINS: 1, GRASSLAND: 1, COAST: 1,
+            WETLANDS: 1.5,
+            WOODLAND: 1.5, FOREST: 2, DENSE_FOREST: 2.5,
+            HIGHLANDS: 2.5, PEAKS: 3.5,
+        };
+
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -307,21 +336,44 @@ class MapGenerator {
     // Вычисляется один раз в конструкторе, не меняется в рантайме.
     // ═══════════════════════════════════════════════════════════
     _loadTownAssets() {
+        const keys = new Set([
+            ...Object.values(this.townAssets.keysByBiome),
+            ...Object.values(this.townAssets.keysByBiomeSnow),
+            ...Object.values(this.townAssets.keysByBiomeHot),
+        ]);
+    
         const loaders = [];
-        for (let v = 1; v <= this.townAssets.variantCount; v++) {
-            loaders.push(new Promise(resolve => {
-                const img = new Image();
-                img.onload = () => { this.townAssets.images[v] = img; resolve(); };
-                img.onerror = () => resolve();
-                img.src = `${this.townAssets.basePath}town_${v}.png`;
-            }));
-        }
+        keys.forEach(baseKey => {
+            for (let v = 1; v <= this.townAssets.variantsPerKey; v++) {
+                loaders.push(new Promise(resolve => {
+                    const img = new Image();
+                    const fullKey = `${baseKey}_${v}`;
+                    img.onload = () => { this.townAssets.images[fullKey] = img; resolve(); };
+                    img.onerror = () => resolve();
+                    img.src = `${this.townAssets.basePath}${fullKey}.png`;
+                }));
+            }
+        });
+    
         Promise.all(loaders).then(() => {
             this.townAssets.ready = true;
             this._invalidateDetailCache();
             this.markDirty('terrain', 'political');
             this.render();
         });
+    }
+    resolveTownKey(region) {
+        if (region.climateZone === 'cold' && this.townAssets.keysByBiomeSnow[region.biomeBand]) {
+            return this.townAssets.keysByBiomeSnow[region.biomeBand];
+        }
+        if (region.climateZone === 'hot' && this.townAssets.keysByBiomeHot[region.biomeBand]) {
+            return this.townAssets.keysByBiomeHot[region.biomeBand];
+        }
+        return this.townAssets.keysByBiome[region.biomeBand] || 'town_plains';
+    }
+
+    getMovementCost(region) {
+        return this.movementCost[region.biomeBand] ?? 1;
     }
     _initConfig() {
         this.biomeDefs = [
@@ -361,39 +413,6 @@ class MapGenerator {
             { id: 'PEAKS', isWater: false, maxT: Infinity, label: 'Пик',
             colors: { cold: '#909672', temperate: '#86914E', hot: '#B5A870' },
             resources: { food: 0, production: 1, manpower: -2, gold: 3, upkeep: -1.0 } }
-              
-
-            /*  
-            { id: 'COAST', isWater: false, maxT: 0.08, label: 'Побережье',
-            colors: { cold: '#9fb8a0', temperate: '#b5c95a', hot: '#d9c27a' },
-            resources: { food: 2, production: 1, manpower: 1, gold: 1, upkeep: -0.5 } },
-            { id: 'STEPPE', isWater: false, maxT: 0.16, label: 'Степь',
-            colors: { cold: '#93ab97', temperate: '#a3bb52', hot: '#cdb26a' },
-            resources: { food: 1, production: 1, manpower: 2, gold: 0, upkeep: -0.5 } },
-            { id: 'PLAINS', isWater: false, maxT: 0.25, label: 'Равнина',
-            colors: { cold: '#86a08c', temperate: '#8fae4f', hot: '#c2a35c' },
-            resources: { food: 3, production: 1, manpower: 1, gold: 0, upkeep: -0.6 } },
-            { id: 'GRASSLAND', isWater: false, maxT: 0.35, label: 'Луга',
-            colors: { cold: '#7a9482', temperate: '#6fa050', hot: '#b8944a' },
-            resources: { food: 3, production: 1, manpower: 2, gold: 0, upkeep: -0.6 } },
-            { id: 'WETLANDS', isWater: false, maxT: 0.45, label: 'Болота',
-            colors: { cold: '#6f8877', temperate: '#5c9159', hot: '#a9863e' },
-            resources: { food: 2, production: 0, manpower: 1, gold: 0, upkeep: -0.7 } },
-            { id: 'WOODLAND', isWater: false, maxT: 0.56, label: 'Редколесье',
-            colors: { cold: '#63796d', temperate: '#4a8058', hot: '#9c7a3a' },
-            resources: { food: 1, production: 2, manpower: 1, gold: 0, upkeep: -0.6 } },
-            { id: 'FOREST', isWater: false, maxT: 0.68, label: 'Лес',
-            colors: { cold: '#566a5f', temperate: '#3a6b52', hot: '#8a6a35' },
-            resources: { food: 1, production: 3, manpower: 1, gold: 0, upkeep: -0.7 } },
-            { id: 'DENSE_FOREST', isWater: false, maxT: 0.80, label: 'Густой лес',
-            colors: { cold: '#4a5b53', temperate: '#2d5548', hot: '#7a5c30' },
-            resources: { food: 0, production: 3, manpower: 1, gold: 0, upkeep: -0.8 } },
-            { id: 'HIGHLANDS', isWater: false, maxT: 0.92, label: 'Плоскогорье',
-            colors: { cold: '#8a9490', temperate: '#5c6b64', hot: '#8a7a5c' },
-            resources: { food: 0, production: 2, manpower: 0, gold: 2, upkeep: -0.9 } },
-            { id: 'PEAKS', isWater: false, maxT: Infinity, label: 'Пик',
-            colors: { cold: '#eef2f0', temperate: '#9a9d9a', hot: '#a89a86' },
-            resources: { food: 0, production: 1, manpower: 0, gold: 3, upkeep: -1.0 } },*/
         ];
 
         this.waterBiomes = this.biomeDefs.filter(b => b.isWater);
@@ -628,6 +647,18 @@ class MapGenerator {
             region.decorBias = this.decorations.computeBias(region, regions, neighbors);
         });
 
+        this.factions.settle(regions, neighbors);
+
+        (this.factions.list || []).forEach(faction => {
+            const capital = regions[faction.capitalRegionId];
+            if (capital) capital.isTown = true;
+        });
+        // плюс случайный процент прочих сухопутных регионов
+        regions.forEach(region => {
+            if (region.isWater || region.isTown) return;
+            if (this.utils.seededRandom() < this.townChance) region.isTown = true;
+        });
+
         const distanceToWater = this.computeDistanceToWater(regions, neighbors);
 
         regions.forEach((region, i) => {
@@ -646,23 +677,19 @@ class MapGenerator {
             this.decorations.assignTo(region, polygon || []);
             region.distanceToWater = distanceToWater[i];
         });
-
-        this.factions.settle(regions, neighbors);
-
-        (this.factions.list || []).forEach(faction => {
-            const capital = regions[faction.capitalRegionId];
-            if (capital) capital.isTown = true;
-        });
         
-        // плюс случайный процент прочих сухопутных регионов
-        regions.forEach(region => {
-            if (region.isWater || region.isTown) return;
-            if (this.utils.seededRandom() < this.townChance) region.isTown = true;
-        });
+        this.vertexGraph = this.rivers.buildVertexGraph(regions, voronoi);
+        this.rivers.annotateVertices(this.vertexGraph, regions);
+
+       
+        
+        
 
         regions.forEach(region => {
             if (region.isTown) {
-                region.townAssetVariant = 1 + Math.floor(this.utils.seededRandom() * this.townAssets.variantCount);
+                const baseKey = this.resolveTownKey(region);
+                const variant = 1 + Math.floor(this.utils.seededRandom() * this.townAssets.variantsPerKey);
+                region.townAssetKey = `${baseKey}_${variant}`;
             }
         });
 
@@ -981,18 +1008,9 @@ class MapGenerator {
     
         this.terrain.regions.all.forEach(region => {
             if (!region.isTown) return;
-    
-            const img = this.townAssets.images[region.townAssetVariant];
-            const size = 8.5;
-    
-            if (img) {
-                ctx.drawImage(img, region.x - size / 2, region.y - size + 2, size, size);
-            } else {
-                ctx.fillStyle = '#e8d9a0';
-                ctx.beginPath();
-                ctx.arc(region.x, region.y - size / 2, size / 3, 0, Math.PI * 2);
-                ctx.fill();
-            }
+            const size = 12.5;
+            const img = this.townAssets.images[region.townAssetKey];
+            if (img) ctx.drawImage(img, region.x - size / 2, region.y - size, size, size);
     
             ctx.save();
             ctx.font = `bold 2.7px serif`;
@@ -1047,10 +1065,10 @@ class MapGenerator {
         ctx.clearRect(0, 0, this.layers.terrain.canvas.width, this.layers.terrain.canvas.height);
         ctx.scale(this.mapLayerScale, this.mapLayerScale);
         this.terrain.regions.render(ctx);
+        this.rivers.paint(ctx);
         this.paintCoastline(ctx);
         this.decorations.paintTextures(ctx);
         this.decorations.paint(ctx);
-        this.rivers.paint(ctx);
         ctx.restore();
     }
     
@@ -1060,8 +1078,8 @@ class MapGenerator {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, this.layers.political.canvas.width, this.layers.political.canvas.height);
         ctx.scale(this.mapLayerScale, this.mapLayerScale);
-        this.factions.drawBorders(ctx, this.mapLayerScale); 
-        this.factions.renderFactionLabels(ctx, this.mapLayerScale);
+        this.factions.drawBorders(ctx); 
+        this.factions.renderFactionLabels(ctx);
         ctx.restore();
     }
     _paintFogLayer(playerFactionId) {
@@ -1106,7 +1124,7 @@ class MapGenerator {
             if (edge.regionIds.length < 2) return;
             const [a, b] = edge.regionIds;
             const ra = this.terrain.regions.all[a], rb = this.terrain.regions.all[b];
-            if (ra.isWater === rb.isWater) return; // рисуем линию только там, где по одну сторону суша, по другую вода
+            if (ra.isWater === rb.isWater) return; 
     
             const segments = this.getNoisyLineSegments(edge.p1[0], edge.p1[1], edge.p2[0], edge.p2[1]);
             ctx.beginPath();
@@ -1254,11 +1272,11 @@ class MapGenerator {
 
         // весь тяжёлый статический пайплайн — теперь только здесь, не в каждом кадре
         this.terrain.regions.render(ctx, coveredRect);
+        this.rivers.paint(ctx, coveredRect);
         this.paintCoastline(ctx, coveredRect);
         this.decorations.paintTextures(ctx, coveredRect);
         this.decorations.paint(ctx, coveredRect);
-        this.rivers.paint(ctx, coveredRect);
-        this.factions.drawBorders(ctx, this.viewTransform.scale, coveredRect);
+        this.factions.drawBorders(ctx, coveredRect);
 
         ctx.restore();
 
@@ -1691,25 +1709,20 @@ const MapFaction = {
 
         return this.color.hslToHex(hue, saturation, lightness);
     },
-    drawBorders(ctx, zoomScale = 1, visibleRect = null) {
+    drawBorders(ctx, visibleRect = null) {
         if (!this.factions.list || !this.factions.list.length || !this.edgeMap) return;
         ctx.lineJoin = 'round';
-
-        let borderWidth = 1;
-        let offset = 0.6;
-        if (zoomScale > 4) {
-            borderWidth = 0.6;
-            offset = 0.3;
-        }
-        const outlineWidth = borderWidth * 1.5;
-        const outlineColor = '#00000073';
-        
-        this.factions.mapFactionEdges(ctx, offset, outlineColor, outlineWidth, visibleRect);
-        this.factions.mapFactionEdges(ctx, offset, null, borderWidth, visibleRect);
-        this.factions.mapFactionEdges(ctx, 0, '#a3aa9b', 0.3, visibleRect);
+        const useFactionColors = true
+        ctx.globalAlpha = 0.5
+        ctx.filter = 'blur(2px)'
+        this.factions.drawBorderEdges(ctx, 0.4, 0.6, visibleRect, useFactionColors);
+        ctx.globalAlpha = 1
+        ctx.filter = 'none'
+        ctx.setLineDash([0.5, 0.5]);
+        this.factions.drawBorderEdges(ctx, 0.3, 0.2, visibleRect, !useFactionColors);
+        ctx.setLineDash([]);
     },
-    mapFactionEdges(ctx, offset, color, width, visibleRect){
-        const useFactionColors = this.viewMode === 'factions'; 
+    drawBorderEdges(ctx, offset, width, visibleRect, useFactionColors){
         const resolveColor = (ownerId) => {
             if (ownerId === null || ownerId === undefined) return this.factions.colors.neutral;
             if (useFactionColors) return this.factions.list[ownerId]?.color || this.factions.colors.neutral;
@@ -1740,12 +1753,8 @@ const MapFaction = {
             const towardA = (regionA.x - midX) * nx + (regionA.y - midY) * ny;
             if (towardA < 0) { nx = -nx; ny = -ny; }
 
-            let colorA = color;
-            let colorB= color;
-            if(!color){
-                colorA = resolveColor(regionA.ownerId);
-                colorB = resolveColor(regionB.ownerId);
-            } 
+            const colorA = resolveColor(regionA.ownerId);
+            const colorB = resolveColor(regionB.ownerId);
            
             this.utils.strokeOffsetPolyline(ctx, segments, nx, ny, offset, colorA, width);
             this.utils.strokeOffsetPolyline(ctx, segments, -nx, -ny, offset, colorB, width);
@@ -1827,7 +1836,7 @@ const MapFaction = {
     
         return { cx, cy, angle, length };
     },
-    renderFactionLabels(ctx, zoomScale) {
+    renderFactionLabels(ctx) {
         if (!['factions', 'political'].includes(this.viewMode)) return;
         if (!this.factions.list?.length) return;
     
@@ -1835,7 +1844,7 @@ const MapFaction = {
             const path = this.factions.getLabelPath(faction.id);
             if (!path || path.length < 15) return; // слишком маленькая территория — подпись не влезет разумно
     
-            this.utils.drawCurvedLabel(ctx, faction.name.toUpperCase(), path.cx, path.cy, path.angle, path.length, zoomScale, {
+            this.utils.drawCurvedLabel(ctx, faction.name.toUpperCase(), path.cx, path.cy, path.angle, path.length, {
                 fontSize: 9,
                 color: 'rgba(20, 15, 10, 0.85)',
                 
@@ -2210,7 +2219,7 @@ const MapUtils = {
         const s = suffixes[Math.floor(this.utils.seededRandom() * suffixes.length)];
         return p + s;
     },
-    drawCurvedLabel(ctx, text, cx, cy, angle, length, zoomScale, options = {}) {
+    drawCurvedLabel(ctx, text, cx, cy, angle, length, options = {}) {
         const fontSize = (options.fontSize ?? 8)  * (length * 0.013) ;
         const curveStrength = options.curveStrength ?? 0.15; // 0 = прямая линия, выше = сильнее дуга
         const letterSpacingScale = options.letterSpacing ?? 1.1;
@@ -2345,7 +2354,6 @@ const MapDecorations = {
         const gapFactor = this.decorations.gapFactor;
     
         for (let n = 0; n < count; n++) {
-            // Собираем НЕСКОЛЬКО геометрически валидных кандидатов, затем выбираем среди них лучший по bias
             const candidates = [];
             for (let attempt = 0; attempt < 12 && candidates.length < 4; attempt++) {
                 const x = minX + this.utils.seededRandom() * (maxX - minX);
@@ -2356,8 +2364,6 @@ const MapDecorations = {
                 const size = refDim * sizePct;
                 const half = size / 2;
     
-                // мягкая геометрическая проверка: центр + УМЕНЬШЕННЫЙ инсет вместо всех 4 полных углов —
-                // полные углы слишком строги для крупных иконок относительно небольших/неправильных полигонов
                 const insetHalf = half * 0.6;
                 const corners = [[x - insetHalf, y - insetHalf], [x + insetHalf, y - insetHalf],
                                   [x - insetHalf, y + insetHalf], [x + insetHalf, y + insetHalf]];
@@ -2369,12 +2375,18 @@ const MapDecorations = {
                 });
                 if (tooClose) continue;
     
+                if (region.isTown) {
+                    const distToTown = Math.hypot(x - region.x, y - region.y);
+                    if (distToTown < this.decorations.townExclusionRadius) continue;
+                }
+
                 candidates.push({ x, y, size });
+
+                
             }
     
-            if (!candidates.length) continue; // за все попытки не нашли ни одного валидного места — пропускаем эту декорацию, не весь регион
-    
-            // Выбираем кандидата, максимально согласованного с bias-направлением
+            if (!candidates.length) continue;
+
             let chosen = candidates[0];
             if (bias.strength > 0 && candidates.length > 1) {
                 let bestScore = -Infinity;
@@ -2478,7 +2490,7 @@ const MapDecorations = {
 
 const MapArmies = {
     computeReachable(army) {
-        const visited = new Map(); // regionId -> оставшиеся очки при прибытии
+        const visited = new Map();
         const startAP = army.actionPoints;
         if (startAP <= 0) return visited;
     
@@ -2494,27 +2506,25 @@ const MapArmies = {
                 const region = this.terrain.regions.all[nb];
                 if (!region || region.isWater) continue;
     
-                // Занято чужой армией — двигаться туда напрямую нельзя (это уже атака/бой, вне текущего скоупа)
+                if (this.rivers.isBlocking(id, nb)) continue; 
+    
                 const occupiedByEnemy = this.armiesProvider &&
                     this.armiesProvider().some(a => a.regionId === nb && a.factionId !== army.factionId);
                 if (occupiedByEnemy) continue;
     
-                // Стоимость шага в целевой регион: 1 очко, если регион не свой; на своей территории тоже 1 очко за шаг,
-                // просто там больше стартовых очков в резерве — сама механика "1 регион вне земель, 2-3 внутри"
-                // уже выражена через army.actionPoints, здесь считаем именно ПУТЬ по доступному бюджету очков
-                const cost = 1;
+                const cost = this.getMovementCost(region); // стоимость входа в ЦЕЛЕВОЙ регион зависит от его биома
                 const remaining = ap - cost;
                 if (remaining < 0) continue;
     
                 const already = visited.get(nb);
-                if (already !== undefined && already >= remaining) continue; // уже нашли путь не хуже
+                if (already !== undefined && already >= remaining) continue;
     
                 visited.set(nb, remaining);
                 queue.push({ id: nb, ap: remaining });
             }
         }
     
-        visited.delete(army.regionId); // сама клетка армии не считается "целью перемещения"
+        visited.delete(army.regionId);
         return visited;
     },
     select(armyId) {
@@ -2536,7 +2546,6 @@ const MapArmies = {
         const borderWidth = 2.5 / zoomScale;
         const fillAlpha = 0.28;
     
-        // Лёгкая заливка каждого достижимого региона
         ctx.save();
         ctx.globalAlpha = fillAlpha;
         ctx.fillStyle = '#6fcf39';
@@ -2548,7 +2557,6 @@ const MapArmies = {
         });
         ctx.restore();
     
-        // Единая чёткая граница по контуру всей достижимой зоны — через edgeMap, тем же принципом, что и у фракций
         ctx.save();
         ctx.strokeStyle = '#6fcf39';
         ctx.lineWidth = borderWidth;
@@ -2741,100 +2749,62 @@ const MapSelection = {
     }
 }
 const MapRivers = {
-    tracePath(regions, neighborsList, sourceId) {
-        const path = [sourceId];
-        let current = sourceId;
-        const visited = new Set([current]);
-        let guard = 0;
-        
-        while (guard++ < 500) {
-            const region = regions[current];
-            if (region.isWater) break;
+    generate() {
+        if (!this.rivers.enabled || !this.vertexGraph) { this.rivers.segments = []; this.rivers.ready = true; return; }
     
-            const candidates = (neighborsList[current] || []).filter(nb => !visited.has(nb));
-            if (!candidates.length) break;
+        const sourceKeys = this.rivers.findSourceCandidates(this.vertexGraph, this.rivers.minSourceLandDistance);
+        if (!sourceKeys.length) { this.rivers.segments = []; this.rivers.ready = true; return; }
     
-            // приоритет — соседи, реально приближающие к морю
-            const closer = candidates.filter(nb => regions[nb].distanceToWater < region.distanceToWater);
-            const pool = closer.length ? closer : candidates; // если таких нет (тупик) — fallback на старое поведение
-    
-            let best = pool[0], bestScore = regions[pool[0]].elevation;
-            pool.forEach(nb => {
-                if (regions[nb].elevation < bestScore) { bestScore = regions[nb].elevation; best = nb; }
-            });
-    
-            visited.add(best);
-            path.push(best);
-            current = best;
-    
-            // если fallback не приближал к морю несколько раз подряд — считаем это тупиком и обрываем
-            if (!closer.length && regions[best].distanceToWater >= region.distanceToWater) break;
-        }
-        return path;
-    },
-
-    generate(regions, neighborsList) {
-        if (!this.rivers.enabled) { this.rivers.segments = []; this.rivers.ready = true; return; }
-
-        const mountainSources = regions.filter(r => !r.isWater && (r.biomeBand === 'PEAKS' || r.biomeBand === 'HIGHLANDS'));
-        const landSources = regions.filter(r => !r.isWater);
-
-        const paths = [];
+        const rivers = [];
         let attempts = 0;
-        while (paths.length < this.rivers.count && attempts < this.rivers.count * 8) {
+        while (rivers.length < this.rivers.count && attempts < this.rivers.count * 10) {
             attempts++;
-            const useMountain = this.utils.seededRandom() < this.rivers.sourceBias && mountainSources.length;
-            const pool = useMountain ? mountainSources : landSources;
-            if (!pool.length) break;
-
-            const source = pool[Math.floor(this.utils.seededRandom() * pool.length)];
-            const path = this.rivers.tracePath(regions, neighborsList, source.id);
-
-            if (path.length >= this.rivers.minLength && regions[path[path.length - 1]].isWater) {
-                paths.push(path);
+            const startKey = sourceKeys[Math.floor(this.utils.seededRandom() * sourceKeys.length)];
+            const path = this.rivers.tracePath(this.vertexGraph, startKey, this.rivers.maxPoints);
+    
+            if (path.length >= this.rivers.minPoints) {
+                rivers.push(path);
+                if (path.length >= this.rivers.branchMinLength && this.utils.seededRandom() < this.rivers.branchChance) {
+                    const branchStartIdx = 1 + Math.floor(this.utils.seededRandom() * (path.length - 2));
+                    const branch = this.rivers.tracePath(this.vertexGraph, path[branchStartIdx], Math.ceil(this.rivers.maxPoints * 0.5));
+                    if (branch.length >= this.rivers.minPoints) rivers.push(branch);
+                }
             }
         }
-        
-        this.rivers.segments = this.rivers.buildSegments(paths);
-        console.log(this.rivers.segments)
+    
+        this.rivers.segments = this.rivers.createPolylines(rivers);
         this.rivers.ready = true;
     },
-
-    buildSegments(paths) {
-        const rivers = [];
-
-        paths.forEach(path => {
-            let current = [];
-
+    
+    createPolylines(paths) {
+        const riverBlockedPairs = new Set(); 
+        const polylines = paths.map(path => {
+            const points = [];
             for (let i = 0; i < path.length - 1; i++) {
-                const edge = this.rivers.findSharedEdge(path[i], path[i + 1]);
-                if (!edge) {
-                    // разрыв в цепочке — сохраняем накопленный кусок и начинаем новый, НЕ соединяя их прямой
-                    if (current.length >= 1) rivers.push(current);
-                    current = [];
-                    continue;
+                const from = this.vertexGraph.get(path[i]);
+                const edge = from.edges.get(path[i + 1]);
+                if (!edge) continue;
+    
+                const to = this.vertexGraph.get(path[i + 1]);
+                const sharedRegions = [...from.regionIds].filter(id => to.regionIds.has(id));
+                if (sharedRegions.length >= 2) {
+                    for (let a = 0; a < sharedRegions.length; a++) {
+                        for (let b = a + 1; b < sharedRegions.length; b++) {
+                            const x = sharedRegions[a], y = sharedRegions[b];
+                            riverBlockedPairs.add(x < y ? `${x}-${y}` : `${y}-${x}`);
+                        }
+                    }
                 }
-
                 const segPoints = this.getNoisyLineSegments(edge.p1[0], edge.p1[1], edge.p2[0], edge.p2[1]);
-
-                let ordered = segPoints;
-                if (current.length) {
-                    const last = current[current.length - 1];
-                    const distToStart = Math.hypot(segPoints[0].x - last.x, segPoints[0].y - last.y);
-                    const distToEnd = Math.hypot(segPoints[segPoints.length - 1].x - last.x, segPoints[segPoints.length - 1].y - last.y);
-                    if (distToEnd < distToStart) ordered = [...segPoints].reverse();
-                }
-
-                const startIdx = current.length ? 1 : 0;
-                for (let k = startIdx; k < ordered.length; k++) current.push(ordered[k]);
+                const startIdx = points.length ? 1 : 0;
+                for (let k = startIdx; k < segPoints.length; k++) points.push(segPoints[k]);
             }
-
-            if (current.length >= 2) rivers.push(current);
-        });
-
-        return rivers;
+            return points;
+        }).filter(p => p.length >= 2);
+    
+        this.rivers.blockedPairs = riverBlockedPairs;
+        return polylines;
     },
-
     paint(ctx, visibleRect = null) {
         if (!this.rivers.ready || !this.rivers.segments.length) return;
         this.rivers.segments.forEach(points => {
@@ -2842,7 +2812,6 @@ const MapRivers = {
             ctx.lineJoin = 'round';
             ctx.lineCap = 'round';
     
-            // рисуем короткими отрезками с нарастающей толщиной, чтобы река визуально расширялась к устью
             for (let i = 0; i < points.length - 1; i++) {
                 const t = i / (points.length - 1);
                 ctx.lineWidth = this.rivers.widthMin + (this.rivers.widthMax - this.rivers.widthMin) * t;
@@ -2855,23 +2824,101 @@ const MapRivers = {
         });
     },
     
-    findSharedEdge(regionIdA, regionIdB) {
-        const polyA = this.mapVoronoi.cellPolygon(regionIdA);
-        const polyB = this.mapVoronoi.cellPolygon(regionIdB);
-        if (!polyA || !polyB) return null;
-
-        const eps = 0.05;
-        const close = (p, q) => Math.abs(p[0] - q[0]) < eps && Math.abs(p[1] - q[1]) < eps;
-
-        for (let i = 0; i < polyA.length - 1; i++) {
-            const a1 = polyA[i], a2 = polyA[i + 1];
-            for (let j = 0; j < polyB.length - 1; j++) {
-                const b1 = polyB[j], b2 = polyB[j + 1];
-                if ((close(a1, b1) && close(a2, b2)) || (close(a1, b2) && close(a2, b1))) {
-                    return { p1: a1, p2: a2 };
-                }
+    buildVertexGraph(regions, voronoi) {
+        const vertexKey = (x, y) => `${Math.round(x * 20)},${Math.round(y * 20)}`; 
+        const vertices = new Map();
+    
+        for (let i = 0; i < regions.length; i++) {
+            const polygon = voronoi.cellPolygon(i);
+            if (!polygon) continue;
+    
+            for (let j = 0; j < polygon.length - 1; j++) {
+                const [x1, y1] = polygon[j], [x2, y2] = polygon[j + 1];
+                const k1 = vertexKey(x1, y1), k2 = vertexKey(x2, y2);
+    
+                if (!vertices.has(k1)) vertices.set(k1, { x: x1, y: y1, regionIds: new Set(), edges: new Map() });
+                if (!vertices.has(k2)) vertices.set(k2, { x: x2, y: y2, regionIds: new Set(), edges: new Map() });
+    
+                vertices.get(k1).regionIds.add(i);
+                vertices.get(k2).regionIds.add(i);
+    
+                vertices.get(k1).edges.set(k2, { toKey: k2, p1: [x1, y1], p2: [x2, y2] });
+                vertices.get(k2).edges.set(k1, { toKey: k1, p1: [x2, y2], p2: [x1, y1] });
             }
         }
-        return null;
+    
+        return vertices;
+    },
+    annotateVertices(vertices, regions) {
+        vertices.forEach(v => {
+            v.regionArray = [...v.regionIds];
+            v.hasWater = v.regionArray.some(id => regions[id].isWater);
+            v.landCount = v.regionArray.filter(id => !regions[id].isWater).length;
+            v.minDistToWater = Math.min(...v.regionArray.map(id => regions[id].distanceToWater ?? 99));
+        });
+    },
+    findMouthCandidates(vertices) {
+        const mouths = [];
+        vertices.forEach((v, key) => {
+            if (v.regionArray.length < 3) return;
+            if (!v.hasWater) return;
+            if (v.landCount < 2) return;
+            mouths.push(key);
+        });
+        return mouths;
+    },
+    findSourceCandidates(vertices, minLandDistance) {
+        const sources = [];
+        vertices.forEach((v, key) => {
+            if (v.regionArray.length < 3) return;
+            if (v.hasWater) return; // исток должен быть вглубь суши
+            if (v.minDistToWater < minLandDistance) return;
+            sources.push(key);
+        });
+        return sources;
+    },
+    tracePath(vertices, startKey, maxPoints) {
+        const path = [startKey];
+        let current = startKey;
+        const visited = new Set([current]);
+    
+        while (path.length < maxPoints) {
+            const v = vertices.get(current);
+            if (!v) break;
+            if (v.hasWater) break; 
+            const next = this.rivers._findNextConfluence(vertices, current, visited);
+            if (!next) break;
+    
+            path.push(next);
+            visited.add(next);
+            current = next;
+        }
+        return path;
+    },
+    _findNextConfluence(vertices, fromKey, visited) {
+        const from = vertices.get(fromKey);
+        if (!from) return null;
+    
+        const candidates = [];
+        from.edges.forEach((edge, toKey) => {
+            if (visited.has(toKey)) return;
+            const to = vertices.get(toKey);
+            if (!to || to.regionArray.length < 3) return;
+            candidates.push(toKey);
+        });
+    
+        if (!candidates.length) return null;
+    
+        let best = candidates[0], bestDist = vertices.get(candidates[0]).minDistToWater;
+        candidates.forEach(k => {
+            const d = vertices.get(k).minDistToWater;
+            if (d < bestDist) { bestDist = d; best = k; }
+        });
+        return best;
+    },
+    isBlocking(regionIdA, regionIdB) {
+        if (!this.rivers.blockedPairs || !this.rivers.blockedPairs.size) return false;
+        const key = regionIdA < regionIdB ? `${regionIdA}-${regionIdB}` : `${regionIdB}-${regionIdA}`;
+        return this.rivers.blockedPairs.has(key);
     }
 };
