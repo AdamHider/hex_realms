@@ -111,7 +111,7 @@ class ArmyManager {
         this.list.forEach(army => {
             const region = this.game.mapGen.terrain.regions.all[army.regionId];
             const onOwnLand = region && region.ownerId === army.factionId;
-            army.actionPoints = onOwnLand ? 2 : 1; // внутри своих владений — 2-3 хода, за пределами — 1
+            army.actionPoints = onOwnLand ? 4 : 1; // внутри своих владений — 2-3 хода, за пределами — 1
         });
     }
 

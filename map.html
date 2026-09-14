@@ -111,54 +111,94 @@
     </div>
 
     <!-- ═══════════ HUD поверх карты — видна только во время игры ═══════════ -->
-    <div id="gameHud" class="hidden fixed top-3 left-3 right-3 z-30 flex flex-wrap items-center justify-between gap-3 pointer-events-none">
-        <div class="flex gap-2 pointer-events-auto">
-        </div>
-        <div class="flex gap-2 pointer-events-auto items-center text-xs">
-            <span id="hudTurn" class="bg-slate-900/90 border border-slate-700 rounded-lg px-2 py-1.5">Ход 1</span>
-            <span id="hudTreasury" class="bg-slate-900/90 border border-slate-700 rounded-lg px-2 py-1.5">🌾 0 · 🪙 0</span>
-            <span id="hudFactionsAlive" class="bg-slate-900/90 border border-slate-700 rounded-lg px-2 py-1.5">Фракций: 0</span>
-            <button onclick="game.endTurn()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-semibold rounded-lg">
-                Завершить ход
-            </button>
-        </div>
-
-        <div class="flex gap-2 pointer-events-auto">
-            <select id="hudViewMode" onchange="game.setViewMode(this.value)" value="political"
-                class="bg-slate-900/90 border border-slate-700 text-xs rounded-lg px-2 py-1.5 cursor-pointer">
-                <option value="terrain" >Рельеф + климат</option>
-                <option value="political" selected>Рельеф + фракции</option>
-                <option value="factions">Карта фракций</option>
-                <option value="gold">Золото</option>
-                <option value="food">Еда</option>
-                <option value="production">Промышленность</option>
-                <option value="manpower">Население</option>
-            </select>
-
-            <select id="hudSeason" onchange="game.setSeason(this.value)"
-                class="bg-slate-900/90 border border-slate-700 text-xs rounded-lg px-2 py-1.5 cursor-pointer">
-                <option value="SPRING" selected>Весна</option>
-                <option value="SUMMER">Лето</option>
-                <option value="AUTUMN">Осень</option>
-                <option value="WINTER">Зима</option>
-            </select>
+    <!-- ═══ Верх по центру: ресурсная панель с прогнозом ═══ -->
+    <div id="gameHud">
+    <div id="resourceBar" class="fixed top-3 left-1/2 -translate-x-1/2 z-30 flex gap-1 pointer-events-none">
+        <div class="bg-slate-900/95 border border-slate-700 rounded-lg px-3 py-1.5 flex gap-4 pointer-events-auto shadow-lg">
+            <div class="flex flex-col items-center min-w-[54px]">
+                <span class="text-[10px] text-slate-400">🌾 Еда</span>
+                <span id="resFood" class="text-sm font-semibold text-emerald-300">0</span>
+            </div>
+            <div class="w-px bg-slate-700"></div>
+            <div class="flex flex-col items-center min-w-[54px]">
+                <span class="text-[10px] text-slate-400">⚙️ Произв.</span>
+                <span id="resProduction" class="text-sm font-semibold text-sky-300">0</span>
+            </div>
+            <div class="w-px bg-slate-700"></div>
+            <div class="flex flex-col items-center min-w-[64px]">
+                <span class="text-[10px] text-slate-400">🪙 Золото</span>
+                <div>
+                    <span id="resGold" class="text-sm font-semibold text-amber-300">0</span>
+                    <span id="resGoldForecast" class="text-[9px] text-slate-500">→ 0</span>
+                </div>
+            </div>
+            <div class="w-px bg-slate-700"></div>
+            <div class="flex flex-col items-center min-w-[64px]">
+                <span class="text-[10px] text-slate-400">👥 Manpower</span>
+                <div>
+                    <span id="resManpower" class="text-sm font-semibold text-rose-300">0</span>
+                    <span id="resManpowerForecast" class="text-[9px] text-slate-500">→ 0</span>
+                </div>
+            </div>
         </div>
     </div>
+
+    <!-- ═══ Верх справа: ход + фракции ═══ -->
+    <div class="fixed top-3 right-3 z-30 flex flex-col items-end gap-1 pointer-events-none">
+        <div class="bg-slate-900/95 border border-slate-700 rounded-lg px-3 py-1.5 text-xs pointer-events-auto">
+            <span id="hudTurn" class="font-semibold">Ход 1</span>
+            <span class="text-slate-500 mx-1">·</span>
+            <span id="hudFactionsAlive" class="text-slate-400">Фракций: 0</span>
+        </div>
+        <select id="hudSeason" onchange="game.setSeason(this.value)"
+                class="bg-slate-900/95 border border-slate-700 text-xs rounded-lg px-2 py-1 pointer-events-auto">
+            <option value="SPRING" selected>Весна</option>
+            <option value="SUMMER">Лето</option>
+            <option value="AUTUMN">Осень</option>
+            <option value="WINTER">Зима</option>
+        </select>
+    </div>
+
+    <!-- ═══ Право, под шапкой: лог ИИ ═══ -->
+    <div id="aiLog" class="hidden fixed top-24 left-3 z-30 bg-slate-900/95 border border-slate-700 rounded-xl p-3 text-xs w-64 max-h-56 overflow-y-auto"></div>
+
+    <!-- ═══ Низ по центру-справа: слой карты + завершить ход ═══ -->
+    <div class="fixed bottom-3 right-3 z-30 flex items-center gap-2 pointer-events-none">
+        <select id="hudViewMode" onchange="game.setViewMode(this.value)"
+                class="bg-slate-900/95 border border-slate-700 text-xs rounded-lg px-2 py-2 pointer-events-auto">
+            <option value="terrain" selected>Рельеф + климат</option>
+            <option value="political">Рельеф + фракции</option>
+            <option value="factions">Карта фракций</option>
+            <option value="gold">Золото</option>
+            <option value="food">Еда</option>
+            <option value="production">Промышленность</option>
+            <option value="manpower">Население</option>
+            <option value="culture">Культура</option>
+            
+        </select>
+        <button onclick="game.endTurn()"
+                class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-sm rounded-xl shadow-lg pointer-events-auto transition transform active:scale-95">
+            Завершить ход
+        </button>
+    </div>
+
+    <!-- ═══ Низ слева: зум над инфопанелью ═══ -->
+    <div class="fixed bottom-[300px] left-3 z-30 flex flex-col gap-1 pointer-events-none">
+        <button onclick="game.zoomIn()" class="w-9 h-9 bg-slate-900/95 hover:bg-slate-800 border border-slate-700 rounded-lg text-sm pointer-events-auto">+</button>
+        <button onclick="game.resetView()" class="w-9 h-9 bg-slate-900/95 hover:bg-slate-800 border border-slate-700 rounded-lg text-xs pointer-events-auto">⟲</button>
+        <button onclick="game.zoomOut()" class="w-9 h-9 bg-slate-900/95 hover:bg-slate-800 border border-slate-700 rounded-lg text-sm pointer-events-auto">−</button>
+    </div>
+
+    <!-- ═══ Низ слева: инфопанель с вкладками (как была) ═══ -->
     <div id="infoPanel" class="fixed bottom-3 left-3 z-30 bg-slate-900/95 border border-slate-700 rounded-xl text-xs w-72 overflow-hidden flex flex-col">
         <div class="flex border-b border-slate-700">
-            <button id="tabRegionBtn" onclick="switchTab('region')"
-                    class="flex-1 px-3 py-2 text-xs font-semibold transition">
-                Регион
-            </button>
-            <button id="tabArmyBtn" onclick="switchTab('army')"
-                    class="flex-1 px-3 py-2 text-xs font-semibold transition border-l border-slate-700">
-                Армия
-            </button>
+            <button id="tabRegionBtn" onclick="switchTab('region')" class="flex-1 px-3 py-2 text-xs font-semibold transition">Регион</button>
+            <button id="tabArmyBtn" onclick="switchTab('army')" class="flex-1 px-3 py-2 text-xs font-semibold transition border-l border-slate-700">Армия</button>
         </div>
         <div id="tabRegionContent" class="p-3"></div>
         <div id="tabArmyContent" class="p-3 hidden"></div>
     </div>
-    <div id="aiLog" class="hidden fixed bottom-3 right-3 z-30 bg-slate-900/95 border border-slate-700 rounded-xl p-3 text-xs max-w-xs max-h-40 overflow-y-auto"></div>
+</div>
     <script>
         let game;
         let activeTab = 'region';
@@ -264,11 +304,10 @@
             const mapRegion = game.getRegionFullInfo(region);
             const biomeLabel = game.mapGen.elevationBandLabels[region.biome] || region.biome;
             const res = region.resources;
-            console.log(region)
+            console.log(mapRegion.region)
             const forecast = game.mapGen.getRegionResourcesForecast(mapRegion);
             const hasPendingChange = mapRegion.pendingSpecialization !== null && mapRegion.pendingSpecialization !== undefined;
             const effectiveSpec = mapRegion.pendingSpecialization ?? mapRegion.specialization;
-
             let html = `
                 <div class="font-semibold text-emerald-400 mb-1">${region.name} · ${biomeLabel}</div>
                 <div>Еда ${res.food.toFixed(1)} · Произв. ${res.production.toFixed(1)}</div>
@@ -280,8 +319,11 @@
             if (region.population > 0) html += `<div>Население: ${region.population}</div>`;
 
             if (info.faction) {
+                const factionCultureIcon = info.faction.culture ? game.mapGen.cultureIconById[info.faction.culture] : '';
                 html += `<hr class="my-2 border-slate-700">
-                        <div class="font-semibold" style="color: ${info.faction.color}">${info.faction.name}${info.isPlayerOwned ? ' (игрок)' : ''}</div>`;
+                        <div class="font-semibold" style="color: ${info.faction.color}">
+                            ${factionCultureIcon} ${info.faction.name}${info.isPlayerOwned ? ' (игрок)' : ''}
+                        </div>`;
                 if (info.diplomacy) {
                     const labels = { peace: 'Мир', war: 'Война', alliance: 'Союз' };
                     html += `<div>Отношения: ${labels[info.diplomacy]}</div>`;
@@ -290,6 +332,37 @@
                 html += `<div class="mt-2 text-slate-400">Ничейная территория</div>`;
             }
 
+            if (mapRegion.region.culture) {
+                const loyalty = game.mapGen.getRegionLoyalty(mapRegion);
+                const sortedCultures = Object.entries(mapRegion.region.culture).sort((a, b) => b[1] - a[1]);
+
+                html += `<hr class="my-2 border-slate-700">
+                        <div class="text-slate-400 text-[10px] mb-1">Культурный состав:</div>`;
+
+                sortedCultures.forEach(([id, share]) => {
+                    if (share < 0.01) return; // не показываем совсем незаметные доли
+                    const label = game.mapGen.cultureLabelById[id];
+                    const icon = game.mapGen.cultureIconById[id];
+                    const pct = (share * 100).toFixed(0);
+                    html += `
+                        <div class="flex items-center gap-1.5 text-[10px] mb-0.5">
+                            <span>${icon}</span>
+                            <span class="flex-1">${label}</span>
+                            <div class="w-16 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                <div class="h-full rounded-full" style="width:${pct}%; background:${game.mapGen.cultureColorById[id]}"></div>
+                            </div>
+                            <span class="w-7 text-right">${pct}%</span>
+                        </div>`;
+                });
+
+                if (mapRegion.ownerId !== null && mapRegion.ownerId !== undefined) {
+                    const ownerFaction = game.factionsManager.get(mapRegion.ownerId);
+                    const ownerCultureIcon = ownerFaction?.culture ? game.mapGen.cultureIconById[ownerFaction.culture] : '';
+                    html += `<div class="mt-1 text-[10px] text-amber-300">
+                                ${ownerCultureIcon} Лояльность: ${(loyalty * 100).toFixed(0)}%
+                            </div>`;
+                }
+            }
             if (!mapRegion.isWater) {
                 html += `
                     <hr class="my-2 border-slate-700">
@@ -364,14 +437,25 @@
             renderRegionTab(game.mapGen.getRegionData(game.mapGen.terrain.regions.all[regionId]));
         }
         function updateHud() {
-            const player = game.factionsManager.getPlayer();
-            if (player) {
-                console.log(player)
-                document.getElementById('hudTreasury').textContent =
-                    `🪙 ${Math.round(player.treasury.gold)} · 🌾 ${Math.round(player.currentFood)} · ⚙️ ${Math.round(player.currentProduction)} · 🪙 ${Math.round(player.treasury.manpower)} `;
-            }
-            document.getElementById('hudFactionsAlive').textContent =
-                `Фракций: ${game.factionsManager.getAlive().length}`;
+            updateResourceBar();
+            document.getElementById('hudFactionsAlive').textContent = `Фракций: ${game.factionsManager.getAlive().length}`;
+        }
+        function updateResourceBar() {
+            const forecast = game.getPlayerForecast();
+            if (!forecast) return;
+
+            document.getElementById('resFood').textContent = forecast.food.toFixed(1);
+            document.getElementById('resProduction').textContent = forecast.production.toFixed(1);
+
+            document.getElementById('resGold').textContent = Math.round(forecast.gold.current);
+            const goldForecastEl = document.getElementById('resGoldForecast');
+            goldForecastEl.textContent = `→ ${Math.round(forecast.gold.next)}`;
+            goldForecastEl.className = `text-[9px] ${forecast.gold.delta >= 0 ? 'text-emerald-500' : 'text-rose-500'}`;
+
+            document.getElementById('resManpower').textContent = Math.round(forecast.manpower.current);
+            const mpForecastEl = document.getElementById('resManpowerForecast');
+            mpForecastEl.textContent = `→ ${Math.round(forecast.manpower.next)}`;
+            mpForecastEl.className = `text-[9px] ${forecast.manpower.delta >= 0 ? 'text-emerald-500' : 'text-rose-500'}`;
         }
         function showArmyPanel(army, reachableIds) {
             document.getElementById('regionPanel').classList.add('hidden');

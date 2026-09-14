@@ -126,7 +126,8 @@ class MapGenerator {
             },
             regions: {
                 all: [],
-                render: MapTerrain.renderRegions.bind(this)
+                render: MapTerrain.renderRegions.bind(this),
+                getDominantCulture: MapTerrain.getDominantCulture.bind(this)
             },
             createTemperatures: MapTerrain.createTemperatures.bind(this),
             createRegions: MapTerrain.createRegions.bind(this),
@@ -146,9 +147,8 @@ class MapGenerator {
             setSeed: MapUtils.setSeed.bind(this),
             findBand: MapUtils.findBand.bind(this),
             generateRegionName: MapUtils.generateRegionName.bind(this),
-            drawCurvedLabel: MapUtils.drawCurvedLabel.bind(this)
-            
-            
+            drawCurvedLabel: MapUtils.drawCurvedLabel.bind(this),
+            distanceToSegment: MapUtils.distanceToSegment.bind(this),
         }
         this.decorations = {
             enabled: options.iconsEnabled ?? true,
@@ -158,6 +158,7 @@ class MapGenerator {
             edgeMargin: options.iconEdgeMargin ?? 1.1,
             defaultSizePct: options.iconDefaultSizePct || [0.5, 0.6],
             townExclusionRadius: options.townExclusionRadius ?? 8,
+            riverExclusionRadius: options.riverExclusionRadius ?? 3, 
             gapFactor: options.iconGapFactor ?? 0.7, 
             sets: {
                 STEPPE:       { count: [0, 0], keys: ['grass_tuft'], sizePct: [0.15, 0.18] },
@@ -241,6 +242,11 @@ class MapGenerator {
             widthMin: options.riverWidthMin ?? 0.4,
             widthMax: options.riverWidthMax ?? 0.9,
             color: options.riverColor ?? '#395463',
+            bridges: [], 
+            bridgeChance: options.riverBridgeChance ?? 0.3,
+            bridgeMinGap: options.riverBridgeMinGap ?? 2, 
+            bridgeLength: options.riverBridgeLength ?? 2.5, // мировых единиц — подберите под фактическую толщину реки в вашем масштабе
+            bridgeWidth: options.riverBridgeWidth ?? 1.2,
             blockedPairs: new Set(), 
             buildVertexGraph: MapRivers.buildVertexGraph.bind(this),
             annotateVertices: MapRivers.annotateVertices.bind(this),
@@ -251,7 +257,9 @@ class MapGenerator {
             generate: MapRivers.generate.bind(this),
             createPolylines: MapRivers.createPolylines.bind(this),
             paint: MapRivers.paint.bind(this),
+            paintBridges: MapRivers.paintBridges.bind(this),
             isBlocking: MapRivers.isBlocking.bind(this),
+            hasBridge: MapRivers.hasBridge.bind(this),
             
         };
 
@@ -276,6 +284,22 @@ class MapGenerator {
             loadAssets: MapArmies.loadAssets.bind(this),
             renderOccupationHatching: MapArmies.renderOccupationHatching.bind(this)
         }
+        this.cultures = {
+
+        }
+        this.cultureDefs = [
+            { id: 'BLUE', label: 'Лазурные', icon: '🔵', color: '#3b82f6' },
+            { id: 'RED', label: 'Багровые', icon: '🔴', color: '#ef4444' },
+            { id: 'YELLOW', label: 'Златые', icon: '🟡', color: '#eab308' },
+            { id: 'BLACK', label: 'Чёрные', icon: '⚫', color: '#1e1b1e' },
+            { id: 'GREEN', label: 'Изумрудные', icon: '🟢', color: '#22c55e' },
+            { id: 'PURPLE', label: 'Пурпурные', icon: '🟣', color: '#a855f7' },
+        ];
+        this.cultureIds = this.cultureDefs.map(c => c.id);
+        this.cultureLabelById = Object.fromEntries(this.cultureDefs.map(c => [c.id, c.label]));
+        this.cultureColorById = Object.fromEntries(this.cultureDefs.map(c => [c.id, c.color]));
+        this.cultureClusterSharpness = options.cultureClusterSharpness ?? 4; 
+        this.cultureIconById = Object.fromEntries(this.cultureDefs.map(c => [c.id, c.icon]));
 
         this.townResourceBonus = options.townResourceBonus ?? { food: 1.25, production: 1.25, gold: 1.4 };
         this.townChance = options.townChance ?? 0.06; 
@@ -285,7 +309,6 @@ class MapGenerator {
             images: {},
             basePath: options.townAssetsPath || 'icons/',
             variantsPerKey: options.townVariantsPerKey ?? 3,
-            // соответствие biomeBand (+опционально climateZone) → базовое имя ассета
             keysByBiome: options.townKeysByBiome || {
                 COAST: 'town_coast', STEPPE: 'town_plains', PLAINS: 'town_plains', GRASSLAND: 'town_plains',
                 WETLANDS: 'town_wetlands', WOODLAND: 'town_forest', FOREST: 'town_forest', DENSE_FOREST: 'town_forest',
@@ -623,7 +646,7 @@ class MapGenerator {
         this.terrain.cleanup(isWater, neighbors, minLandSize);
 
         const temperature = this.terrain.createTemperatures(regions, t);
-
+        const culturePoles = this.generateCulturePoles();
         regions.forEach((region, i) => {
             region.elevation = elevation[i];
             region.t = t[i];
@@ -638,11 +661,13 @@ class MapGenerator {
                 region.biomeBand = id;
                 region.biomeClimate = id;
                 region.biomeNeutral = id;
+                region.culture = null; 
             } else {
                 const band = this.utils.findBand(this.landElevationBands, t[i]);
                 region.biomeBand = band.id;
                 region.biomeClimate = band.id + '_' + zone;
                 region.biomeNeutral = band.id + '_temperate';
+                region.culture = this.generateInitialCultures(region, culturePoles);
             }
             region.decorBias = this.decorations.computeBias(region, regions, neighbors);
         });
@@ -700,6 +725,7 @@ class MapGenerator {
         this.edgeMap = this.createEdgeMap();
         this.regionNeighbors = neighbors;
         this.rivers.generate(regions, neighbors);
+        this.riverProximityIndex = this.buildRiverProximityIndex();
 
         this.viewTransform = { x: 0, y: 0, scale: 1 };
     }
@@ -722,6 +748,99 @@ class MapGenerator {
         }
         return dist;
     }
+    buildRiverProximityIndex() {
+        const index = new Map(); // regionId -> [{x1,y1,x2,y2}, ...] сегменты рек рядом с этим регионом
+    
+        this.rivers.segments.forEach(points => {
+            for (let i = 0; i < points.length - 1; i++) {
+                const seg = { x1: points[i].x, y1: points[i].y, x2: points[i+1].x, y2: points[i+1].y };
+                const minX = Math.min(seg.x1, seg.x2), maxX = Math.max(seg.x1, seg.x2);
+                const minY = Math.min(seg.y1, seg.y2), maxY = Math.max(seg.y1, seg.y2);
+    
+                this.terrain.regions.all.forEach(region => {
+                    if (region.isWater) return;
+                    const pad = this.decorations.riverExclusionRadius + 5; // небольшой запас
+                    const overlaps = region.bbox.maxX >= minX - pad && region.bbox.minX <= maxX + pad &&
+                                      region.bbox.maxY >= minY - pad && region.bbox.minY <= maxY + pad;
+                    if (!overlaps) return;
+    
+                    if (!index.has(region.id)) index.set(region.id, []);
+                    index.get(region.id).push(seg);
+                });
+            }
+        });
+    
+        return index;
+    }
+    generateInitialCultures(region, poles) {
+        const nx = region.x / this.width, ny = region.y / this.height;
+    
+        const weights = {};
+        let total = 0;
+        this.cultureIds.forEach(id => {
+            const pole = poles[id];
+            const dist = Math.hypot(nx - pole.x, ny - pole.y);
+            // экспоненциальное затухание — даёт выраженную кластеризацию (доминирование ближайшей культуры),
+            // а не размытое линейное распределение
+            const weight = Math.exp(-dist * this.cultureClusterSharpness);
+            weights[id] = weight;
+            total += weight;
+        });
+    
+        // немного локального шума, чтобы соседние регионы не были идентичны один в один
+        const noise = () => 1 + (this.utils.seededRandom() - 0.5) * 0.3;
+    
+        const culture = {};
+        let noisyTotal = 0;
+        this.cultureIds.forEach(id => {
+            const v = Math.max(0.001, (weights[id] / total) * noise());
+            culture[id] = v;
+            noisyTotal += v;
+        });
+        this.cultureIds.forEach(id => { culture[id] /= noisyTotal; }); // ре-нормализация в сумму 1.0
+    
+        return culture;
+    }
+    generateCulturePoles() {
+        // фиксированные направления, как вы описали (синие/чёрные — север, жёлтые — юг, зелёные — запад),
+        // плюс лёгкий сдвиг через seededRandom, чтобы полюса не были идентичны на каждой карте
+        const jitter = () => (this.utils.seededRandom() - 0.5) * 0.15;
+        return {
+            BLUE:   { x: 0.35 + jitter(), y: 0.15 + jitter() },
+            BLACK:  { x: 0.65 + jitter(), y: 0.15 + jitter() },
+            YELLOW: { x: 0.5 + jitter(), y: 0.85 + jitter() },
+            GREEN:  { x: 0.1 + jitter(), y: 0.5 + jitter() },
+            RED:    { x: 0.9 + jitter(), y: 0.5 + jitter() },
+            PURPLE: { x: 0.5 + jitter(), y: 0.5 + jitter() }, // фиолетовые — условно "в центре/повсюду понемногу"
+        };
+    }
+    applyCultureAssimilation() {
+        const assimilationRate = this.cultureAssimilationRate ?? 0.03; // доля сдвига за ход
+    
+        this.terrain.regions.all.forEach(region => {
+            if (region.isWater || !region.culture) return;
+            if (region.ownerId === null || region.ownerId === undefined) return; // нейтральные регионы не ассимилируются
+    
+            const faction = this.factions.list?.[region.ownerId];
+            if (!faction || !faction.culture) return;
+    
+            const ownerCulture = faction.culture;
+            const currentShare = region.culture[ownerCulture];
+            const growth = (1 - currentShare) * assimilationRate; // чем меньше доля, тем медленнее в абсолюте, типичная логистическая динамика
+    
+            region.culture[ownerCulture] += growth;
+    
+            // пропорционально уменьшаем остальные культуры, чтобы сумма осталась 1.0
+            const othersTotal = 1 - currentShare;
+            if (othersTotal > 0) {
+                const shrinkFactor = (othersTotal - growth) / othersTotal;
+                this.cultureIds.forEach(id => {
+                    if (id === ownerCulture) return;
+                    region.culture[id] *= shrinkFactor;
+                });
+            }
+        });
+    }
     // ═══════════════════════════════════════════════════════════
     // SECTION: MAP_DATA
     // Динамический синтез: превращает статичные mapRegions + текущие
@@ -740,6 +859,7 @@ class MapGenerator {
             climateZone: region.climateZone,
             city: region.city,
             ownerId: region.ownerId,
+            culture: region.culture,
             population: region.population,
             resources: this.getRegionResources(region),
         };
@@ -755,18 +875,20 @@ class MapGenerator {
     getRegionResources(region, season = this.currentSeason) {
         const base = this.biomeResourceBase[region.biomeBand];
         if (!base) return null;
-
+    
         const zone = region.climateZone || 'temperate';
         const mod = this.seasons[season].modifiers[zone];
         const specMod = this.specializationsMap[region.specialization]?.modifiers || {};
         const townMod = region.isTown ? this.townResourceBonus : {};
-
+        const loyaltyMod = this.getLoyaltyModifier(this.getRegionLoyalty(region));
+    
         const result = {};
         for (const key of Object.keys(base)) {
             let value = base[key] * (mod[key] ?? 1);
             if (key !== 'upkeep') {
                 value *= (specMod[key] ?? 1);
                 value *= (townMod[key] ?? 1);
+                value *= loyaltyMod; // ← новое, применяется ко всем ресурсам, кроме upkeep
             }
             result[key] = key === 'upkeep' ? -Math.abs(value) : value;
         }
@@ -806,7 +928,33 @@ class MapGenerator {
     
         return { ...totals, regionCount };
     }
+    getFactionEconomyForecast(factionId) {
+        const totals = { food: 0, production: 0, manpower: 0, gold: 0, upkeep: 0 };
     
+        this.terrain.regions.all.forEach(region => {
+            if (region.ownerId !== factionId) return;
+            const res = this.getRegionResourcesForecast(region);
+            if (!res) return;
+            totals.food += res.food;
+            totals.production += res.production;
+            totals.manpower += res.manpower;
+            totals.gold += res.gold;
+            totals.upkeep += res.upkeep;
+        });
+    
+        return totals;
+    }
+    getRegionLoyalty(region) {
+        if (region.ownerId === null || region.ownerId === undefined || !region.culture) return 1; // нейтралы — нейтральная лояльность
+        const faction = this.factions.list?.[region.ownerId];
+        if (!faction || !faction.culture) return 1;
+        return region.culture[faction.culture] ?? 0; // доля 0..1 — это и есть "лояльность" по вашему описанию
+    }
+    
+    getLoyaltyModifier(loyalty) {
+        // линейная шкала: 0% culture-match -> 0.6x ресурсов, 100% -> 1.2x, с изгибом вокруг разумной середины
+        return 0.6 + loyalty * 0.6;
+    }
     getAllFactionEconomies() {
         const result = {};
         (this.factions.list || []).forEach(f => {
@@ -980,46 +1128,32 @@ class MapGenerator {
     }
     
     renderDynamicObjects(ctx, zoomScale) {
-        this.renderCities(ctx, zoomScale);
         this.renderTowns(ctx, zoomScale);
         this.armies.renderReachableArea(ctx, zoomScale);
         this.selection.render(ctx, zoomScale);
         this.armies.render(ctx, zoomScale);
     }
     
-    
-    
-    renderCities(ctx, zoomScale = 1) {
-        const r = 2.5 / zoomScale;
-        this.terrain.regions.all.forEach(region => {
-            if (region.city) {
-                ctx.fillStyle = '#facc15';
-                ctx.beginPath();
-                ctx.arc(region.x, region.y, r, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.strokeStyle = '#022c22';
-                ctx.lineWidth = 1 / zoomScale;
-                ctx.stroke();
-            }
-        });
-    }
     renderTowns(ctx) {
         if (!this.townAssets.ready) return;
-    
         this.terrain.regions.all.forEach(region => {
             if (!region.isTown) return;
-            const size = 12.5;
+            const size = 11;
             const img = this.townAssets.images[region.townAssetKey];
-            if (img) ctx.drawImage(img, region.x - size / 2, region.y - size, size, size);
+            if (img) ctx.drawImage(img, region.x - size / 2, region.y - size + 4, size, size);
     
             ctx.save();
             ctx.font = `bold 2.7px serif`;
             ctx.textAlign = 'center';
             ctx.fillStyle = '#2a2015';
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
             ctx.lineWidth = 0.4;
-            ctx.strokeText(region.name, region.x, region.y + 3.5);
-            ctx.fillText(region.name, region.x, region.y + 3.5);
+            let townName = region.name
+            if (region.city) {
+                townName = '👑 '+townName;
+            }
+            ctx.strokeText(townName, region.x, region.y + 4.5);
+            ctx.fillText(townName, region.x, region.y + 4.5);
             ctx.restore();
         });
     }
@@ -1066,6 +1200,7 @@ class MapGenerator {
         ctx.scale(this.mapLayerScale, this.mapLayerScale);
         this.terrain.regions.render(ctx);
         this.rivers.paint(ctx);
+        this.rivers.paintBridges(ctx);
         this.paintCoastline(ctx);
         this.decorations.paintTextures(ctx);
         this.decorations.paint(ctx);
@@ -1215,7 +1350,7 @@ class MapGenerator {
     _initPerfOverlay() {
         const el = document.createElement('div');
         el.style.cssText = `
-            position: fixed; top: 8px; right: 8px; z-index: 9999;
+            position: fixed; top: 8px; left: 8px; z-index: 9999;
             background: rgba(0,0,0,0.75); color: #0f0; font: 11px monospace;
             padding: 6px 10px; border-radius: 6px; white-space: pre; pointer-events: none;
         `;
@@ -1273,6 +1408,7 @@ class MapGenerator {
         // весь тяжёлый статический пайплайн — теперь только здесь, не в каждом кадре
         this.terrain.regions.render(ctx, coveredRect);
         this.rivers.paint(ctx, coveredRect);
+        this.rivers.paintBridges(ctx, coveredRect);
         this.paintCoastline(ctx, coveredRect);
         this.decorations.paintTextures(ctx, coveredRect);
         this.decorations.paint(ctx, coveredRect);
@@ -1308,6 +1444,13 @@ const MapColor = {
     getBase(region, resourceRange) {
         if (this.viewMode === 'factions') {
             return this.color.getGrayscale(region);
+        }
+        if (this.viewMode === 'culture') {
+            if (region.isWater || !region.culture) return '#1a2540';
+            const dominant = this.terrain.regions.getDominantCulture(region);
+            const baseColor = this.cultureColorById[dominant];
+            const share = region.culture[dominant];
+            return this.color.blend('#6b7280', baseColor, share);
         }
         if (!region.isWater && ['food', 'gold', 'production', 'manpower'].includes(this.viewMode)) {
             return this.color.getResourceColor(region, this.viewMode, resourceRange);
@@ -1601,6 +1744,10 @@ const MapFaction = {
         capitals.forEach((capital, i) => {
             const factionName = names ? names[i] : `Фракция ${i + 1}`;
             capital.city = { name: factionName + ' (столица)' };
+            const dominantCulture = this.terrain.regions.getDominantCulture
+            ? this.terrain.regions.getDominantCulture(capital)
+            : this._getDominantCulture(capital);
+
             this.factions.list.push({
                 id: i,
                 name: factionName,
@@ -1609,6 +1756,7 @@ const MapFaction = {
                 ownedRegions: [],
                 totalPopulation: 0,
                 armies: [],
+                culture: dominantCulture,
             });
         });
 
@@ -2177,6 +2325,14 @@ const MapTerrain = {
                 for (const id of component) isWater[id] = 1;
             }
         }
+    },
+    getDominantCulture(region) {
+        if (!region.culture) return null;
+        let best = null, bestShare = -1;
+        Object.entries(region.culture).forEach(([id, share]) => {
+            if (share > bestShare) { bestShare = share; best = id; }
+        });
+        return best;
     }
 }
 
@@ -2207,9 +2363,9 @@ const MapUtils = {
         return bands[bands.length - 1];
     },
     generateRegionName(isWater) {
-        const landPrefixes = ['Нов', 'Стар', 'Верх', 'Ниж', 'Крас', 'Бел', 'Чёрн', 'Зелен', 'Тих', 'Дальн'];
+        const landPrefixes = ['Ново', 'Старо', 'Верхо', 'Ниже', 'Красо', 'Бело', 'Чёрно', 'Зелено', 'Тихо', 'Дально'];
         const landSuffixes = ['город', 'поль', 'озёрск', 'горск', 'дол', 'брод', 'лесье', 'край', 'вин', 'бург'];
-        const waterPrefixes = ['Синь', 'Глубь', 'Штиль', 'Волн', 'Прилив'];
+        const waterPrefixes = ['Синь', 'Глубо', 'Штиле', 'Волно', 'Прилив'];
         const waterSuffixes = ['море', 'залив', 'пролив', 'воды', 'простор'];
     
         const prefixes = isWater ? waterPrefixes : landPrefixes;
@@ -2261,6 +2417,16 @@ const MapUtils = {
         });
 
         ctx.restore();
+    },
+    distanceToSegment(px, py, x1, y1, x2, y2) {
+        const dx = x2 - x1, dy = y2 - y1;
+        const lenSq = dx * dx + dy * dy;
+        if (lenSq < 1e-9) return Math.hypot(px - x1, py - y1);
+    
+        let t = ((px - x1) * dx + (py - y1) * dy) / lenSq;
+        t = Math.max(0, Math.min(1, t));
+        const projX = x1 + t * dx, projY = y1 + t * dy;
+        return Math.hypot(px - projX, py - projY);
     }
 }
 // ═══════════════════════════════════════════════════════════
@@ -2374,7 +2540,15 @@ const MapDecorations = {
                     return Math.hypot(p.x - x, p.y - y) < required;
                 });
                 if (tooClose) continue;
-    
+
+                const nearbySegments = this.riverProximityIndex?.get(region.id);
+                if (nearbySegments && nearbySegments.length) {
+                    const tooCloseToRiver = nearbySegments.some(seg =>
+                        this.distanceToSegment(x, y, seg.x1, seg.y1, seg.x2, seg.y2) < this.decorations.riverExclusionRadius
+                    );
+                    if (tooCloseToRiver) continue;
+                }
+                
                 if (region.isTown) {
                     const distToTown = Math.hypot(x - region.x, y - region.y);
                     if (distToTown < this.decorations.townExclusionRadius) continue;
@@ -2577,9 +2751,9 @@ const MapArmies = {
     render(ctx, zoomScale = 1) {
         if (!this.armiesProvider) return;
         const armies = this.armiesProvider();
-        const spriteSize = Math.max(20, Math.min(20 / (zoomScale*0.2), 40)); // сам юнит крупнее, чем было
-        const plateHeight = 1 / (zoomScale * 0.05);
-        const plateWidth = 1.3 / (zoomScale * 0.05);
+        const spriteSize = 17; // сам юнит крупнее, чем было
+        const plateHeight = 1// / (zoomScale * 0.05);
+        const plateWidth = 1.3// / (zoomScale * 0.05);
         
         armies.forEach(army => {
             const region = this.terrain.regions.all[army.regionId];
@@ -2602,7 +2776,7 @@ const MapArmies = {
             const img = this.armies.assets.ready ? this.armies.assets.images[key] : null;
 
             ctx.save();
-            const spriteBottomY = drawY - plateHeight * 0.5  + 4;
+            const spriteBottomY = drawY - plateHeight * 0.5;
             const spriteTopY = spriteBottomY - spriteSize;
 
             if (img) {
@@ -2614,6 +2788,7 @@ const MapArmies = {
                 ctx.fill();
             }
             // табличка с числом под юнитом — цвет фракции, как рамка/фон
+            /*
             const plateY = spriteBottomY;
             ctx.fillStyle = color;
             ctx.fillRect(drawX - plateWidth / 2, plateY, plateWidth, plateHeight);
@@ -2626,7 +2801,7 @@ const MapArmies = {
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText(army.strength, drawX, plateY + plateHeight / 2 + 0.3 / zoomScale);
-    
+  
             // подсветка выбранной армии — рамка вокруг всей связки спрайт+табличка
             if (this.selection.armyId === army.id) {
                 ctx.strokeStyle = this.selection.color;
@@ -2635,7 +2810,7 @@ const MapArmies = {
                     drawX - plateWidth / 2, plateY, plateWidth, plateHeight
                 );
             }
-
+  */
             ctx.restore();
         });
     },
@@ -2777,16 +2952,21 @@ const MapRivers = {
     },
     
     createPolylines(paths) {
-        const riverBlockedPairs = new Set(); 
+        const riverBlockedPairs = new Set();
+        const bridges = [];
+
         const polylines = paths.map(path => {
             const points = [];
+            let stepsSinceLastBridge = this.rivers.bridgeMinGap; // разрешаем мост сразу в начале при желании
+
             for (let i = 0; i < path.length - 1; i++) {
                 const from = this.vertexGraph.get(path[i]);
                 const edge = from.edges.get(path[i + 1]);
                 if (!edge) continue;
-    
+
                 const to = this.vertexGraph.get(path[i + 1]);
                 const sharedRegions = [...from.regionIds].filter(id => to.regionIds.has(id));
+
                 if (sharedRegions.length >= 2) {
                     for (let a = 0; a < sharedRegions.length; a++) {
                         for (let b = a + 1; b < sharedRegions.length; b++) {
@@ -2794,15 +2974,27 @@ const MapRivers = {
                             riverBlockedPairs.add(x < y ? `${x}-${y}` : `${y}-${x}`);
                         }
                     }
+
+                    // Отбор моста для ЭТОГО сегмента (шага пути между двумя точками схождения)
+                    stepsSinceLastBridge++;
+                    const canPlaceBridge = stepsSinceLastBridge > this.rivers.bridgeMinGap;
+                    if (canPlaceBridge && this.utils.seededRandom() < this.rivers.bridgeChance && sharedRegions.length >= 2) {
+                        const midX = (edge.p1[0] + edge.p2[0]) / 2;
+                        const midY = (edge.p1[1] + edge.p2[1]) / 2;
+                        bridges.push({ regionA: sharedRegions[0], regionB: sharedRegions[1], x: midX, y: midY });
+                        stepsSinceLastBridge = 0;
+                    }
                 }
+
                 const segPoints = this.getNoisyLineSegments(edge.p1[0], edge.p1[1], edge.p2[0], edge.p2[1]);
                 const startIdx = points.length ? 1 : 0;
                 for (let k = startIdx; k < segPoints.length; k++) points.push(segPoints[k]);
             }
             return points;
         }).filter(p => p.length >= 2);
-    
+
         this.rivers.blockedPairs = riverBlockedPairs;
+        this.rivers.bridges = bridges;
         return polylines;
     },
     paint(ctx, visibleRect = null) {
@@ -2823,7 +3015,51 @@ const MapRivers = {
             }
         });
     },
+    paintBridges(ctx, visibleRect = null) {
+        if (!this.rivers.bridges || !this.rivers.bridges.length) return;
     
+        this.rivers.bridges.forEach(bridge => {
+            const regionA = this.terrain.regions.all[bridge.regionA];
+            const regionB = this.terrain.regions.all[bridge.regionB];
+            if (!regionA || !regionB) return;
+    
+            if (visibleRect) {
+                const midX = (regionA.x + regionB.x) / 2, midY = (regionA.y + regionB.y) / 2;
+                if (midX < visibleRect.minX || midX > visibleRect.maxX ||
+                    midY < visibleRect.minY || midY > visibleRect.maxY) return;
+            }
+    
+            // направление строго от центра региона A к центру региона B
+            const dx = regionB.x - regionA.x, dy = regionB.y - regionA.y;
+            const len = Math.hypot(dx, dy) || 1;
+            const ux = dx / len, uy = dy / len;
+    
+            // короткий отрезок в СЕРЕДИНЕ этой линии — покрывает только толщину русла, а не всю дистанцию между центрами
+            const midX = (regionA.x + regionB.x) / 2, midY = (regionA.y + regionB.y) / 2;
+            const halfLen = this.rivers.bridgeLength// / 2;
+    
+            const x1 = midX - ux * halfLen, y1 = midY - uy * halfLen;
+            const x2 = midX + ux * halfLen, y2 = midY + uy * halfLen;
+   
+            ctx.save();
+             
+            ctx.strokeStyle = '#5a4a30';
+            ctx.lineWidth = this.rivers.bridgeWidth;
+            ctx.lineCap = 'butt';
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.stroke();
+            
+            ctx.strokeStyle = '#A1AD62';
+            ctx.lineWidth = this.rivers.bridgeWidth * 0.85;
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.stroke();
+            ctx.restore();
+        });
+    },
     buildVertexGraph(regions, voronoi) {
         const vertexKey = (x, y) => `${Math.round(x * 20)},${Math.round(y * 20)}`; 
         const vertices = new Map();
@@ -2919,6 +3155,13 @@ const MapRivers = {
     isBlocking(regionIdA, regionIdB) {
         if (!this.rivers.blockedPairs || !this.rivers.blockedPairs.size) return false;
         const key = regionIdA < regionIdB ? `${regionIdA}-${regionIdB}` : `${regionIdB}-${regionIdA}`;
-        return this.rivers.blockedPairs.has(key);
+        if (!this.rivers.blockedPairs.has(key)) return false;
+
+        return !this.rivers.hasBridge(regionIdA, regionIdB);
+    },
+    hasBridge(regionA, regionB) {
+        return this.rivers.bridges.some(b =>
+            (b.regionA === regionA && b.regionB === regionB) || (b.regionA === regionB && b.regionB === regionA)
+        );
     }
 };

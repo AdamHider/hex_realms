@@ -1,22 +1,24 @@
 class AIManager {
     constructor(game, options = {}) {
         this.game = game;
-
+    
         this.weights = {
-            warDesireBase: 0.15,
-            peaceDesireIfLosing: 0.6,
-            treasuryDangerThreshold: 10,
-            recruitChance: 0.35,       // шанс попытаться нанять армию за ход, если есть средства
-            recruitGoldReserve: 40,    // не нанимать, если после найма золота останется меньше этого
-            expansionChance: 0.7,      // шанс, что свободная армия попытается двигаться к нейтральной земле
+            warDesireBase: 0.35,           // было 0.15 — фракции чаще решаются на конфликт
+            peaceDesireIfLosing: 0.5,       // чуть меньше, чтобы войны не гасли слишком быстро
+            treasuryDangerThreshold: 8,     // порог "в беде" снижен — фракция терпит войну дольше
+            recruitChance: 0.7,             // было 0.35 — почти каждый ход пытается нанять, если хватает средств
+            recruitGoldReserve: 15,         // ниже резерв — тратит золото охотнее
+            expansionChance: 0.95,          // было 0.7 — почти всегда пытается двигать свободные армии
+            warCooldownTurns: 1,            // было 3 — почти без охлаждения между войнами
+            maxSimultaneousWars: 2,         // новое — теперь можно воевать на 2 фронта, не на 1
+            aggressiveMoveChance: 0.6,      // новое — шанс атаковать вражеский регион вместо нейтрального
         };
-
+    
         this.callbacks = {
             onAIAction: options.onAIAction || null,
         };
-        
-        this.warCooldownTurns = options.warCooldownTurns ?? 3;
-        this.lastWarTurn = {}; 
+    
+        this.lastWarTurn = {};
     }
 
     runTurn() {
@@ -24,41 +26,63 @@ class AIManager {
         console.log('[AI] runTurn, factions:', factions.length);
     
         factions.forEach(faction => {
-            //this._decideDiplomacy(faction);
-            console.log('[AI] calling _decideArmyActions for', faction.name);
-            //this._decideRecruitment(faction);
+            this._decideDiplomacy(faction);
+            this._decideRecruitment(faction);
             this._decideArmyActions(faction);
         });
     }
     
     _decideArmyActions(faction) {
         const armies = this.game.armyManager.getArmiesOf(faction.id);
-        console.log(`[AI ${faction.name}] armies count:`, armies.length);
     
         armies.forEach(army => {
-            console.log(`[AI ${faction.name}] army ${army.id}: ap=${army.actionPoints}, region=${army.regionId}`);
-    
             const region = this.game.mapGen.terrain.regions.all[army.regionId];
-            if (!region) { console.log('  -> no region found, skip'); return; }
-                  
-            const roll = Math.random();
-            console.log(`  -> expansion roll: ${roll.toFixed(2)} vs chance ${this.weights.expansionChance}`);
-            if (roll > this.weights.expansionChance) { console.log('  -> failed roll, skip'); return; }
-            if (army.actionPoints <= 0) { console.log('  -> no action points, skip'); return; }
+            if (!region) return;
     
-            const target = this._findNearestNeutralRegion(faction, army);
-            console.log('  -> nearest neutral target:', target);
+            // Стоим на нейтральной или вражеской земле — оккупация разрешается автоматически через resolveOccupations(),
+            // здесь только решаем, двигаться ли ДАЛЬШЕ, если очков ещё хватает (после занятия клетки очков обычно уже нет,
+            // но если движение стоило меньше полного actionPoints — проверяем)
+            if (army.actionPoints <= 0) return;
+            if (Math.random() > this.weights.expansionChance) return;
+    
+            const isAtWarSomewhere = this.game.mapGen.factions.getNeighboringFactions(faction.id)
+                .some(id => this.game.getDiplomacyStatus(faction.id, id) === 'war');
+    
+            let target = null;
+    
+            // Если фракция воюет и personality достаточно агрессивна — с шансом идём НА врага, а не на нейтралку
+            if (isAtWarSomewhere && Math.random() < this.weights.aggressiveMoveChance * (faction.personality?.aggression ?? 0.5)) {
+                target = this._findNearestEnemyRegion(faction, army);
+            }
+    
+            if (!target) target = this._findNearestNeutralRegion(faction, army);
             if (!target) return;
     
             const result = this.game.armyManager.moveArmy(army.id, target);
-            console.log('  -> moveArmy result:', result);
             if (result.success && this.callbacks.onAIAction) {
                 this.callbacks.onAIAction(faction.id, 'move_army', { armyId: army.id, to: target });
             }
         });
     }
+    
+    _findNearestEnemyRegion(faction, army) {
+        const mapGen = this.game.mapGen;
+        const reachable = mapGen.armies.computeReachable(army);
+        if (!reachable.size) return null;
+    
+        let best = null, bestAP = -Infinity;
+        reachable.forEach((remainingAP, regionId) => {
+            const region = mapGen.terrain.regions.all[regionId];
+            if (!region) return;
+            if (region.ownerId === null || region.ownerId === undefined) return; 
+            if (region.ownerId === faction.id) return;
+            const status = this.game.getDiplomacyStatus(faction.id, region.ownerId);
+            if (status !== 'war') return;
+            if (remainingAP > bestAP) { bestAP = remainingAP; best = regionId; }
+        });
+        return best;
+    }
 
-    // ── Дипломатия — как было ──
     _decideDiplomacy(faction) {
         const neighbors = this.game.mapGen.factions.getNeighboringFactions(faction.id)
             .filter(id => this.game.factionsManager.get(id)?.isAlive);
@@ -73,43 +97,50 @@ class AIManager {
             return;
         }
     
-        // остывание после недавней войны — не объявляем сразу вторую
         const currentTurn = this.game.turnManager?.state?.turnNumber ?? 0;
         const lastWar = this.lastWarTurn[faction.id] ?? -Infinity;
-        if (currentTurn - lastWar < this.warCooldownTurns) return;
+        if (currentTurn - lastWar < this.weights.warCooldownTurns) return;
     
-        // уже воюющая фракция не начинает ещё одну войну одновременно
-        const alreadyAtWar = neighbors.some(id => this.game.getDiplomacyStatus(faction.id, id) === 'war');
-        if (alreadyAtWar) return;
+        const currentWars = neighbors.filter(id => this.game.getDiplomacyStatus(faction.id, id) === 'war').length;
+        if (currentWars >= this.weights.maxSimultaneousWars) return; // лимит фронтов, не полный запрет
     
         const peaceNeighbors = neighbors.filter(id => this.game.getDiplomacyStatus(faction.id, id) === 'peace');
-        // объявляем войну не всем подряд соседям, а максимум одному за ход
         const shuffled = [...peaceNeighbors].sort(() => Math.random() - 0.5);
+    
+        let declaredThisTurn = 0;
+        const remainingSlots = this.weights.maxSimultaneousWars - currentWars;
+    
         for (const neighborId of shuffled) {
+            if (declaredThisTurn >= remainingSlots) break;
             const chance = this.weights.warDesireBase * (faction.personality?.aggression ?? 0.5);
             if (Math.random() < chance) {
                 this._tryDeclareWar(faction.id, neighborId);
                 this.lastWarTurn[faction.id] = currentTurn;
-                break; // одна война за ход — и хватит
+                declaredThisTurn++;
             }
         }
     }
 
-    // ── Найм ──
     _decideRecruitment(faction) {
         if (Math.random() > this.weights.recruitChance) return;
-
+    
         const cost = this.game.armyManager.recruitCost;
         if (faction.treasury.gold - cost.gold < this.weights.recruitGoldReserve) return;
         if (faction.treasury.manpower < cost.manpower) return;
-
-        // нанимаем в столице — самый безопасный и очевидный вариант для простого ИИ
-        const result = this.game.armyManager.recruitArmy(faction.id, faction.capitalRegionId);
+    
+        // выбираем случайный СВОЙ регион, не обязательно столицу — распределяет армии по территории, не только в центре
+        const ownRegions = this.game.mapGen.terrain.regions.all.filter(r => r.ownerId === faction.id);
+        if (!ownRegions.length) return;
+    
+        const target = Math.random() < 0.5
+            ? this.game.mapGen.terrain.regions.all[faction.capitalRegionId]
+            : ownRegions[Math.floor(Math.random() * ownRegions.length)];
+    
+        const result = this.game.armyManager.recruitArmy(faction.id, target.id);
         if (result.success && this.callbacks.onAIAction) {
-            this.callbacks.onAIAction(faction.id, 'recruit_army', { regionId: faction.capitalRegionId });
+            this.callbacks.onAIAction(faction.id, 'recruit_army', { regionId: target.id });
         }
     }
-
 
     // Ищем ближайший (по BFS-достижимости за этот ход) нейтральный регион, куда армия реально может дойти
     _findNearestNeutralRegion(faction, army) {

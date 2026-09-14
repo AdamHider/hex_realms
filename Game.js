@@ -137,7 +137,6 @@ class Game {
         if (faction && player && faction.id !== player.id) {
             diplomacy = this.getDiplomacyStatus(player.id, faction.id);
         }
-    
         const armiesHere = faction
             ? faction.armies?.filter(a => a.regionId === region.id) ?? []
             : [];
@@ -152,9 +151,54 @@ class Game {
             armies: armiesHere,
         };
     }
-
+    getPlayerForecast() {
+        const player = this.factionsManager.getPlayer();
+        if (!player) return null;
+    
+        const current = this.mapGen.getFactionEconomy(player.id);
+        const forecast = this.mapGen.getFactionEconomyForecast(player.id);
+    
+        const armyUpkeep = this.armyManager.getArmiesOf(player.id)
+            .reduce((sum, a) => sum + a.strength * this.armyManager.upkeepPerStrength, 0);
+    
+        const goldNextTurn = player.treasury.gold + forecast.gold - armyUpkeep;
+    
+        let manpowerDelta;
+        if (forecast.food <= 0) {
+            manpowerDelta = forecast.food * this.turnManager.starvationFactor;
+        } else {
+            manpowerDelta = forecast.manpower
+                + forecast.food * this.turnManager.foodManpowerBonus
+                + forecast.gold * this.turnManager.goldManpowerBonus;
+        }
+        const manpowerNextTurn = player.treasury.manpower + manpowerDelta;
+    
+        return {
+            food: forecast.food,               // поток — не накопительный, показываем как есть
+            production: forecast.production,   // поток
+            gold: { current: player.treasury.gold, next: goldNextTurn, delta: goldNextTurn - player.treasury.gold },
+            manpower: { current: player.treasury.manpower, next: manpowerNextTurn, delta: manpowerNextTurn - player.treasury.manpower },
+        };
+    }
+    getFactionEconomyForecast(factionId) {
+        const totals = { food: 0, production: 0, manpower: 0, gold: 0, upkeep: 0 };
+    
+        this.terrain.regions.all.forEach(region => {
+            if (region.ownerId !== factionId) return;
+            const res = this.getRegionResourcesForecast(region);
+            if (!res) return;
+            totals.food += res.food;
+            totals.production += res.production;
+            totals.manpower += res.manpower;
+            totals.gold += res.gold;
+            totals.upkeep += res.upkeep;
+        });
+    
+        return totals;
+    }
     endTurn() {
         this.mapGen.applyPendingSpecializations(); // ← новое, самым первым — до расчёта economies в TurnManager
+        this.mapGen.applyCultureAssimilation();
         const summary = this.turnManager?.endTurn() ?? null;
         if (summary) {
             this.armyManager.collectUpkeep();
