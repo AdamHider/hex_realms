@@ -48,9 +48,9 @@
             <div class="flex flex-col gap-1.5">
                 <div class="flex justify-between text-xs">
                     <span class="text-slate-300">Плотность полигонов:</span>
-                    <span id="menuValRegionCount" class="text-emerald-400 font-mono">3000</span>
+                    <span id="menuValRegionCount" class="text-emerald-400 font-mono">2500</span>
                 </div>
-                <input type="range" id="menuRegionCount" min="500" max="4000" step="100" value="4000"
+                <input type="range" id="menuRegionCount" min="500" max="4000" step="100" value="2500"
                     oninput="document.getElementById('menuValRegionCount').textContent = this.value"
                     class="w-full accent-emerald-500 cursor-pointer">
             </div>
@@ -320,7 +320,7 @@
             const forecast = game.mapGen.getRegionResourcesForecast(mapRegion.region);
             const hasPendingChange = mapRegion.region.pendingSpecialization !== null && mapRegion.region.pendingSpecialization !== undefined;
             const effectiveSpec = mapRegion.region.pendingSpecialization ?? mapRegion.region.specialization;
-            
+
             
             let html = `
                 <div class="font-semibold text-emerald-400 mb-1">${region.name} · ${biomeLabel}</div>

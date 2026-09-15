@@ -78,7 +78,7 @@ class MapGenerator {
 
         this.factions = {
             config: options.factions || { count: 0 },
-            startHops: options.startHops ?? 3,
+            startHops: options.startHops ?? 2,
             capitalPopulation: options.capitalPopulation ?? 120,
             populationDecay: options.populationDecay ?? 0.62,
             colors: { 
@@ -154,7 +154,7 @@ class MapGenerator {
 
         this.terrain = {
             config: {
-                regionCount: options.regionCount || 3000,
+                regionCount: options.regionCount || 2500,
                 peakCount: options.peakCount || 4,
                 peakShape: options.peakShape || 0.7,
                 shapeType: options.shapeType || 'continent',
@@ -779,7 +779,7 @@ class MapGenerator {
         return this.factions.list || [];
     }
     getRegionResources(region, season = this.currentSeason) {
-        const base = this.biomeResourceBase[region.biomeBand];
+        const base = this.biomeResourceBase[region.biomeBand ?? region.biome];
         if (!base) return null;
     
         const zone = region.climateZone || 'temperate';
@@ -806,6 +806,7 @@ class MapGenerator {
         return result;
     }
     getRegionResourcesForecast(region, season = this.currentSeason) {
+        
         if (!region?.pendingSpecialization) {
             return this.getRegionResources(region, season); // нет изменений в очереди — прогноз совпадает с текущим
         }
