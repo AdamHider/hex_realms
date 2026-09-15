@@ -28,15 +28,27 @@ class ArmyManager {
         return this.list;
     }
 
+    // в ArmyManager._makeArmy:
     _makeArmy(factionId, regionId, strength) {
+        const faction = this.game.factionsManager.get(factionId);
+        const capitalRegion = this.game.mapGen.terrain.regions.all[faction?.capitalRegionId];
+        const unitType = this._resolveUnitType(capitalRegion?.climateZone);
+
         return {
             id: `army-${this.nextId++}`,
             factionId,
             regionId,
             strength,
             actionPoints: 0,
+            unitType,
             assetVariant: 1 + Math.floor(Math.random() * this.game.mapGen.armies.assets.variantsPerRank),
         };
+    }
+
+    _resolveUnitType(climateZone) {
+        if (climateZone === 'cold') return 'northern';
+        if (climateZone === 'hot') return 'desert';
+        return 'southern';
     }
 
     getArmiesAt(regionId) {
@@ -115,8 +127,6 @@ class ArmyManager {
         });
     }
 
-    // ── Движение ──
-
     canMoveTo(armyId, targetRegionId) {
         const army = this.list.find(a => a.id === armyId);
         if (!army || army.actionPoints <= 0) return false;
@@ -150,7 +160,7 @@ class ArmyManager {
         
     
         if (this.callbacks.onArmyMoved) {
-            //this.resolveOccupations();
+            this.resolveOccupations()
             this.callbacks.onArmyMoved(army, fromRegionId, targetRegionId);
         }
         this.game.mapGen.scheduleRender();
@@ -158,8 +168,6 @@ class ArmyManager {
     }
 
     // ── Действия на вражеской/нейтральной territории: захват / разграбление ──
-
-    
 
     pillageRegion(armyId) {
         const army = this.list.find(a => a.id === armyId);
@@ -202,14 +210,12 @@ class ArmyManager {
         });
         return upkeepByFaction;
     }
-    // в ArmyManager:
+    
     resolveOccupations() {
         const mapGen = this.game.mapGen;
         const capturedRegions = [];
-        
         mapGen.terrain.regions.all.forEach(region => {
             if (region.isWater) return;
-
             const occupierId = this._findOccupierAt(region.id);
             if (region.occupiedBy !== null && region.occupiedBy === occupierId) {
                 const previousOwner = region.ownerId;
@@ -234,7 +240,6 @@ class ArmyManager {
             mapGen.markDirty('terrain', 'political', 'fog');
         }
         this.game.mapGen._invalidateVisibilityCache();
-        mapGen.render();
         return capturedRegions;
     }
 

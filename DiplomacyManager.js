@@ -19,12 +19,27 @@ class DiplomacyManager {
         this.relations.clear();
         for (let i = 0; i < factions.length; i++) {
             for (let j = i + 1; j < factions.length; j++) {
-                this.relations.set(this._key(factions[i].id, factions[j].id), {
+                const a = factions[i], b = factions[j];
+                const culturalBonus = a.culture === b.culture ? 20 : -10; // культурная близость сразу влияет на старт
+                this.relations.set(this._key(a.id, b.id), {
                     status: 'peace',
                     turnsInStatus: 0,
+                    level: culturalBonus,
                 });
             }
         }
+    }
+    
+    getLevel(a, b) {
+        if (a === b) return 100;
+        const rel = this.relations.get(this._key(a, b));
+        return rel ? Math.max(-100, Math.min(100, rel.level)) : 0;
+    }
+    
+    adjustLevel(a, b, delta) {
+        const rel = this.relations.get(this._key(a, b));
+        if (!rel) return;
+        rel.level = Math.max(-100, Math.min(100, rel.level + delta));
     }
 
     getStatus(a, b) {
@@ -46,6 +61,7 @@ class DiplomacyManager {
 
         rel.status = 'war';
         rel.turnsInStatus = 0;
+        this.adjustLevel(a, b, -40); // резкое падение отношений при объявлении войны
         if (this.callbacks.onWarDeclared) this.callbacks.onWarDeclared(a, b);
         return true;
     }
@@ -57,6 +73,7 @@ class DiplomacyManager {
 
         rel.status = 'peace';
         rel.turnsInStatus = 0;
+        this.adjustLevel(a, b, 10); // небольшое улучшение при заключении мира
         if (this.callbacks.onPeaceMade) this.callbacks.onPeaceMade(a, b);
         return true;
     }
@@ -68,6 +85,7 @@ class DiplomacyManager {
 
         rel.status = 'alliance';
         rel.turnsInStatus = 0;
+        this.adjustLevel(a, b, 25);
         if (this.callbacks.onAllianceFormed) this.callbacks.onAllianceFormed(a, b);
         return true;
     }
@@ -84,7 +102,12 @@ class DiplomacyManager {
 
     // Вызывается из Turn на каждый ход — держит счётчик "сколько ходов в текущем статусе"
     tick() {
-        this.relations.forEach(rel => { rel.turnsInStatus++; });
+        this.relations.forEach(rel => {
+            rel.turnsInStatus++;
+            if (rel.status === 'war') rel.level = Math.max(-100, rel.level - 2);
+            else if (rel.status === 'peace') rel.level = Math.min(100, rel.level + 1);
+            else if (rel.status === 'alliance') rel.level = Math.min(100, rel.level + 2);
+        });
     }
 
     // Все отношения конкретной фракции — удобно для AI/UI

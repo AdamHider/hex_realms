@@ -83,9 +83,47 @@ class MapGenerator {
             populationDecay: options.populationDecay ?? 0.62,
             colors: { 
                 all: [
-                    '#e63946', '#457b9d', '#2a9d8f', '#f4a261', '#9b5de5',
-                    '#ffbe0b', '#06d6a0', '#ef476f', '#118ab2', '#f77f00',
-                    '#8338ec', '#06a77d', '#d62828', '#3a86ff', '#ffd60a',
+                    // северная культура (BLUE) — холодные синие/голубые тона
+                    { id: 'light-blue', hex: '#7dd3fc', culture: 'BLUE' },
+                    { id: 'blue', hex: '#3b82f6', culture: 'BLUE' },
+                    { id: 'dark-blue', hex: '#1d4ed8', culture: 'BLUE' },
+                    { id: 'steel-blue', hex: '#475569', culture: 'BLUE' },
+                    { id: 'navy', hex: '#1e293b', culture: 'BLUE' },
+                
+                    // чёрная культура (BLACK) — тёмные, холодные нейтральные
+                    { id: 'black', hex: '#18181b', culture: 'BLACK' },
+                    { id: 'charcoal', hex: '#3f3f46', culture: 'BLACK' },
+                    { id: 'dark-purple', hex: '#4c1d95', culture: 'BLACK' },
+                    { id: 'iron', hex: '#52525b', culture: 'BLACK' },
+                    { id: 'obsidian', hex: '#27272a', culture: 'BLACK' },
+                
+                    // южная культура (YELLOW) — тёплые жёлто-оранжевые
+                    { id: 'yellow', hex: '#eab308', culture: 'YELLOW' },
+                    { id: 'gold', hex: '#f4d03f', culture: 'YELLOW' },
+                    { id: 'amber', hex: '#f59e0b', culture: 'YELLOW' },
+                    { id: 'orange', hex: '#e67e22', culture: 'YELLOW' },
+                    { id: 'sand', hex: '#d4a574', culture: 'YELLOW' },
+                
+                    // западная культура (GREEN) — зелёные тона
+                    { id: 'light-green', hex: '#86efac', culture: 'GREEN' },
+                    { id: 'green', hex: '#22c55e', culture: 'GREEN' },
+                    { id: 'dark-green', hex: '#166534', culture: 'GREEN' },
+                    { id: 'olive', hex: '#65a30d', culture: 'GREEN' },
+                    { id: 'teal', hex: '#0d9488', culture: 'GREEN' },
+                
+                    // восточная культура (RED) — красные/багровые
+                    { id: 'red', hex: '#e63946', culture: 'RED' },
+                    { id: 'dark-red', hex: '#991b1b', culture: 'RED' },
+                    { id: 'crimson', hex: '#dc2626', culture: 'RED' },
+                    { id: 'maroon', hex: '#7f1d1d', culture: 'RED' },
+                    { id: 'brick', hex: '#b91c1c', culture: 'RED' },
+                
+                    // центральная культура (PURPLE) — фиолетовые/розовые
+                    { id: 'purple', hex: '#a855f7', culture: 'PURPLE' },
+                    { id: 'violet', hex: '#8b5cf6', culture: 'PURPLE' },
+                    { id: 'pink', hex: '#ec4899', culture: 'PURPLE' },
+                    { id: 'magenta', hex: '#c026d3', culture: 'PURPLE' },
+                    { id: 'lavender', hex: '#c4b5fd', culture: 'PURPLE' },
                 ],
                 neutral: 'rgba(255, 255, 255, 0)'
             },
@@ -97,10 +135,7 @@ class MapGenerator {
                 neutral: 'rgba(255, 255, 255, 0)',
             },
             getTotal: MapFaction.getTotal.bind(this),
-            pickCapitals: MapFaction.pickCapitals.bind(this),
             settle: MapFaction.settle.bind(this),
-            setColors: MapFaction.setColors.bind(this),
-            getColorOf: MapFaction.getColorOf.bind(this),
             drawBorders: MapFaction.drawBorders.bind(this),
             drawBorderEdges: MapFaction.drawBorderEdges.bind(this),
             getFactionAdjacency: MapFaction.getFactionAdjacency.bind(this),
@@ -109,8 +144,13 @@ class MapGenerator {
             computeLabelPath: MapFaction.computeLabelPath.bind(this),
             renderFactionLabels: MapFaction.renderFactionLabels.bind(this),
             getLabelPath: MapFaction.getLabelPath.bind(this),
+            getFactionFlagImage: MapFaction.getFactionFlagImage.bind(this),
+            getFactionFlagKey: MapFaction.getFactionFlagKey.bind(this),
         }
 
+        this.maxFactions = options.maxFactions ?? this.factions.colors.all.length;
+        this.factionColorById = Object.fromEntries(this.factions.colors.all.map(c => [c.id, c.hex]));
+        this.factionCultureByColorId = Object.fromEntries(this.factions.colors.all.map(c => [c.id, c.culture]));
 
         this.terrain = {
             config: {
@@ -126,8 +166,7 @@ class MapGenerator {
             },
             regions: {
                 all: [],
-                render: MapTerrain.renderRegions.bind(this),
-                getDominantCulture: MapTerrain.getDominantCulture.bind(this)
+                render: MapTerrain.renderRegions.bind(this)
             },
             createTemperatures: MapTerrain.createTemperatures.bind(this),
             createRegions: MapTerrain.createRegions.bind(this),
@@ -150,11 +189,13 @@ class MapGenerator {
             drawCurvedLabel: MapUtils.drawCurvedLabel.bind(this),
             distanceToSegment: MapUtils.distanceToSegment.bind(this),
         }
+        this.assets = new AssetManager({
+            basePath: options.assetsPath || 'icons/',
+            onAnyLoaded: () => { this._invalidateDetailCache(); this.scheduleRender(); },
+        });
         this.decorations = {
             enabled: options.iconsEnabled ?? true,
             ready: false,
-            assets: {},
-            basePath: options.iconBasePath || 'icons/',
             edgeMargin: options.iconEdgeMargin ?? 1.1,
             defaultSizePct: options.iconDefaultSizePct || [0.5, 0.6],
             townExclusionRadius: options.townExclusionRadius ?? 8,
@@ -207,13 +248,10 @@ class MapGenerator {
                 PEAKS: { PEAKS: 1.0, HIGHLANDS: 0.9 },
             },
             textures: {
-                enabled: options.texturesEnabled ?? true,
-                ready: false,
-                assets: {},
                 variantCount: 4,
                 alpha: options.textureAlpha ?? 0.5,
             },
-            loadAssets: MapDecorations._loadAssets.bind(this),
+            loadAssets: MapDecorations.loadAssets.bind(this),
             shrinkPolygon: MapDecorations.shrinkPolygon.bind(this),
             pointInPolygon: MapDecorations.pointInPolygon.bind(this),
             resolveIconSet: MapDecorations.resolveIconSet.bind(this),
@@ -222,20 +260,15 @@ class MapGenerator {
             paint: MapDecorations.paint.bind(this),
             paintTextures: MapDecorations.paintTextures.bind(this),
             computeBias: MapDecorations.computeBias.bind(this),
-            
-             
         };
-        if (this.decorations.enabled) this.decorations.loadAssets();
-        if (this.decorations.textures.enabled) this.decorations.loadTextures = MapDecorations._loadTextures.bind(this);
-        if (this.decorations.textures.enabled) this.decorations.loadTextures();
 
         this.rivers = {
             enabled: options.riversEnabled ?? true,
             ready: false,
             segments: [],
-            count: options.riverCount ?? 26,
-            minPoints: options.riverMinPoints ?? 6,       // минимум точек схождения в пути
-            maxPoints: options.riverMaxPoints ?? 20,       // "установленный максимум точек" из вашего описания
+            count: options.riverCount ?? 36,
+            minPoints: options.riverMinPoints ?? 6,
+            maxPoints: options.riverMaxPoints ?? 20,       
             minSourceLandDistance: options.riverMinSourceLandDistance ?? 1, // насколько глубоко в сушу должен быть исток
             branchChance: options.riverBranchChance ?? 0.35,
             branchMinLength: options.riverBranchMinLength ?? 6, 
@@ -245,7 +278,7 @@ class MapGenerator {
             bridges: [], 
             bridgeChance: options.riverBridgeChance ?? 0.3,
             bridgeMinGap: options.riverBridgeMinGap ?? 2, 
-            bridgeLength: options.riverBridgeLength ?? 2.5, // мировых единиц — подберите под фактическую толщину реки в вашем масштабе
+            bridgeLength: options.riverBridgeLength ?? 2.5, 
             bridgeWidth: options.riverBridgeWidth ?? 1.2,
             blockedPairs: new Set(), 
             buildVertexGraph: MapRivers.buildVertexGraph.bind(this),
@@ -260,10 +293,16 @@ class MapGenerator {
             paintBridges: MapRivers.paintBridges.bind(this),
             isBlocking: MapRivers.isBlocking.bind(this),
             hasBridge: MapRivers.hasBridge.bind(this),
-            
+            createProximityIndex: MapRivers.createProximityIndex.bind(this),
         };
 
         this.armies = {
+            movementCost: {
+                STEPPE: 1, PLAINS: 1, GRASSLAND: 1, COAST: 1,
+                WETLANDS: 1.5,
+                WOODLAND: 1.5, FOREST: 2, DENSE_FOREST: 2.5,
+                HIGHLANDS: 2.5, PEAKS: 3.5,
+            },
             animations: {
                 all: new Map(),
                 duration: options.armyAnimDuration ?? 400,
@@ -271,9 +310,8 @@ class MapGenerator {
                 runLoop: MapArmies.runAnimationLoop.bind(this),
             },
             assets: {
-                ready: false,
-                images: {}, 
-                basePath: options.armyAssetsPath || 'icons/',
+                get: MapArmies.getArmyAsset.bind(this),
+                buildKey: MapArmies.buildArmyAssetKey.bind(this),
                 ranks: options.armyRanks ?? 5,
                 variantsPerRank: options.armyVariantsPerRank ?? 3,
             },
@@ -281,76 +319,79 @@ class MapGenerator {
             select: MapArmies.select.bind(this),
             render: MapArmies.render.bind(this),
             renderReachableArea: MapArmies.renderReachableArea.bind(this),
-            loadAssets: MapArmies.loadAssets.bind(this),
-            renderOccupationHatching: MapArmies.renderOccupationHatching.bind(this)
+            renderOccupationHatching: MapArmies.renderOccupationHatching.bind(this),
         }
+
         this.cultures = {
-
+            all: [
+                { id: 'BLUE', label: 'Лазурные', icon: '🔵', color: '#3b82f6' },
+                { id: 'RED', label: 'Багровые', icon: '🔴', color: '#ef4444' },
+                { id: 'YELLOW', label: 'Златые', icon: '🟡', color: '#eab308' },
+                { id: 'BLACK', label: 'Чёрные', icon: '⚫', color: '#1e1b1e' },
+                { id: 'GREEN', label: 'Изумрудные', icon: '🟢', color: '#22c55e' },
+                { id: 'PURPLE', label: 'Пурпурные', icon: '🟣', color: '#a855f7' },
+            ],
+            create: MapCultures.create.bind(this),
+            createPoles: MapCultures.createPoles.bind(this),
+            applyAssimilation: MapCultures.applyAssimilation.bind(this),
+            getDominantOfRegion: MapCultures.getDominantOfRegion.bind(this)
         }
-        this.cultureDefs = [
-            { id: 'BLUE', label: 'Лазурные', icon: '🔵', color: '#3b82f6' },
-            { id: 'RED', label: 'Багровые', icon: '🔴', color: '#ef4444' },
-            { id: 'YELLOW', label: 'Златые', icon: '🟡', color: '#eab308' },
-            { id: 'BLACK', label: 'Чёрные', icon: '⚫', color: '#1e1b1e' },
-            { id: 'GREEN', label: 'Изумрудные', icon: '🟢', color: '#22c55e' },
-            { id: 'PURPLE', label: 'Пурпурные', icon: '🟣', color: '#a855f7' },
-        ];
-        this.cultureIds = this.cultureDefs.map(c => c.id);
-        this.cultureLabelById = Object.fromEntries(this.cultureDefs.map(c => [c.id, c.label]));
-        this.cultureColorById = Object.fromEntries(this.cultureDefs.map(c => [c.id, c.color]));
+        this.cultureIds = this.cultures.all.map(c => c.id);
+        this.cultureLabelById = Object.fromEntries(this.cultures.all.map(c => [c.id, c.label]));
+        this.cultureColorById = Object.fromEntries(this.cultures.all.map(c => [c.id, c.color]));
         this.cultureClusterSharpness = options.cultureClusterSharpness ?? 4; 
-        this.cultureIconById = Object.fromEntries(this.cultureDefs.map(c => [c.id, c.icon]));
+        this.cultureIconById = Object.fromEntries(this.cultures.all.map(c => [c.id, c.icon]));
 
-        this.townResourceBonus = options.townResourceBonus ?? { food: 1.25, production: 1.25, gold: 1.4 };
-        this.townChance = options.townChance ?? 0.06; 
-        
-        this.townAssets = {
-            ready: false,
-            images: {},
-            basePath: options.townAssetsPath || 'icons/',
-            variantsPerKey: options.townVariantsPerKey ?? 3,
-            keysByBiome: options.townKeysByBiome || {
-                COAST: 'town_coast', STEPPE: 'town_plains', PLAINS: 'town_plains', GRASSLAND: 'town_plains',
-                WETLANDS: 'town_wetlands', WOODLAND: 'town_forest', FOREST: 'town_forest', DENSE_FOREST: 'town_forest',
-                HIGHLANDS: 'town_hills', PEAKS: 'town_mountain',
+        this.towns = {
+            resourceBonus: options.townResourceBonus ?? { food: 1.25, production: 1.25, gold: 1.4 },
+            chance: options.townChance ?? 0.06,
+            assets: {
+                ready: false,
+                images: {},
+                variantsPerKey: options.townVariantsPerKey ?? 3,
+                keysByBiome: options.townKeysByBiome || {
+                    COAST: 'town_coast', STEPPE: 'town_plains', PLAINS: 'town_plains', GRASSLAND: 'town_plains',
+                    WETLANDS: 'town_wetlands', WOODLAND: 'town_forest', FOREST: 'town_forest', DENSE_FOREST: 'town_forest',
+                    HIGHLANDS: 'town_hills', PEAKS: 'town_mountain',
+                },
+                keysByBiomeSnow: options.townKeysByBiomeSnow || {
+                    WOODLAND: 'town_forest_snow', FOREST: 'town_forest_snow', DENSE_FOREST: 'town_forest_snow',
+                    PEAKS: 'town_mountain_snow', HIGHLANDS: 'town_hills_snow',
+                },
+                keysByBiomeHot: options.townKeysByBiomeHot || {
+                    STEPPE: 'town_desert', PLAINS: 'town_desert', COAST: 'town_desert_coast',
+                },
             },
-            keysByBiomeSnow: options.townKeysByBiomeSnow || {
-                WOODLAND: 'town_forest_snow', FOREST: 'town_forest_snow', DENSE_FOREST: 'town_forest_snow',
-                PEAKS: 'town_mountain_snow', HIGHLANDS: 'town_hills_snow',
-            },
-            keysByBiomeHot: options.townKeysByBiomeHot || {
-                STEPPE: 'town_desert', PLAINS: 'town_desert', COAST: 'town_desert_coast',
-            },
-        };
-        this._loadTownAssets();
+            loadAssets: MapTowns.loadAssets.bind(this),
+            buildKey: MapTowns.buildKey.bind(this),
+            render: MapTowns.render.bind(this)
+        }
 
         this.perf = {
             enabled: options.perfEnabled ?? true,
             frameTimes: [], // скользящее окно длительностей кадров, для FPS
             frameWindow: 60,
             lastFrameStart: null,
-            marks: {}, // текущие незакрытые замеры этапов
-            lastStageTimings: {}, // последние завершённые замеры по имени этапа
+            marks: {}, 
+            lastStageTimings: {},
             overlay: null,
+            frameStart: MapPerf.frameStart.bind(this),
+            markStart: MapPerf.markStart.bind(this),
+            markEnd: MapPerf.markEnd.bind(this),
+            getStats: MapPerf.getStats.bind(this),
+            initOverlay: MapPerf.initOverlay.bind(this),
+            updateOverlay: MapPerf.updateOverlay.bind(this),
         };
 
-        if (this.perf.enabled) this._initPerfOverlay();
+        if (this.perf.enabled) this.perf.initOverlay();
+        if (this.decorations.enabled) this.decorations.loadAssets();
+        this.towns.loadAssets();
 
         this._initConfig();
-
-        this.armies.loadAssets();
 
         if (this.canvas) {
             this.interaction.initEvents();
         }
-        // конфиг движения — рядом с прочими настройками terrain/армий:
-        this.movementCost = {
-            STEPPE: 1, PLAINS: 1, GRASSLAND: 1, COAST: 1,
-            WETLANDS: 1.5,
-            WOODLAND: 1.5, FOREST: 2, DENSE_FOREST: 2.5,
-            HIGHLANDS: 2.5, PEAKS: 3.5,
-        };
-
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -358,46 +399,6 @@ class MapGenerator {
     // Статичная конфигурация — биомы, сезоны, палитра фракций.
     // Вычисляется один раз в конструкторе, не меняется в рантайме.
     // ═══════════════════════════════════════════════════════════
-    _loadTownAssets() {
-        const keys = new Set([
-            ...Object.values(this.townAssets.keysByBiome),
-            ...Object.values(this.townAssets.keysByBiomeSnow),
-            ...Object.values(this.townAssets.keysByBiomeHot),
-        ]);
-    
-        const loaders = [];
-        keys.forEach(baseKey => {
-            for (let v = 1; v <= this.townAssets.variantsPerKey; v++) {
-                loaders.push(new Promise(resolve => {
-                    const img = new Image();
-                    const fullKey = `${baseKey}_${v}`;
-                    img.onload = () => { this.townAssets.images[fullKey] = img; resolve(); };
-                    img.onerror = () => resolve();
-                    img.src = `${this.townAssets.basePath}${fullKey}.png`;
-                }));
-            }
-        });
-    
-        Promise.all(loaders).then(() => {
-            this.townAssets.ready = true;
-            this._invalidateDetailCache();
-            this.markDirty('terrain', 'political');
-            this.render();
-        });
-    }
-    resolveTownKey(region) {
-        if (region.climateZone === 'cold' && this.townAssets.keysByBiomeSnow[region.biomeBand]) {
-            return this.townAssets.keysByBiomeSnow[region.biomeBand];
-        }
-        if (region.climateZone === 'hot' && this.townAssets.keysByBiomeHot[region.biomeBand]) {
-            return this.townAssets.keysByBiomeHot[region.biomeBand];
-        }
-        return this.townAssets.keysByBiome[region.biomeBand] || 'town_plains';
-    }
-
-    getMovementCost(region) {
-        return this.movementCost[region.biomeBand] ?? 1;
-    }
     _initConfig() {
         this.biomeDefs = [
             { id: 'DEEP_OCEAN', isWater: true, maxT: 0.45, label: 'Глубокий океан',
@@ -593,6 +594,25 @@ class MapGenerator {
         }
         return edgeMap;
     }
+    computeDistanceToWater(regions, neighborsList) {
+        const n = regions.length;
+        const dist = new Int16Array(n).fill(-1);
+        let frontier = [];
+        regions.forEach((r, i) => { if (r.isWater) { dist[i] = 0; frontier.push(i); } });
+    
+        let hop = 0;
+        while (frontier.length) {
+            hop++;
+            const next = [];
+            frontier.forEach(id => {
+                (neighborsList[id] || []).forEach(nb => {
+                    if (dist[nb] === -1) { dist[nb] = hop; next.push(nb); }
+                });
+            });
+            frontier = next;
+        }
+        return dist;
+    }
 
     // ═══════════════════════════════════════════════════════════
     // SECTION: MAP_SETUP
@@ -646,7 +666,7 @@ class MapGenerator {
         this.terrain.cleanup(isWater, neighbors, minLandSize);
 
         const temperature = this.terrain.createTemperatures(regions, t);
-        const culturePoles = this.generateCulturePoles();
+        const culturePoles = this.cultures.createPoles();
         regions.forEach((region, i) => {
             region.elevation = elevation[i];
             region.t = t[i];
@@ -667,7 +687,7 @@ class MapGenerator {
                 region.biomeBand = band.id;
                 region.biomeClimate = band.id + '_' + zone;
                 region.biomeNeutral = band.id + '_temperate';
-                region.culture = this.generateInitialCultures(region, culturePoles);
+                region.culture = this.cultures.create(region, culturePoles);
             }
             region.decorBias = this.decorations.computeBias(region, regions, neighbors);
         });
@@ -678,10 +698,10 @@ class MapGenerator {
             const capital = regions[faction.capitalRegionId];
             if (capital) capital.isTown = true;
         });
-        // плюс случайный процент прочих сухопутных регионов
+
         regions.forEach(region => {
             if (region.isWater || region.isTown) return;
-            if (this.utils.seededRandom() < this.townChance) region.isTown = true;
+            if (this.utils.seededRandom() < this.towns.chance) region.isTown = true;
         });
 
         const distanceToWater = this.computeDistanceToWater(regions, neighbors);
@@ -706,14 +726,10 @@ class MapGenerator {
         this.vertexGraph = this.rivers.buildVertexGraph(regions, voronoi);
         this.rivers.annotateVertices(this.vertexGraph, regions);
 
-       
-        
-        
-
         regions.forEach(region => {
             if (region.isTown) {
-                const baseKey = this.resolveTownKey(region);
-                const variant = 1 + Math.floor(this.utils.seededRandom() * this.townAssets.variantsPerKey);
+                const baseKey = this.towns.buildKey(region);
+                const variant = 1 + Math.floor(this.utils.seededRandom() * this.towns.assets.variantsPerKey);
                 region.townAssetKey = `${baseKey}_${variant}`;
             }
         });
@@ -725,121 +741,9 @@ class MapGenerator {
         this.edgeMap = this.createEdgeMap();
         this.regionNeighbors = neighbors;
         this.rivers.generate(regions, neighbors);
-        this.riverProximityIndex = this.buildRiverProximityIndex();
+        this.riverProximityIndex = this.rivers.createProximityIndex();
 
         this.viewTransform = { x: 0, y: 0, scale: 1 };
-    }
-    computeDistanceToWater(regions, neighborsList) {
-        const n = regions.length;
-        const dist = new Int16Array(n).fill(-1);
-        let frontier = [];
-        regions.forEach((r, i) => { if (r.isWater) { dist[i] = 0; frontier.push(i); } });
-    
-        let hop = 0;
-        while (frontier.length) {
-            hop++;
-            const next = [];
-            frontier.forEach(id => {
-                (neighborsList[id] || []).forEach(nb => {
-                    if (dist[nb] === -1) { dist[nb] = hop; next.push(nb); }
-                });
-            });
-            frontier = next;
-        }
-        return dist;
-    }
-    buildRiverProximityIndex() {
-        const index = new Map(); // regionId -> [{x1,y1,x2,y2}, ...] сегменты рек рядом с этим регионом
-    
-        this.rivers.segments.forEach(points => {
-            for (let i = 0; i < points.length - 1; i++) {
-                const seg = { x1: points[i].x, y1: points[i].y, x2: points[i+1].x, y2: points[i+1].y };
-                const minX = Math.min(seg.x1, seg.x2), maxX = Math.max(seg.x1, seg.x2);
-                const minY = Math.min(seg.y1, seg.y2), maxY = Math.max(seg.y1, seg.y2);
-    
-                this.terrain.regions.all.forEach(region => {
-                    if (region.isWater) return;
-                    const pad = this.decorations.riverExclusionRadius + 5; // небольшой запас
-                    const overlaps = region.bbox.maxX >= minX - pad && region.bbox.minX <= maxX + pad &&
-                                      region.bbox.maxY >= minY - pad && region.bbox.minY <= maxY + pad;
-                    if (!overlaps) return;
-    
-                    if (!index.has(region.id)) index.set(region.id, []);
-                    index.get(region.id).push(seg);
-                });
-            }
-        });
-    
-        return index;
-    }
-    generateInitialCultures(region, poles) {
-        const nx = region.x / this.width, ny = region.y / this.height;
-    
-        const weights = {};
-        let total = 0;
-        this.cultureIds.forEach(id => {
-            const pole = poles[id];
-            const dist = Math.hypot(nx - pole.x, ny - pole.y);
-            // экспоненциальное затухание — даёт выраженную кластеризацию (доминирование ближайшей культуры),
-            // а не размытое линейное распределение
-            const weight = Math.exp(-dist * this.cultureClusterSharpness);
-            weights[id] = weight;
-            total += weight;
-        });
-    
-        // немного локального шума, чтобы соседние регионы не были идентичны один в один
-        const noise = () => 1 + (this.utils.seededRandom() - 0.5) * 0.3;
-    
-        const culture = {};
-        let noisyTotal = 0;
-        this.cultureIds.forEach(id => {
-            const v = Math.max(0.001, (weights[id] / total) * noise());
-            culture[id] = v;
-            noisyTotal += v;
-        });
-        this.cultureIds.forEach(id => { culture[id] /= noisyTotal; }); // ре-нормализация в сумму 1.0
-    
-        return culture;
-    }
-    generateCulturePoles() {
-        // фиксированные направления, как вы описали (синие/чёрные — север, жёлтые — юг, зелёные — запад),
-        // плюс лёгкий сдвиг через seededRandom, чтобы полюса не были идентичны на каждой карте
-        const jitter = () => (this.utils.seededRandom() - 0.5) * 0.15;
-        return {
-            BLUE:   { x: 0.35 + jitter(), y: 0.15 + jitter() },
-            BLACK:  { x: 0.65 + jitter(), y: 0.15 + jitter() },
-            YELLOW: { x: 0.5 + jitter(), y: 0.85 + jitter() },
-            GREEN:  { x: 0.1 + jitter(), y: 0.5 + jitter() },
-            RED:    { x: 0.9 + jitter(), y: 0.5 + jitter() },
-            PURPLE: { x: 0.5 + jitter(), y: 0.5 + jitter() }, // фиолетовые — условно "в центре/повсюду понемногу"
-        };
-    }
-    applyCultureAssimilation() {
-        const assimilationRate = this.cultureAssimilationRate ?? 0.03; // доля сдвига за ход
-    
-        this.terrain.regions.all.forEach(region => {
-            if (region.isWater || !region.culture) return;
-            if (region.ownerId === null || region.ownerId === undefined) return; // нейтральные регионы не ассимилируются
-    
-            const faction = this.factions.list?.[region.ownerId];
-            if (!faction || !faction.culture) return;
-    
-            const ownerCulture = faction.culture;
-            const currentShare = region.culture[ownerCulture];
-            const growth = (1 - currentShare) * assimilationRate; // чем меньше доля, тем медленнее в абсолюте, типичная логистическая динамика
-    
-            region.culture[ownerCulture] += growth;
-    
-            // пропорционально уменьшаем остальные культуры, чтобы сумма осталась 1.0
-            const othersTotal = 1 - currentShare;
-            if (othersTotal > 0) {
-                const shrinkFactor = (othersTotal - growth) / othersTotal;
-                this.cultureIds.forEach(id => {
-                    if (id === ownerCulture) return;
-                    region.culture[id] *= shrinkFactor;
-                });
-            }
-        });
     }
     // ═══════════════════════════════════════════════════════════
     // SECTION: MAP_DATA
@@ -862,6 +766,8 @@ class MapGenerator {
             culture: region.culture,
             population: region.population,
             resources: this.getRegionResources(region),
+            specialization: region.specialization,
+            pendingSpecialization: region.pendingSpecialization
         };
     }
     
@@ -879,7 +785,7 @@ class MapGenerator {
         const zone = region.climateZone || 'temperate';
         const mod = this.seasons[season].modifiers[zone];
         const specMod = this.specializationsMap[region.specialization]?.modifiers || {};
-        const townMod = region.isTown ? this.townResourceBonus : {};
+        const townMod = region.isTown ? this.towns.resourceBonus : {};
         const loyaltyMod = this.getLoyaltyModifier(this.getRegionLoyalty(region));
     
         const result = {};
@@ -1019,8 +925,8 @@ class MapGenerator {
     // сезона/слоя/фильтра без повторного setup().
     // ═══════════════════════════════════════════════════════════
     render() {
-        this._perfFrameStart();
-        //this._perfMarkStart('total');
+        this.perf.frameStart();
+        //this.perf.markStart('total');
         const visibleRect = this.getVisibleWorldRect();
         this.updateViewLevel(visibleRect);
     
@@ -1029,8 +935,8 @@ class MapGenerator {
         } else {
             this._drawOverview();
         }
-        //this._perfMarkEnd('total');
-        this._updatePerfOverlay();
+        //this.perf.markEnd('total');
+        this.perf.updateOverlay();
     }
 
     _drawOverview() {
@@ -1064,11 +970,11 @@ class MapGenerator {
             this.canvas.height = Math.round(this.canvas.clientHeight * dpr);
         }
     
-        this._perfMarkStart('detailCache.check');
+        this.perf.markStart('detailCache.check');
         if (this._needsDetailRepaint(visibleRect)) {
             this._repaintDetailCache(visibleRect);
         }
-        this._perfMarkEnd('detailCache.check');
+        this.perf.markEnd('detailCache.check');
     
         this.ctx.save();
         this.ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -1076,7 +982,7 @@ class MapGenerator {
         this.ctx.restore();
     
         // Блит закэшированной статики — O(1), не зависит от числа регионов
-        this._perfMarkStart('detailCache.blit');
+        this.perf.markStart('detailCache.blit');
         const cache = this.detailCache;
         const r = cache.coveredRect;
         const screenX = r.minX * this.viewTransform.scale + this.viewTransform.x;
@@ -1084,7 +990,7 @@ class MapGenerator {
         const screenW = (r.maxX - r.minX) * this.viewTransform.scale;
         const screenH = (r.maxY - r.minY) * this.viewTransform.scale;
         this.ctx.drawImage(cache.canvas, screenX, screenY, screenW, screenH);
-        this._perfMarkEnd('detailCache.blit');
+        this.perf.markEnd('detailCache.blit');
     
         // Динамика — по-прежнему рисуется каждый кадр в мировых координатах
         this.ctx.save();
@@ -1093,15 +999,15 @@ class MapGenerator {
     
       
     
-        this._perfMarkStart('armies.renderOccupationHatching');
+        this.perf.markStart('armies.renderOccupationHatching');
         this.armies.renderOccupationHatching(this.ctx, visibleRect);
-        this._perfMarkEnd('armies.renderOccupationHatching');
+        this.perf.markEnd('armies.renderOccupationHatching');
     
-        this._perfMarkStart('renderDynamicObjects');
+        this.perf.markStart('renderDynamicObjects');
         this.renderDynamicObjects(this.ctx, this.viewTransform.scale);
-        this._perfMarkEnd('renderDynamicObjects');
+        this.perf.markEnd('renderDynamicObjects');
     
-        this._perfMarkStart('fog');
+        this.perf.markStart('fog');
         if (this.fogEnabled && this.playerFactionId !== null && this.playerFactionId !== undefined) {
             const visible = this.getCachedVisibility(); // не забудьте про кэш из прошлого сообщения
             for (let i = 0; i < this.terrain.regions.all.length; i++) {
@@ -1115,7 +1021,7 @@ class MapGenerator {
                 this.ctx.fill();
             }
         }
-        this._perfMarkEnd('fog');
+        this.perf.markEnd('fog');
     
         this.ctx.restore();
     }
@@ -1128,35 +1034,13 @@ class MapGenerator {
     }
     
     renderDynamicObjects(ctx, zoomScale) {
-        this.renderTowns(ctx, zoomScale);
+        this.towns.render(ctx, zoomScale);
         this.armies.renderReachableArea(ctx, zoomScale);
         this.selection.render(ctx, zoomScale);
         this.armies.render(ctx, zoomScale);
     }
     
-    renderTowns(ctx) {
-        if (!this.townAssets.ready) return;
-        this.terrain.regions.all.forEach(region => {
-            if (!region.isTown) return;
-            const size = 11;
-            const img = this.townAssets.images[region.townAssetKey];
-            if (img) ctx.drawImage(img, region.x - size / 2, region.y - size + 4, size, size);
     
-            ctx.save();
-            ctx.font = `bold 2.7px serif`;
-            ctx.textAlign = 'center';
-            ctx.fillStyle = '#2a2015';
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-            ctx.lineWidth = 0.4;
-            let townName = region.name
-            if (region.city) {
-                townName = '👑 '+townName;
-            }
-            ctx.strokeText(townName, region.x, region.y + 4.5);
-            ctx.fillText(townName, region.x, region.y + 4.5);
-            ctx.restore();
-        });
-    }
     
     getVisibleWorldRect(margin = 40) {
         const vt = this.viewTransform;
@@ -1314,64 +1198,6 @@ class MapGenerator {
         return { cx, cy, angle, length: maxProj - minProj };
     }
 
-    _perfFrameStart() {
-        if (!this.perf.enabled) return;
-        const now = performance.now();
-        if (this.perf.lastFrameStart !== null) {
-            const delta = now - this.perf.lastFrameStart;
-            this.perf.frameTimes.push(delta);
-            if (this.perf.frameTimes.length > this.perf.frameWindow) this.perf.frameTimes.shift();
-        }
-        this.perf.lastFrameStart = now;
-    }
-    
-    _perfMarkStart(stage) {
-        if (!this.perf.enabled) return;
-        this.perf.marks[stage] = performance.now();
-    }
-    
-    _perfMarkEnd(stage) {
-        if (!this.perf.enabled) return;
-        const start = this.perf.marks[stage];
-        if (start === undefined) return;
-        this.perf.lastStageTimings[stage] = performance.now() - start;
-    }
-    
-    _perfGetStats() {
-        const times = this.perf.frameTimes;
-        if (!times.length) return { fps: 0, avgMs: 0, maxMs: 0 };
-    
-        const avgMs = times.reduce((a, b) => a + b, 0) / times.length;
-        const maxMs = Math.max(...times);
-        const fps = avgMs > 0 ? Math.round(1000 / avgMs) : 0;
-        return { fps, avgMs: avgMs.toFixed(1), maxMs: maxMs.toFixed(1) };
-    }
-
-    _initPerfOverlay() {
-        const el = document.createElement('div');
-        el.style.cssText = `
-            position: fixed; top: 8px; left: 8px; z-index: 9999;
-            background: rgba(0,0,0,0.75); color: #0f0; font: 11px monospace;
-            padding: 6px 10px; border-radius: 6px; white-space: pre; pointer-events: none;
-        `;
-        document.body.appendChild(el);
-        this.perf.overlay = el;
-    }
-    
-    _updatePerfOverlay() {
-        if (!this.perf.enabled || !this.perf.overlay) return;
-    
-        const stats = this._perfGetStats();
-        const stages = Object.entries(this.perf.lastStageTimings)
-            .sort((a, b) => b[1] - a[1])
-            .map(([name, ms]) => `${name.padEnd(16)} ${ms.toFixed(2)}ms`)
-            .join('\n');
-    
-        this.perf.overlay.textContent =
-            `FPS: ${stats.fps}  avg: ${stats.avgMs}ms  max: ${stats.maxMs}ms\n` +
-            `viewLevel: ${this.viewLevel}\n` +
-            `--- stages (last frame) ---\n${stages}`;
-    }
 
 
 
@@ -1447,7 +1273,7 @@ const MapColor = {
         }
         if (this.viewMode === 'culture') {
             if (region.isWater || !region.culture) return '#1a2540';
-            const dominant = this.terrain.regions.getDominantCulture(region);
+            const dominant = this.cultures.getDominantOfRegion(region);
             const baseColor = this.cultureColorById[dominant];
             const share = region.culture[dominant];
             return this.color.blend('#6b7280', baseColor, share);
@@ -1707,56 +1533,62 @@ const MapFaction = {
         const scaled = Math.round(this.terrain.config.regionCount / 40);
         return Math.max(8, Math.min(70, scaled));
     },
-    pickCapitals(candidates, count) {
-        const chosen = [];
-        if (!candidates.length || count <= 0) return chosen;
-
-        chosen.push(candidates[Math.floor(this.utils.seededRandom() * candidates.length)]);
-        while (chosen.length < count && chosen.length < candidates.length) {
-            let best = null, bestDist = -Infinity;
-            for (const c of candidates) {
-                if (chosen.includes(c)) continue;
-                const minDist = Math.min(...chosen.map(p => Math.hypot(p.x - c.x, p.y - c.y)));
-                if (minDist > bestDist) { bestDist = minDist; best = c; }
-            }
-            if (!best) break;
-            chosen.push(best);
-        }
-        return chosen;
-    },
     settle(regions, neighborsList) {
         regions.forEach(s => { s.city = null; s.population = 0; });
 
-        const total = this.factions.getTotal();
+        const total = Math.min(this.factions.getTotal(), this.terrain.maxFactions ?? 30);
         this.factions.list = [];
         if (total <= 0) return;
-
-        const capitalCandidates = regions.filter(s => !s.isWater && s.biomeBand !== 'PEAKS' && s.biomeBand !== 'HIGHLANDS');
-        if (capitalCandidates.length < total) {
-            console.warn(`MapGenerator: клеток под столицы (${capitalCandidates.length}) меньше, чем фракций (${total})`);
-        }
-
+    
         const names = this.factions.config.names?.length === total ? this.factions.config.names : null;
-        const colors = this.factions.config.colors?.length === total ? this.factions.config.colors : null;
-
-        const capitals = this.factions.pickCapitals(capitalCandidates, total);
-
-        capitals.forEach((capital, i) => {
+    
+        // Раздаём цвета равномерно по культурам — не более (total/6 + запас) фракций одной культуры одновременно
+        const shuffledPalette = [...this.factions.colors.all].sort(() => this.utils.seededRandom() - 0.5);
+        const assignedColors = shuffledPalette.slice(0, total);
+    
+        const candidatesAll = regions.filter(s => !s.isWater && s.biomeBand !== 'PEAKS' && s.biomeBand !== 'HIGHLANDS');
+    
+        const capitals = [];
+        const usedRegionIds = new Set();
+    
+        assignedColors.forEach((colorDef, i) => {
+            // ищем регион, где родная культура этого цвета доминирует, среди ещё не занятых
+            const matching = candidatesAll.filter(r =>
+                !usedRegionIds.has(r.id) && r.culture && this.cultures.getDominantOfRegion(r) === colorDef.culture
+            );
+    
+            const pool = matching.length ? matching : candidatesAll.filter(r => !usedRegionIds.has(r.id));
+            if (!pool.length) return;
+    
+            // из подходящего пула берём регион подальше от уже выбранных столиц — та же логика раздвижения, что была
+            let capital = pool[0];
+            if (capitals.length) {
+                let bestDist = -Infinity;
+                pool.forEach(r => {
+                    const minDist = Math.min(...capitals.map(c => Math.hypot(c.x - r.x, c.y - r.y)));
+                    if (minDist > bestDist) { bestDist = minDist; capital = r; }
+                });
+            } else {
+                capital = pool[Math.floor(this.utils.seededRandom() * pool.length)];
+            }
+    
+            usedRegionIds.add(capital.id);
+            capitals.push(capital);
+    
             const factionName = names ? names[i] : `Фракция ${i + 1}`;
             capital.city = { name: factionName + ' (столица)' };
-            const dominantCulture = this.terrain.regions.getDominantCulture
-            ? this.terrain.regions.getDominantCulture(capital)
-            : this._getDominantCulture(capital);
-
+    
             this.factions.list.push({
                 id: i,
                 name: factionName,
-                color: colors ? colors[i] : this.factions.getColorOf(i, (this.initialSeed % 360)),
+                colorId: colorDef.id,
+                color: colorDef.hex, // обратная совместимость со всем кодом, читающим faction.color напрямую
+                culture: colorDef.culture, // культура ПРИВЯЗАНА к цвету, а не выбирается отдельно постфактум
                 capitalRegionId: capital.id,
                 ownedRegions: [],
                 totalPopulation: 0,
                 armies: [],
-                culture: dominantCulture,
+                flagVariant: 1 + Math.floor(this.utils.seededRandom() * (3)),
             });
         });
 
@@ -1790,7 +1622,6 @@ const MapFaction = {
                 : Math.round(this.factions.capitalPopulation * Math.pow(this.factions.populationDecay, hopOf[i]));
         });
 
-        if (!colors) this.factions.setColors(regions, neighborsList);
 
         this.factions.list.forEach(faction => {
             const owned = regions.filter(s => s.ownerId === faction.id);
@@ -1799,63 +1630,11 @@ const MapFaction = {
             faction.armies.push({ id: `${faction.id}-army-0`, regionId: faction.capitalRegionId, strength: 10 });
         });
     },
-    setColors(regions, neighborsList) {
-        const count = this.factions.list.length;
-        if (!count) return;
-
-        const adjacency = Array.from({ length: count }, () => new Set());
-        for (let i = 0; i < regions.length; i++) {
-            const ownerI = regions[i].ownerId;
-            if (ownerI === null || ownerI === undefined) continue;
-            for (const nb of neighborsList[i]) {
-                const ownerNb = regions[nb].ownerId;
-                if (ownerNb === null || ownerNb === undefined || ownerNb === ownerI) continue;
-                adjacency[ownerI].add(ownerNb);
-                adjacency[ownerNb].add(ownerI);
-            }
-        }
-
-        const order = [...Array(count).keys()].sort((a, b) => adjacency[b].size - adjacency[a].size);
-
-        const poolSize = Math.max(count * 4, 64);
-        const candidates = [];
-        for (let i = 0; i < poolSize; i++) {
-            const hue = (i * 137.508 + (this.initialSeed % 360)) % 360;
-            const saturation = 60 + (i % 3) * 10;
-            const lightness = 46 + (i % 2) * 10;
-            candidates.push({ hue, hex: this.color.hslToHex(hue, saturation, lightness) });
-        }
-
-        const hueDistance = (a, b) => { const d = Math.abs(a - b) % 360; return Math.min(d, 360 - d); };
-
-        const assignedHue = new Array(count).fill(null);
-        const used = new Set();
-
-        order.forEach(factionId => {
-            const neighborHues = [...adjacency[factionId]].map(n => assignedHue[n]).filter(h => h !== null);
-
-            let best = -1, bestScore = -Infinity;
-            candidates.forEach((c, idx) => {
-                if (used.has(idx)) return;
-                const score = neighborHues.length ? Math.min(...neighborHues.map(h => hueDistance(h, c.hue))) : 360;
-                if (score > bestScore) { bestScore = score; best = idx; }
-            });
-            if (best === -1) best = 0;
-
-            used.add(best);
-            assignedHue[factionId] = candidates[best].hue;
-            this.factions.list[factionId].color = candidates[best].hex;
-        });
+    getFactionFlagKey(faction) {
+        return faction.flagVariant ? `flag-${faction.colorId}-${faction.flagVariant}` : `flag-${faction.colorId}-1`;
     },
-    getColorOf(index, seedOffset = 0) {
-        if (index < this.factions.colors.all.length) return this.factions.colors.all[index];
-
-        const goldenAngle = 137.508;
-        const hue = (seedOffset + index * goldenAngle) % 360;
-        const saturation = 70 + (index % 3) * 8;
-        const lightness = 48 + (index % 2) * 8;
-
-        return this.color.hslToHex(hue, saturation, lightness);
+    getFactionFlagImage(faction) {
+        return this.assets.get(this.factions.getFactionFlagKey(faction));
     },
     drawBorders(ctx, visibleRect = null) {
         if (!this.factions.list || !this.factions.list.length || !this.edgeMap) return;
@@ -2326,14 +2105,6 @@ const MapTerrain = {
             }
         }
     },
-    getDominantCulture(region) {
-        if (!region.culture) return null;
-        let best = null, bestShare = -1;
-        Object.entries(region.culture).forEach(([id, share]) => {
-            if (share > bestShare) { bestShare = share; best = id; }
-        });
-        return best;
-    }
 }
 
 const MapUtils = {
@@ -2436,36 +2207,14 @@ const MapUtils = {
 // Асинхронная загрузка спрайтов не блокирует создание карты.
 // ═══════════════════════════════════════════════════════════
 const MapDecorations = {
-    _loadAssets() {
-        const keys = new Set();
+    loadAssets() {
+        const keys = [];
         Object.keys(this.decorations.variantsPerKey).forEach(key => {
-            for (let v = 1; v <= this.decorations.variantsPerKey[key]; v++) keys.add(`${key}_${v}`);
+            for (let v = 1; v <= this.decorations.variantsPerKey[key]; v++) keys.push(`${key}_${v}`);
         });
-
-        const loaders = [...keys].map(name => new Promise(resolve => {
-            const img = new Image();
-            img.onload = () => { this.decorations.assets[name] = img; resolve(); };
-            img.onerror = () => resolve();
-            img.src = `${this.decorations.basePath}${name}.png`;
-        }));
-
-        Promise.all(loaders).then(() => {
+        for (let v = 1; v <= this.decorations.textures.variantCount; v++) keys.push(`texture_${v}`)
+        this.assets.loadBatch(keys).then((e) => {
             this.decorations.ready = true;
-            if (this.terrain.regions.all.length) { this.markDirty('terrain'); this.render(); }
-        });
-    },
-    _loadTextures() {
-        const loaders = [];
-        for (let v = 1; v <= this.decorations.textures.variantCount; v++) {
-            loaders.push(new Promise(resolve => {
-                const img = new Image();
-                img.onload = () => { this.decorations.textures.assets[v] = img; resolve(); };
-                img.onerror = () => resolve();
-                img.src = `${this.decorations.basePath}texture_${v}.png`;
-            }));
-        }
-        Promise.all(loaders).then(() => {
-            this.decorations.textures.ready = true;
             if (this.terrain.regions.all.length) { this.markDirty('terrain'); this.render(); }
         });
     },
@@ -2582,7 +2331,7 @@ const MapDecorations = {
 
     assignTo(region, polygon) {
         region.icons = this.decorations.enabled ? this.decorations.generatePlacements(region, polygon) : [];
-        region.textureVariant = (this.decorations.textures.enabled )
+        region.textureVariant = (this.decorations.enabled )
             ? 1 + Math.floor(this.utils.seededRandom() * this.decorations.textures.variantCount)
             : null;
     },
@@ -2596,7 +2345,7 @@ const MapDecorations = {
             if (visibleRect && !this.bboxIntersects(region.bbox, visibleRect)) return;
 
             region.icons.forEach(icon => {
-                const img = this.decorations.assets[icon.assetName];
+                const img = this.assets.get(icon.assetName);
                 if (!img) return;
                 ctx.save();
                 ctx.translate(icon.x, icon.y);
@@ -2607,12 +2356,12 @@ const MapDecorations = {
         });
     },
     paintTextures(ctx, visibleRect = null) {
-        if (!this.decorations.textures.ready) return;
+        if (!this.decorations.ready) return;
         this.terrain.regions.all.forEach((region, i) => {
             if (!region.textureVariant) return;
             if (visibleRect && !this.bboxIntersects(region.bbox, visibleRect)) return;
     
-            const img = this.decorations.textures.assets[region.textureVariant];
+            const img = this.assets.get(`texture_${region.textureVariant}`);
             if (!img) return;
     
             const polygon = this.mapVoronoi.cellPolygon(i);
@@ -2686,7 +2435,10 @@ const MapArmies = {
                     this.armiesProvider().some(a => a.regionId === nb && a.factionId !== army.factionId);
                 if (occupiedByEnemy) continue;
     
-                const cost = this.getMovementCost(region); // стоимость входа в ЦЕЛЕВОЙ регион зависит от его биома
+                const isAnotherFaction = region.ownerId !== null && region.ownerId !== army.factionId
+                if (isAnotherFaction) continue;
+
+                const cost = this.armies.movementCost[region.biomeBand] ?? 1;
                 const remaining = ap - cost;
                 if (remaining < 0) continue;
     
@@ -2694,10 +2446,10 @@ const MapArmies = {
                 if (already !== undefined && already >= remaining) continue;
     
                 visited.set(nb, remaining);
-                queue.push({ id: nb, ap: remaining });
+                queue.push({ id: nb, ap: remaining, region });
             }
         }
-    
+        console.log(queue)
         visited.delete(army.regionId);
         return visited;
     },
@@ -2771,9 +2523,7 @@ const MapArmies = {
 
             const faction = this.factions.list?.[army.factionId];
             const color = faction ? faction.color : '#999999';
-            const rank = army.rank || 1;
-            const key = `${rank}_${army.assetVariant}`;
-            const img = this.armies.assets.ready ? this.armies.assets.images[key] : null;
+            const img = this.armies.assets.get(army);
 
             ctx.save();
             const spriteBottomY = drawY - plateHeight * 0.5;
@@ -2845,23 +2595,16 @@ const MapArmies = {
         };
         requestAnimationFrame(step);
     },
-    loadAssets() {
-        const loaders = [];
-        for (let rank = 1; rank <= this.armies.assets.ranks; rank++) {
-            for (let v = 1; v <= this.armies.assets.variantsPerRank; v++) {
-                loaders.push(new Promise(resolve => {
-                    const img = new Image();
-                    const key = `${rank}_${v}`;
-                    img.onload = () => { this.armies.assets.images[key] = img; resolve(); };
-                    img.onerror = () => resolve();
-                    img.src = `${this.armies.assets.basePath}army_${key}.png`;
-                }));
-            }
-        }
-        Promise.all(loaders).then(() => {
-            this.armies.assets.ready = true;
-            this.scheduleRender();
-        });
+    buildArmyAssetKey(faction, army) {
+        const rank = army.rank || 1;
+        const townSuffix = this.terrain.regions.all[army.regionId]?.isTown ? '-town' : '';
+        return `army-${faction.colorId}-${faction.culture.toLowerCase()}-${rank}-${army.assetVariant}${townSuffix}`;
+    },
+    getArmyAsset(army) {
+        const faction = this.factions.list?.[army.factionId];
+        if (!faction) return null;
+        const key = this.armies.assets.buildKey(faction, army);
+        return this.assets.get(key);
     },
     renderOccupationHatching(ctx, visibleRect = null) {
         for (let i = 0; i < this.terrain.regions.all.length; i++) {
@@ -2879,11 +2622,10 @@ const MapArmies = {
             this.drawRegionPath(ctx, polygon);
             ctx.clip();
     
-            // диагональная штриховка — набор параллельных линий поверх клипнутой области региона
             const { minX, minY, maxX, maxY } = region.bbox;
             const spacing = 2.5;
             ctx.strokeStyle = color;
-            ctx.lineWidth = 0.4;
+            ctx.lineWidth = 0.6;
             ctx.globalAlpha = 0.6;
             const diag = (maxX - minX) + (maxY - minY);
             for (let offset = -diag; offset < diag; offset += spacing) {
@@ -3163,5 +2905,222 @@ const MapRivers = {
         return this.rivers.bridges.some(b =>
             (b.regionA === regionA && b.regionB === regionB) || (b.regionA === regionB && b.regionB === regionA)
         );
+    },
+    createProximityIndex() {
+        const index = new Map();
+    
+        this.rivers.segments.forEach(points => {
+            for (let i = 0; i < points.length - 1; i++) {
+                const seg = { x1: points[i].x, y1: points[i].y, x2: points[i+1].x, y2: points[i+1].y };
+                const minX = Math.min(seg.x1, seg.x2), maxX = Math.max(seg.x1, seg.x2);
+                const minY = Math.min(seg.y1, seg.y2), maxY = Math.max(seg.y1, seg.y2);
+    
+                this.terrain.regions.all.forEach(region => {
+                    if (region.isWater) return;
+                    const pad = this.decorations.riverExclusionRadius + 5;
+                    const overlaps = region.bbox.maxX >= minX - pad && region.bbox.minX <= maxX + pad &&
+                                      region.bbox.maxY >= minY - pad && region.bbox.minY <= maxY + pad;
+                    if (!overlaps) return;
+    
+                    if (!index.has(region.id)) index.set(region.id, []);
+                    index.get(region.id).push(seg);
+                });
+            }
+        });
+        return index;
     }
 };
+
+const MapTowns = {
+    loadAssets() {
+        const keys = []
+        const baseKeys = [
+            ...Object.values(this.towns.assets.keysByBiome),
+            ...Object.values(this.towns.assets.keysByBiomeSnow),
+            ...Object.values(this.towns.assets.keysByBiomeHot),
+        ];
+        baseKeys.forEach(baseKey => {
+            for (let v = 1; v <= this.towns.assets.variantsPerKey; v++) keys.push(`${baseKey}_${v}`);
+        });
+        this.assets.loadBatch(keys).then((e) => {
+            this.towns.assets.ready = true;
+            this._invalidateDetailCache();
+            this.markDirty('terrain');
+            this.render();
+        });
+    },
+    buildKey(region) {
+        if (region.climateZone === 'cold' && this.towns.assets.keysByBiomeSnow[region.biomeBand]) {
+            return this.towns.assets.keysByBiomeSnow[region.biomeBand];
+        }
+        if (region.climateZone === 'hot' && this.towns.assets.keysByBiomeHot[region.biomeBand]) {
+            return this.towns.assets.keysByBiomeHot[region.biomeBand];
+        }
+        return this.towns.assets.keysByBiome[region.biomeBand] || 'town_plains';
+    },
+    render(ctx) {
+        if (!this.towns.assets.ready) return;
+        this.terrain.regions.all.forEach(region => {
+            if (!region.isTown) return;
+            const size = 11;
+            const img = this.assets.get(region.townAssetKey);
+            if (img) ctx.drawImage(img, region.x - size / 2, region.y - size + 4, size, size);
+    
+            ctx.save();
+            ctx.font = `bold 2.7px serif`;
+            ctx.textAlign = 'center';
+            ctx.fillStyle = '#2a2015';
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+            ctx.lineWidth = 0.4;
+            let townName = region.name
+            if (region.city) {
+                townName = '👑 '+townName;
+            }
+            ctx.strokeText(townName, region.x, region.y + 4.5);
+            ctx.fillText(townName, region.x, region.y + 4.5);
+            ctx.restore();
+        });
+    }
+}
+
+const MapCultures = {
+
+    create(region, poles) {
+        const nx = region.x / this.width, ny = region.y / this.height;
+    
+        const weights = {};
+        let total = 0;
+        this.cultureIds.forEach(id => {
+            const pole = poles[id];
+            const dist = Math.hypot(nx - pole.x, ny - pole.y);
+            // экспоненциальное затухание — даёт выраженную кластеризацию (доминирование ближайшей культуры),
+            // а не размытое линейное распределение
+            const weight = Math.exp(-dist * this.cultureClusterSharpness);
+            weights[id] = weight;
+            total += weight;
+        });
+    
+        // немного локального шума, чтобы соседние регионы не были идентичны один в один
+        const noise = () => 1 + (this.utils.seededRandom() - 0.5) * 0.3;
+    
+        const culture = {};
+        let noisyTotal = 0;
+        this.cultureIds.forEach(id => {
+            const v = Math.max(0.001, (weights[id] / total) * noise());
+            culture[id] = v;
+            noisyTotal += v;
+        });
+        this.cultureIds.forEach(id => { culture[id] /= noisyTotal; }); // ре-нормализация в сумму 1.0
+    
+        return culture;
+    },
+    createPoles() {
+        // фиксированные направления, как вы описали (синие/чёрные — север, жёлтые — юг, зелёные — запад),
+        // плюс лёгкий сдвиг через seededRandom, чтобы полюса не были идентичны на каждой карте
+        const jitter = () => (this.utils.seededRandom() - 0.5) * 0.15;
+        return {
+            BLUE:   { x: 0.35 + jitter(), y: 0.15 + jitter() },
+            BLACK:  { x: 0.65 + jitter(), y: 0.15 + jitter() },
+            YELLOW: { x: 0.5 + jitter(), y: 0.85 + jitter() },
+            GREEN:  { x: 0.1 + jitter(), y: 0.5 + jitter() },
+            RED:    { x: 0.9 + jitter(), y: 0.5 + jitter() },
+            PURPLE: { x: 0.5 + jitter(), y: 0.5 + jitter() }, // фиолетовые — условно "в центре/повсюду понемногу"
+        };
+    },
+    applyAssimilation() {
+        const assimilationRate = this.cultureAssimilationRate ?? 0.03; // доля сдвига за ход
+    
+        this.terrain.regions.all.forEach(region => {
+            if (region.isWater || !region.culture) return;
+            if (region.ownerId === null || region.ownerId === undefined) return; // нейтральные регионы не ассимилируются
+    
+            const faction = this.factions.list?.[region.ownerId];
+            if (!faction || !faction.culture) return;
+    
+            const ownerCulture = faction.culture;
+            const currentShare = region.culture[ownerCulture];
+            const growth = (1 - currentShare) * assimilationRate; // чем меньше доля, тем медленнее в абсолюте, типичная логистическая динамика
+    
+            region.culture[ownerCulture] += growth;
+    
+            // пропорционально уменьшаем остальные культуры, чтобы сумма осталась 1.0
+            const othersTotal = 1 - currentShare;
+            if (othersTotal > 0) {
+                const shrinkFactor = (othersTotal - growth) / othersTotal;
+                this.cultureIds.forEach(id => {
+                    if (id === ownerCulture) return;
+                    region.culture[id] *= shrinkFactor;
+                });
+            }
+        });
+    },
+    getDominantOfRegion(region) {
+        if (!region.culture) return null;
+        let best = null, bestShare = -1;
+        Object.entries(region.culture).forEach(([id, share]) => {
+            if (share > bestShare) { bestShare = share; best = id; }
+        });
+        return best;
+    }
+}
+
+const MapPerf = {
+    frameStart() {
+        if (!this.perf.enabled) return;
+        const now = performance.now();
+        if (this.perf.lastFrameStart !== null) {
+            const delta = now - this.perf.lastFrameStart;
+            this.perf.frameTimes.push(delta);
+            if (this.perf.frameTimes.length > this.perf.frameWindow) this.perf.frameTimes.shift();
+        }
+        this.perf.lastFrameStart = now;
+    },
+    
+    markStart(stage) {
+        if (!this.perf.enabled) return;
+        this.perf.marks[stage] = performance.now();
+    },
+    
+    markEnd(stage) {
+        if (!this.perf.enabled) return;
+        const start = this.perf.marks[stage];
+        if (start === undefined) return;
+        this.perf.lastStageTimings[stage] = performance.now() - start;
+    },
+    
+    getStats() {
+        const times = this.perf.frameTimes;
+        if (!times.length) return { fps: 0, avgMs: 0, maxMs: 0 };
+    
+        const avgMs = times.reduce((a, b) => a + b, 0) / times.length;
+        const maxMs = Math.max(...times);
+        const fps = avgMs > 0 ? Math.round(1000 / avgMs) : 0;
+        return { fps, avgMs: avgMs.toFixed(1), maxMs: maxMs.toFixed(1) };
+    },
+
+    initOverlay() {
+        const el = document.createElement('div');
+        el.style.cssText = `
+            position: fixed; top: 8px; left: 8px; z-index: 9999;
+            background: rgba(0,0,0,0.75); color: #0f0; font: 11px monospace;
+            padding: 6px 10px; border-radius: 6px; white-space: pre; pointer-events: none;
+        `;
+        document.body.appendChild(el);
+        this.perf.overlay = el;
+    },
+    
+    updateOverlay() {
+        if (!this.perf.enabled || !this.perf.overlay) return;
+    
+        const stats = this.perf.getStats();
+        const stages = Object.entries(this.perf.lastStageTimings)
+            .sort((a, b) => b[1] - a[1])
+            .map(([name, ms]) => `${name.padEnd(16)} ${ms.toFixed(2)}ms`)
+            .join('\n');
+    
+        this.perf.overlay.textContent =
+            `FPS: ${stats.fps}  avg: ${stats.avgMs}ms  max: ${stats.maxMs}ms\n` +
+            `viewLevel: ${this.viewLevel}\n` +
+            `--- stages (last frame) ---\n${stages}`;
+    }
+}

@@ -8,10 +8,12 @@ class AIManager {
             treasuryDangerThreshold: 8,     // порог "в беде" снижен — фракция терпит войну дольше
             recruitChance: 0.7,             // было 0.35 — почти каждый ход пытается нанять, если хватает средств
             recruitGoldReserve: 15,         // ниже резерв — тратит золото охотнее
-            expansionChance: 0.95,          // было 0.7 — почти всегда пытается двигать свободные армии
+            expansionChance: 0.5,          // было 0.7 — почти всегда пытается двигать свободные армии
             warCooldownTurns: 1,            // было 3 — почти без охлаждения между войнами
             maxSimultaneousWars: 2,         // новое — теперь можно воевать на 2 фронта, не на 1
             aggressiveMoveChance: 0.6,      // новое — шанс атаковать вражеский регион вместо нейтрального
+            defenseGarrisonRatio: 0.4,     // доля армий, которые ИИ держит как гарнизон на границе, не отправляя в экспансию
+            intentPersistence: true,  
         };
     
         this.callbacks = {
@@ -23,8 +25,6 @@ class AIManager {
 
     runTurn() {
         const factions = this.game.factionsManager.getAlive().filter(f => !f.isPlayer);
-        console.log('[AI] runTurn, factions:', factions.length);
-    
         factions.forEach(faction => {
             this._decideDiplomacy(faction);
             this._decideRecruitment(faction);
@@ -34,35 +34,140 @@ class AIManager {
     
     _decideArmyActions(faction) {
         const armies = this.game.armyManager.getArmiesOf(faction.id);
+        if (!armies.length) return;
     
-        armies.forEach(army => {
+        // Разделяем армии на "гарнизон" (остаются защищать границу) и "свободные" (могут двигаться/атаковать)
+        const borderRegions = this._getBorderRegions(faction);
+        const garrisonCount = Math.ceil(armies.length * this.weights.defenseGarrisonRatio);
+    
+        armies.forEach((army, idx) => {
+            if (army.actionPoints <= 0) return;
+    
             const region = this.game.mapGen.terrain.regions.all[army.regionId];
             if (!region) return;
     
-            // Стоим на нейтральной или вражеской земле — оккупация разрешается автоматически через resolveOccupations(),
-            // здесь только решаем, двигаться ли ДАЛЬШЕ, если очков ещё хватает (после занятия клетки очков обычно уже нет,
-            // но если движение стоило меньше полного actionPoints — проверяем)
-            if (army.actionPoints <= 0) return;
+            const isGuardingBorder = borderRegions.has(army.regionId);
+    
+            // Армия уже на границе — считаем её гарнизоном, никуда не идёт без явной причины (угроза рядом)
+            if (isGuardingBorder && idx < garrisonCount) {
+                this._checkNearbyThreat(faction, army); // может атаковать соседа-врага прямо отсюда, но не уходит просто так
+                return;
+            }
+    
+            // Есть сохранённое намерение — продолжаем его, если цель всё ещё валидна
+            if (this.weights.intentPersistence && army.aiIntent) {
+                const stillValid = this._isIntentStillValid(faction, army);
+                if (stillValid) {
+                    this._pursueIntent(faction, army);
+                    return;
+                }
+                army.aiIntent = null; // цель устарела (занята/уже своя) — выбираем новую ниже
+            }
+    
             if (Math.random() > this.weights.expansionChance) return;
     
-            const isAtWarSomewhere = this.game.mapGen.factions.getNeighboringFactions(faction.id)
-                .some(id => this.game.getDiplomacyStatus(faction.id, id) === 'war');
-    
-            let target = null;
-    
-            // Если фракция воюет и personality достаточно агрессивна — с шансом идём НА врага, а не на нейтралку
-            if (isAtWarSomewhere && Math.random() < this.weights.aggressiveMoveChance * (faction.personality?.aggression ?? 0.5)) {
-                target = this._findNearestEnemyRegion(faction, army);
-            }
-    
-            if (!target) target = this._findNearestNeutralRegion(faction, army);
+            // Формируем НОВОЕ намерение и запоминаем его — не дёргаемся каждый ход заново
+            const target = this._chooseNewIntent(faction, army);
             if (!target) return;
     
-            const result = this.game.armyManager.moveArmy(army.id, target);
-            if (result.success && this.callbacks.onAIAction) {
-                this.callbacks.onAIAction(faction.id, 'move_army', { armyId: army.id, to: target });
-            }
+            army.aiIntent = { targetRegionId: target };
+            this._pursueIntent(faction, army);
         });
+    }
+    
+    // Регионы фракции, граничащие с чужой территорией — их стоит охранять, а не оголять экспансией
+    _getBorderRegions(faction) {
+        const mapGen = this.game.mapGen;
+        const border = new Set();
+        mapGen.terrain.regions.all.forEach(region => {
+            if (region.ownerId !== faction.id) return;
+            const hasForeignNeighbor = (mapGen.regionNeighbors[region.id] || []).some(nb => {
+                const nbRegion = mapGen.terrain.regions.all[nb];
+                return nbRegion.ownerId !== faction.id;
+            });
+            if (hasForeignNeighbor) border.add(region.id);
+        });
+        return border;
+    }
+    
+    // Гарнизонная армия атакует, только если враг уже непосредственно на соседней клетке
+    _checkNearbyThreat(faction, army) {
+        const mapGen = this.game.mapGen;
+        const neighbors = mapGen.regionNeighbors[army.regionId] || [];
+        const enemyNeighbor = neighbors.find(nb => {
+            const r = mapGen.terrain.regions.all[nb];
+            return r.ownerId !== null && r.ownerId !== faction.id &&
+                   this.game.getDiplomacyStatus(faction.id, r.ownerId) === 'war';
+        });
+        if (!enemyNeighbor) return;
+        if (Math.random() > 0.5) return; // не бросается в бой каждый раз, оставляет пространство для манёвра ИИ-противника
+    
+        const result = this.game.armyManager.moveArmy(army.id, enemyNeighbor);
+        if (result.success && this.callbacks.onAIAction) {
+            this.callbacks.onAIAction(faction.id, 'move_army', { armyId: army.id, to: enemyNeighbor });
+        }
+    }
+    
+    _isIntentStillValid(faction, army) {
+        const targetRegionId = army.aiIntent?.targetRegionId;
+        if (targetRegionId === undefined) return false;
+        const region = this.game.mapGen.terrain.regions.all[targetRegionId];
+        if (!region) return false;
+        if (region.ownerId === faction.id) return false; // уже наше — цель достигнута/устарела
+        return true;
+    }
+    
+    _pursueIntent(faction, army) {
+        const targetRegionId = army.aiIntent.targetRegionId;
+        const mapGen = this.game.mapGen;
+        const reachable = mapGen.armies.computeReachable(army);
+    
+        // Двигаемся к цели ТОЛЬКО если можем дойти прямо сейчас; иначе — идём в сторону цели на один достижимый шаг
+        if (reachable.has(targetRegionId)) {
+            const result = this.game.armyManager.moveArmy(army.id, targetRegionId);
+            if (result.success) {
+                army.aiIntent = null; // достигли (или начали оккупацию) — намерение выполнено
+                if (this.callbacks.onAIAction) this.callbacks.onAIAction(faction.id, 'move_army', { armyId: army.id, to: targetRegionId });
+            }
+            return;
+        }
+    
+        // цель ещё далеко — делаем шаг в сторону неё среди достижимых регионов (минимизируем дистанцию до цели)
+        const targetRegion = mapGen.terrain.regions.all[targetRegionId];
+        let best = null, bestDist = Infinity;
+        reachable.forEach((remainingAP, regionId) => {
+            const r = mapGen.terrain.regions.all[regionId];
+            const dist = Math.hypot(r.x - targetRegion.x, r.y - targetRegion.y);
+            if (dist < bestDist) { bestDist = dist; best = regionId; }
+        });
+        if (!best) { army.aiIntent = null; return; }
+    
+        const result = this.game.armyManager.moveArmy(army.id, best);
+        if (result.success && this.callbacks.onAIAction) {
+            this.callbacks.onAIAction(faction.id, 'move_army', { armyId: army.id, to: best });
+        }
+    }
+    
+    _chooseNewIntent(faction, army) {
+        // предпочитаем БЛИЖАЙШУЮ цель (не любую случайную из reachable) — устраняет "бросания далеко"
+        const mapGen = this.game.mapGen;
+        const reachable = mapGen.armies.computeReachable(army);
+        if (!reachable.size) return null;
+    
+        let best = null, bestDist = Infinity;
+        reachable.forEach((remainingAP, regionId) => {
+            const region = mapGen.terrain.regions.all[regionId];
+            if (!region) return;
+    
+            const isNeutral = region.ownerId === null || region.ownerId === undefined;
+            const isEnemy = !isNeutral && region.ownerId !== faction.id &&
+                             this.game.getDiplomacyStatus(faction.id, region.ownerId) === 'war';
+            if (!isNeutral && !isEnemy) return;
+            
+            const dist = Math.hypot(region.x - mapGen.terrain.regions.all[army.regionId].x, region.y - mapGen.terrain.regions.all[army.regionId].y);
+            if (dist < bestDist) { bestDist = dist; best = regionId; }
+        });
+        return best;
     }
     
     _findNearestEnemyRegion(faction, army) {
@@ -112,7 +217,9 @@ class AIManager {
     
         for (const neighborId of shuffled) {
             if (declaredThisTurn >= remainingSlots) break;
-            const chance = this.weights.warDesireBase * (faction.personality?.aggression ?? 0.5);
+            const level = this.game.getRelationLevel(faction.id, neighborId);
+            const levelFactor = 1 - (level + 100) / 200; // 0 при +100 (не будет воевать), 1 при -100 (максимально готов)
+            const chance = this.weights.warDesireBase * (faction.personality?.aggression ?? 0.5) * levelFactor;
             if (Math.random() < chance) {
                 this._tryDeclareWar(faction.id, neighborId);
                 this.lastWarTurn[faction.id] = currentTurn;
@@ -142,7 +249,6 @@ class AIManager {
         }
     }
 
-    // Ищем ближайший (по BFS-достижимости за этот ход) нейтральный регион, куда армия реально может дойти
     _findNearestNeutralRegion(faction, army) {
         const mapGen = this.game.mapGen;
         const reachable = mapGen.armies.computeReachable(army);

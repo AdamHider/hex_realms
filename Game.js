@@ -198,15 +198,15 @@ class Game {
     }
     endTurn() {
         this.mapGen.applyPendingSpecializations(); // ← новое, самым первым — до расчёта economies в TurnManager
-        this.mapGen.applyCultureAssimilation();
+        this.mapGen.cultures.applyAssimilation();
         const summary = this.turnManager?.endTurn() ?? null;
         if (summary) {
             this.armyManager.collectUpkeep();
-            this.armyManager.resetActionPoints();
             this.factionsManager.checkElimination(this.mapGen);
             this.diplomacyManager.tick();
             this.aiManager.runTurn();
             this.armyManager.resolveOccupations();
+            this.armyManager.resetActionPoints();
         }
         return summary;
     }
@@ -225,6 +225,26 @@ class Game {
     }
     formAlliance(a, b) { return this.diplomacyManager?.formAlliance(a, b) ?? false; }
     getDiplomacyStatus(a, b) { return this.diplomacyManager?.getStatus(a, b) ?? 'peace'; }
+    getRelationLevel(a, b) { return this.diplomacyManager?.getLevel(a, b) ?? 0; }
+
+    getKnownFactions(factionId) {
+        const neighbors = this.mapGen.factions.getNeighboringFactions(factionId);
+        // "известные" = соседи + все, с кем уже была война (даже если больше не граничат)
+        const atWarOrPeaceHistory = this.factionsManager.getAlive()
+            .filter(f => f.id !== factionId)
+            .filter(f => this.diplomacyManager.getStatus(factionId, f.id) !== 'peace' || neighbors.includes(f.id));
+    
+        const allKnownIds = new Set([...neighbors, ...atWarOrPeaceHistory.map(f => f.id)]);
+        return [...allKnownIds].map(id => this.factionsManager.get(id)).filter(Boolean);
+    }
+    
+    proposeAlliance(a, b) {
+        const result = this.diplomacyManager?.formAlliance(a, b) ?? false;
+        if (result) { this.mapGen.markDirty('political'); this.mapGen.render(); }
+        return result;
+    }
+
+
 
     _handleRegionSelected(region) {
         if (!region) return;

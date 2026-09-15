@@ -6,6 +6,7 @@
     <title>HexRealms</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/d3-delaunay@6"></script>
+    <script src="AssetManager.js"></script>
     <script src="MapGenerator.js"></script>
     <script src="TurnManager .js"></script>
     <script src="FactionsManager.js"></script>
@@ -113,92 +114,105 @@
     <!-- ═══════════ HUD поверх карты — видна только во время игры ═══════════ -->
     <!-- ═══ Верх по центру: ресурсная панель с прогнозом ═══ -->
     <div id="gameHud">
-    <div id="resourceBar" class="fixed top-3 left-1/2 -translate-x-1/2 z-30 flex gap-1 pointer-events-none">
-        <div class="bg-slate-900/95 border border-slate-700 rounded-lg px-3 py-1.5 flex gap-4 pointer-events-auto shadow-lg">
-            <div class="flex flex-col items-center min-w-[54px]">
-                <span class="text-[10px] text-slate-400">🌾 Еда</span>
-                <span id="resFood" class="text-sm font-semibold text-emerald-300">0</span>
-            </div>
-            <div class="w-px bg-slate-700"></div>
-            <div class="flex flex-col items-center min-w-[54px]">
-                <span class="text-[10px] text-slate-400">⚙️ Произв.</span>
-                <span id="resProduction" class="text-sm font-semibold text-sky-300">0</span>
-            </div>
-            <div class="w-px bg-slate-700"></div>
-            <div class="flex flex-col items-center min-w-[64px]">
-                <span class="text-[10px] text-slate-400">🪙 Золото</span>
-                <div>
-                    <span id="resGold" class="text-sm font-semibold text-amber-300">0</span>
-                    <span id="resGoldForecast" class="text-[9px] text-slate-500">→ 0</span>
+        <div id="resourceBar" class="fixed top-3 left-1/2 -translate-x-1/2 z-30 flex gap-1 pointer-events-none">
+            <div class="bg-slate-900/95 border border-slate-700 rounded-lg px-3 py-1.5 flex gap-4 pointer-events-auto shadow-lg">
+                <div class="flex flex-col items-center min-w-[54px]">
+                    <span class="text-[10px] text-slate-400">🌾 Еда</span>
+                    <span id="resFood" class="text-sm font-semibold text-emerald-300">0</span>
                 </div>
-            </div>
-            <div class="w-px bg-slate-700"></div>
-            <div class="flex flex-col items-center min-w-[64px]">
-                <span class="text-[10px] text-slate-400">👥 Manpower</span>
-                <div>
-                    <span id="resManpower" class="text-sm font-semibold text-rose-300">0</span>
-                    <span id="resManpowerForecast" class="text-[9px] text-slate-500">→ 0</span>
+                <div class="w-px bg-slate-700"></div>
+                <div class="flex flex-col items-center min-w-[54px]">
+                    <span class="text-[10px] text-slate-400">⚙️ Произв.</span>
+                    <span id="resProduction" class="text-sm font-semibold text-sky-300">0</span>
+                </div>
+                <div class="w-px bg-slate-700"></div>
+                <div class="flex flex-col items-center min-w-[64px]">
+                    <span class="text-[10px] text-slate-400">🪙 Золото</span>
+                    <div>
+                        <span id="resGold" class="text-sm font-semibold text-amber-300">0</span>
+                        <span id="resGoldForecast" class="text-[9px] text-slate-500">→ 0</span>
+                    </div>
+                </div>
+                <div class="w-px bg-slate-700"></div>
+                <div class="flex flex-col items-center min-w-[64px]">
+                    <span class="text-[10px] text-slate-400">👥 Manpower</span>
+                    <div>
+                        <span id="resManpower" class="text-sm font-semibold text-rose-300">0</span>
+                        <span id="resManpowerForecast" class="text-[9px] text-slate-500">→ 0</span>
+                    </div>
                 </div>
             </div>
         </div>
-    </div>
 
-    <!-- ═══ Верх справа: ход + фракции ═══ -->
-    <div class="fixed top-3 right-3 z-30 flex flex-col items-end gap-1 pointer-events-none">
-        <div class="bg-slate-900/95 border border-slate-700 rounded-lg px-3 py-1.5 text-xs pointer-events-auto">
-            <span id="hudTurn" class="font-semibold">Ход 1</span>
-            <span class="text-slate-500 mx-1">·</span>
-            <span id="hudFactionsAlive" class="text-slate-400">Фракций: 0</span>
+        <!-- ═══ Верх справа: ход + фракции ═══ -->
+        <div class="fixed top-3 right-3 z-30 flex flex-col items-end gap-1 pointer-events-none">
+            <div class="bg-slate-900/95 border border-slate-700 rounded-lg px-3 py-1.5 text-xs pointer-events-auto">
+                <span id="hudTurn" class="font-semibold">Ход 1</span>
+                <span class="text-slate-500 mx-1">·</span>
+                <span id="hudFactionsAlive" class="text-slate-400">Фракций: 0</span>
+            </div>
+            <select id="hudSeason" onchange="game.setSeason(this.value)"
+                    class="bg-slate-900/95 border border-slate-700 text-xs rounded-lg px-2 py-1 pointer-events-auto">
+                <option value="SPRING" selected>Весна</option>
+                <option value="SUMMER">Лето</option>
+                <option value="AUTUMN">Осень</option>
+                <option value="WINTER">Зима</option>
+            </select>
         </div>
-        <select id="hudSeason" onchange="game.setSeason(this.value)"
-                class="bg-slate-900/95 border border-slate-700 text-xs rounded-lg px-2 py-1 pointer-events-auto">
-            <option value="SPRING" selected>Весна</option>
-            <option value="SUMMER">Лето</option>
-            <option value="AUTUMN">Осень</option>
-            <option value="WINTER">Зима</option>
-        </select>
-    </div>
 
-    <!-- ═══ Право, под шапкой: лог ИИ ═══ -->
-    <div id="aiLog" class="hidden fixed top-24 left-3 z-30 bg-slate-900/95 border border-slate-700 rounded-xl p-3 text-xs w-64 max-h-56 overflow-y-auto"></div>
+        <!-- ═══ Право, под шапкой: лог ИИ ═══ -->
+        <div id="aiLog" class="hidden fixed top-24 left-3 z-30 bg-slate-900/95 border border-slate-700 rounded-xl p-3 text-xs w-64 max-h-56 overflow-y-auto"></div>
 
-    <!-- ═══ Низ по центру-справа: слой карты + завершить ход ═══ -->
-    <div class="fixed bottom-3 right-3 z-30 flex items-center gap-2 pointer-events-none">
-        <select id="hudViewMode" onchange="game.setViewMode(this.value)"
-                class="bg-slate-900/95 border border-slate-700 text-xs rounded-lg px-2 py-2 pointer-events-auto">
-            <option value="terrain" selected>Рельеф + климат</option>
-            <option value="political">Рельеф + фракции</option>
-            <option value="factions">Карта фракций</option>
-            <option value="gold">Золото</option>
-            <option value="food">Еда</option>
-            <option value="production">Промышленность</option>
-            <option value="manpower">Население</option>
-            <option value="culture">Культура</option>
-            
-        </select>
-        <button onclick="game.endTurn()"
-                class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-sm rounded-xl shadow-lg pointer-events-auto transition transform active:scale-95">
-            Завершить ход
+        <!-- ═══ Низ по центру-справа: слой карты + завершить ход ═══ -->
+        <div class="fixed bottom-3 right-3 z-30 flex items-center gap-2 pointer-events-none">
+            <select id="hudViewMode" onchange="game.setViewMode(this.value)"
+                    class="bg-slate-900/95 border border-slate-700 text-xs rounded-lg px-2 py-2 pointer-events-auto">
+                <option value="terrain" selected>Рельеф + климат</option>
+                <option value="political">Рельеф + фракции</option>
+                <option value="factions">Карта фракций</option>
+                <option value="gold">Золото</option>
+                <option value="food">Еда</option>
+                <option value="production">Промышленность</option>
+                <option value="manpower">Население</option>
+                <option value="culture">Культура</option>
+                
+            </select>
+            <button onclick="game.endTurn()"
+                    class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-sm rounded-xl shadow-lg pointer-events-auto transition transform active:scale-95">
+                Завершить ход
+            </button>
+        </div>
+
+        <!-- ═══ Низ слева: зум над инфопанелью ═══ -->
+        <div class="fixed bottom-[300px] left-3 z-30 flex flex-col gap-1 pointer-events-none">
+            <button onclick="game.zoomIn()" class="w-9 h-9 bg-slate-900/95 hover:bg-slate-800 border border-slate-700 rounded-lg text-sm pointer-events-auto">+</button>
+            <button onclick="game.resetView()" class="w-9 h-9 bg-slate-900/95 hover:bg-slate-800 border border-slate-700 rounded-lg text-xs pointer-events-auto">⟲</button>
+            <button onclick="game.zoomOut()" class="w-9 h-9 bg-slate-900/95 hover:bg-slate-800 border border-slate-700 rounded-lg text-sm pointer-events-auto">−</button>
+        </div>
+
+        <!-- ═══ Низ слева: инфопанель с вкладками (как была) ═══ -->
+        <div id="infoPanel" class="fixed bottom-3 left-3 z-30 bg-slate-900/95 border border-slate-700 rounded-xl text-xs w-72 overflow-hidden flex flex-col">
+            <div class="flex border-b border-slate-700">
+                <button id="tabRegionBtn" onclick="switchTab('region')" class="flex-1 px-3 py-2 text-xs font-semibold transition">Регион</button>
+                <button id="tabArmyBtn" onclick="switchTab('army')" class="flex-1 px-3 py-2 text-xs font-semibold transition border-l border-slate-700">Армия</button>
+            </div>
+            <div id="tabRegionContent" class="p-3"></div>
+            <div id="tabArmyContent" class="p-3 hidden"></div>
+        </div>
+        <button onclick="openDiplomacyWindow()" class="fixed top-16 right-3 z-30 px-3 py-1.5 bg-slate-900/95 border border-slate-700 hover:bg-slate-800 rounded-lg text-xs">
+            🤝 Дипломатия
         </button>
-    </div>
-
-    <!-- ═══ Низ слева: зум над инфопанелью ═══ -->
-    <div class="fixed bottom-[300px] left-3 z-30 flex flex-col gap-1 pointer-events-none">
-        <button onclick="game.zoomIn()" class="w-9 h-9 bg-slate-900/95 hover:bg-slate-800 border border-slate-700 rounded-lg text-sm pointer-events-auto">+</button>
-        <button onclick="game.resetView()" class="w-9 h-9 bg-slate-900/95 hover:bg-slate-800 border border-slate-700 rounded-lg text-xs pointer-events-auto">⟲</button>
-        <button onclick="game.zoomOut()" class="w-9 h-9 bg-slate-900/95 hover:bg-slate-800 border border-slate-700 rounded-lg text-sm pointer-events-auto">−</button>
-    </div>
-
-    <!-- ═══ Низ слева: инфопанель с вкладками (как была) ═══ -->
-    <div id="infoPanel" class="fixed bottom-3 left-3 z-30 bg-slate-900/95 border border-slate-700 rounded-xl text-xs w-72 overflow-hidden flex flex-col">
-        <div class="flex border-b border-slate-700">
-            <button id="tabRegionBtn" onclick="switchTab('region')" class="flex-1 px-3 py-2 text-xs font-semibold transition">Регион</button>
-            <button id="tabArmyBtn" onclick="switchTab('army')" class="flex-1 px-3 py-2 text-xs font-semibold transition border-l border-slate-700">Армия</button>
+        
+        <div id="diplomacyModal" class="hidden fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+            <div class="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-lg max-h-[80vh] flex flex-col">
+                <div class="flex justify-between items-center p-4 border-b border-slate-700">
+                    <h2 class="font-semibold text-emerald-400">Дипломатия</h2>
+                    <button onclick="closeDiplomacyWindow()" class="text-slate-400 hover:text-white">✕</button>
+                </div>
+                <div id="diplomacyList" class="overflow-y-auto p-3 flex flex-col gap-2"></div>
+            </div>
         </div>
-        <div id="tabRegionContent" class="p-3"></div>
-        <div id="tabArmyContent" class="p-3 hidden"></div>
     </div>
-</div>
     <script>
         let game;
         let activeTab = 'region';
@@ -293,10 +307,8 @@
                 container.innerHTML = `<div class="text-slate-500 italic">Регион не выбран</div>`;
                 return;
             }
-
-            const info = game.getRegionFullInfo(region);
             /*
-            if (info.hidden) {
+            if (mapRegion.hidden) {
                 container.innerHTML = `<div class="text-slate-400 italic">Территория неизвестна</div>`;
                 return;
             }*/
@@ -304,10 +316,12 @@
             const mapRegion = game.getRegionFullInfo(region);
             const biomeLabel = game.mapGen.elevationBandLabels[region.biome] || region.biome;
             const res = region.resources;
-            console.log(mapRegion.region)
-            const forecast = game.mapGen.getRegionResourcesForecast(mapRegion);
-            const hasPendingChange = mapRegion.pendingSpecialization !== null && mapRegion.pendingSpecialization !== undefined;
-            const effectiveSpec = mapRegion.pendingSpecialization ?? mapRegion.specialization;
+
+            const forecast = game.mapGen.getRegionResourcesForecast(mapRegion.region);
+            const hasPendingChange = mapRegion.region.pendingSpecialization !== null && mapRegion.region.pendingSpecialization !== undefined;
+            const effectiveSpec = mapRegion.region.pendingSpecialization ?? mapRegion.region.specialization;
+            
+            
             let html = `
                 <div class="font-semibold text-emerald-400 mb-1">${region.name} · ${biomeLabel}</div>
                 <div>Еда ${res.food.toFixed(1)} · Произв. ${res.production.toFixed(1)}</div>
@@ -318,15 +332,16 @@
             if (region.city) html += `<div class="mt-1">Поселение: ${region.city.name}</div>`;
             if (region.population > 0) html += `<div>Население: ${region.population}</div>`;
 
-            if (info.faction) {
-                const factionCultureIcon = info.faction.culture ? game.mapGen.cultureIconById[info.faction.culture] : '';
+            if (mapRegion.faction) {
+                html += renderFactionListItem(mapRegion.faction)
+                const factionCultureIcon = mapRegion.faction.culture ? game.mapGen.cultureIconById[mapRegion.faction.culture] : '';
                 html += `<hr class="my-2 border-slate-700">
-                        <div class="font-semibold" style="color: ${info.faction.color}">
-                            ${factionCultureIcon} ${info.faction.name}${info.isPlayerOwned ? ' (игрок)' : ''}
+                        <div class="font-semibold" style="color: ${mapRegion.faction.color}">
+                            ${factionCultureIcon} ${mapRegion.faction.name}${mapRegion.isPlayerOwned ? ' (игрок)' : ''}
                         </div>`;
-                if (info.diplomacy) {
+                if (mapRegion.diplomacy) {
                     const labels = { peace: 'Мир', war: 'Война', alliance: 'Союз' };
-                    html += `<div>Отношения: ${labels[info.diplomacy]}</div>`;
+                    html += `<div>Отношения: ${labels[mapRegion.diplomacy]}</div>`;
                 }
             } else {
                 html += `<div class="mt-2 text-slate-400">Ничейная территория</div>`;
@@ -424,10 +439,12 @@
             const result = game.armyManager.reinforceArmy(lastArmy.id, amount);
             if (!result.success) { alert('Не удалось пополнить армию: ' + result.reason); return; }
             renderArmyTab(result.army, lastArmyReachable);
+            updateHud(); 
         }
         function setSpecialization(regionId, specId) {
-            game.mapGen.setRegionSpecialization(regionId, specId);
+            const result = game.mapGen.setRegionSpecialization(regionId, specId);
             renderRegionTab(game.mapGen.getRegionData(game.mapGen.terrain.regions.all[regionId]));
+            updateHud(); 
         }
 
         function recruitHere(regionId) {
@@ -435,6 +452,7 @@
             const result = game.armyManager.recruitArmy(player.id, regionId);
             if (!result.success) { alert('Не удалось нанять армию: ' + result.reason); return; }
             renderRegionTab(game.mapGen.getRegionData(game.mapGen.terrain.regions.all[regionId]));
+            updateHud(); 
         }
         function updateHud() {
             updateResourceBar();
@@ -469,6 +487,59 @@
                 <div>Очков хода: ${army.actionPoints}</div>
                 <div class="text-slate-400">Доступно клеток: ${reachableIds.length}</div>
             `;
+        }
+        function renderFactionListItem(faction) {
+            const flagImg = game.mapGen.factions.getFactionFlagImage(faction);
+            const flagHtml = flagImg
+                ? `<img src="${flagImg.src}" class="w-5 h-4 object-cover rounded-sm border border-slate-700">`
+                : `<span class="w-5 h-4 rounded-sm inline-block" style="background: linear-gradient(90deg, ${faction.colorPair ? game.mapGen.factionColorById[faction.colorPair.primary] : faction.color} 50%, ${faction.colorPair ? game.mapGen.factionColorById[faction.colorPair.secondary] : faction.color} 50%)"></span>`;
+
+            return `<div class="flex items-center gap-2 py-1">
+                        ${flagHtml}
+                        <span>${faction.name}</span>
+                    </div>`;
+        }
+        function openDiplomacyWindow() {
+            document.getElementById('diplomacyModal').classList.remove('hidden');
+            renderDiplomacyList();
+        }
+        function closeDiplomacyWindow() {
+            document.getElementById('diplomacyModal').classList.add('hidden');
+        }
+
+        function renderDiplomacyList() {
+            const player = game.factionsManager.getPlayer();
+            const container = document.getElementById('diplomacyList');
+            if (!player) { container.innerHTML = ''; return; }
+
+            const known = game.getKnownFactions(player.id); // см. пункт 5 — метод в Game
+
+            container.innerHTML = known.map(faction => {
+                const relation = game.getRelationLevel(player.id, faction.id);
+                const status = game.getDiplomacyStatus(player.id, faction.id);
+                const flagImg = game.mapGen.factions.getFactionFlagImage(faction);
+                const relationColor = relation > 30 ? 'text-emerald-400' : relation < -30 ? 'text-rose-400' : 'text-slate-400';
+
+                const statusLabels = { peace: 'Мир', war: 'Война', alliance: 'Союз' };
+
+                let actions = '';
+                if (status === 'peace') {
+                    actions = `<button onclick="game.declareWar(${player.id}, ${faction.id}); renderDiplomacyList()" class="px-2 py-1 bg-red-800 hover:bg-red-700 rounded text-[10px]">Объявить войну</button>
+                            <button onclick="game.proposeAlliance(${player.id}, ${faction.id}); renderDiplomacyList()" class="px-2 py-1 bg-blue-800 hover:bg-blue-700 rounded text-[10px]">Предложить союз</button>`;
+                } else if (status === 'war') {
+                    actions = `<button onclick="game.makePeace(${player.id}, ${faction.id}); renderDiplomacyList()" class="px-2 py-1 bg-emerald-800 hover:bg-emerald-700 rounded text-[10px]">Предложить мир</button>`;
+                }
+
+                return `
+                    <div class="flex items-center gap-3 bg-slate-800/60 rounded-lg p-2">
+                        ${flagImg ? `<img src="${flagImg.src}" class="w-6 h-5 rounded-sm object-cover">` : `<span class="w-6 h-5 rounded-sm" style="background:${faction.color}"></span>`}
+                        <div class="flex-1">
+                            <div class="text-xs font-semibold">${faction.name}</div>
+                            <div class="text-[10px] ${relationColor}">Отношения: ${relation > 0 ? '+' : ''}${relation} · ${statusLabels[status]}</div>
+                        </div>
+                        <div class="flex gap-1">${actions}</div>
+                    </div>`;
+            }).join('') || `<div class="text-slate-500 text-xs italic">Известных фракций нет</div>`;
         }
 
         function initInfoPanel() {
