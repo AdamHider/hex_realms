@@ -240,6 +240,7 @@ class ArmyManager {
             mapGen.markDirty('terrain', 'political', 'fog');
         }
         this.game.mapGen._invalidateVisibilityCache();
+        this.game.mapGen._invalidateAdjacencyCache();
         return capturedRegions;
     }
 

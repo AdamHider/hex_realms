@@ -206,6 +206,7 @@ class Game {
             this.diplomacyManager.tick();
             this.aiManager.runTurn();
             this.armyManager.resolveOccupations();
+            this.mapGen.updateExploredRegions();
             this.armyManager.resetActionPoints();
         }
         return summary;

@@ -33,7 +33,10 @@ class MapGenerator {
             political: this._createLayer(),
             fog: this._createLayer(),
         };
-        this.fogEnabled = options.fogEnabled ?? false;
+        this.fogEnabled = options.fogEnabled ?? true;
+        this.globalRegionThreshold = options.globalRegionThreshold ?? 1200;
+        this.exploredRegions = new Set();
+
 
         this.detailCache = {
             canvas: document.createElement('canvas'),
@@ -146,6 +149,7 @@ class MapGenerator {
             getLabelPath: MapFaction.getLabelPath.bind(this),
             getFactionFlagImage: MapFaction.getFactionFlagImage.bind(this),
             getFactionFlagKey: MapFaction.getFactionFlagKey.bind(this),
+            isDiscovered: MapFaction.isDiscovered.bind(this),
         }
 
         this.maxFactions = options.maxFactions ?? this.factions.colors.all.length;
@@ -896,6 +900,8 @@ class MapGenerator {
     setPlayerFaction(factionId) {
         this.playerFactionId = factionId;
         this._invalidateVisibilityCache();
+        this._invalidateDetailCache();
+        this.updateExploredRegions();
         this.markDirty('fog');
         this.render();
     }
@@ -918,6 +924,14 @@ class MapGenerator {
             }
         });
     }
+    updateExploredRegions() {
+        if (!this.fogEnabled || this.playerFactionId === null || this.playerFactionId === undefined) return;
+        const visible = this.getCachedVisibility();
+        if (!visible) return;
+        for (let i = 0; i < visible.length; i++) {
+            if (visible[i]) this.exploredRegions.add(i);
+        }
+    }
 
     // ═══════════════════════════════════════════════════════════
     // SECTION: MAP_RENDER
@@ -931,13 +945,35 @@ class MapGenerator {
         const visibleRect = this.getVisibleWorldRect();
         this.updateViewLevel(visibleRect);
     
-        if (this.viewLevel === 'detail') {
-            this._drawDetail(visibleRect);
-        } else {
-            this._drawOverview();
-        }
+        if (this.viewLevel === 'detail') this._drawDetail(visibleRect);
+        else if (this.viewLevel === 'overview') this._drawOverview();
+        else this._drawGlobal();
         //this.perf.markEnd('total');
         this.perf.updateOverlay();
+    }
+    _drawGlobal() {
+        this.repaintLayersIfDirty(); // те же layers.terrain/political/fog, что и overview
+
+        this.ctx.save();
+        this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        this.ctx.restore();
+
+        const s = this.viewTransform.scale / this.mapLayerScale;
+        this.ctx.save();
+        this.ctx.translate(this.viewTransform.x, this.viewTransform.y);
+        this.ctx.scale(s, s);
+        this.ctx.drawImage(this.layers.terrain.canvas, 0, 0);
+        this.ctx.drawImage(this.layers.political.canvas, 0, 0);
+        this.ctx.drawImage(this.layers.fog.canvas, 0, 0);
+        this.ctx.restore();
+
+        // подписи фракций — ЕДИНСТВЕННОЕ, что видно в этом режиме поверх статики
+        this.ctx.save();
+        this.ctx.translate(this.viewTransform.x, this.viewTransform.y);
+        this.ctx.scale(this.viewTransform.scale, this.viewTransform.scale);
+        this.factions.renderFactionLabels(this.ctx, this.viewTransform.scale);
+        this.ctx.restore();
     }
 
     _drawOverview() {
@@ -1007,7 +1043,7 @@ class MapGenerator {
         this.perf.markStart('renderDynamicObjects');
         this.renderDynamicObjects(this.ctx, this.viewTransform.scale);
         this.perf.markEnd('renderDynamicObjects');
-    
+        
         this.perf.markStart('fog');
         if (this.fogEnabled && this.playerFactionId !== null && this.playerFactionId !== undefined) {
             const visible = this.getCachedVisibility(); // не забудьте про кэш из прошлого сообщения
@@ -1017,21 +1053,36 @@ class MapGenerator {
                 if (visibleRect && !this.bboxIntersects(region.bbox, visibleRect)) continue;
                 const polygon = this.mapVoronoi.cellPolygon(i);
                 if (!polygon) continue;
-                this.ctx.fillStyle = 'rgba(5, 8, 15, 0.72)';
+                this.ctx.fillStyle = 'rgba(5, 8, 15, 0.52)';
                 this.drawRegionPath(this.ctx, polygon);
                 this.ctx.fill();
             }
         }
         this.perf.markEnd('fog');
-    
+
         this.ctx.restore();
     }
 
     updateViewLevel(visibleRect) {
         const visibleCount = this.countVisibleRegions(visibleRect);
-        const newViewLevel = visibleCount <= this.sharpRegionBudget ? 'detail' : 'overview';
-        this.viewLevel = newViewLevel;
-        
+        const current = this.viewLevel;
+    
+        let next;
+        if (visibleCount <= this.sharpRegionBudget) {
+            next = 'detail';
+        } else if (visibleCount <= this.globalRegionThreshold) {
+            next = 'overview';
+        } else {
+            next = 'global';
+        }
+    
+        // гистерезис — переключение НАЗАД к более детальному уровню требует заметного запаса, а не точного порога
+        if (current === 'overview' && next === 'detail' && visibleCount > this.sharpRegionBudget * 0.85) next = 'overview';
+        if (current === 'global' && next === 'overview' && visibleCount > this.globalRegionThreshold * 0.85) next = 'global';
+        if (current === 'detail' && next === 'overview' && visibleCount < this.sharpRegionBudget * 1.15) next = 'detail';
+        if (current === 'overview' && next === 'global' && visibleCount < this.globalRegionThreshold * 1.15) next = 'overview';
+    
+        this.viewLevel = next;
     }
     
     renderDynamicObjects(ctx, zoomScale) {
@@ -1057,6 +1108,7 @@ class MapGenerator {
                bbox.maxY >= rect.minY && bbox.minY <= rect.maxY;
     }
     scheduleRender() {
+        return this.render();
         if (this._renderScheduled) return;
         this._renderScheduled = true;
         requestAnimationFrame(() => {
@@ -1099,7 +1151,6 @@ class MapGenerator {
         ctx.clearRect(0, 0, this.layers.political.canvas.width, this.layers.political.canvas.height);
         ctx.scale(this.mapLayerScale, this.mapLayerScale);
         this.factions.drawBorders(ctx); 
-        this.factions.renderFactionLabels(ctx);
         ctx.restore();
     }
     _paintFogLayer(playerFactionId) {
@@ -1210,6 +1261,7 @@ class MapGenerator {
             visibleRect.minY < r.minY || visibleRect.maxY > r.maxY;
     }
     _repaintDetailCache(visibleRect) {
+        console.log('_repaintDetailCache')
         const margin = (visibleRect.maxX - visibleRect.minX) * 0.6; // запас в 60% ширины экрана в каждую сторону
         const coveredRect = {
             minX: visibleRect.minX - margin, maxX: visibleRect.maxX + margin,
@@ -1252,6 +1304,9 @@ class MapGenerator {
     }
     _invalidateVisibilityCache() {
         this._cachedVisibility = null;
+    }
+    _invalidateAdjacencyCache() {
+        this._cachedAdjacency = null;
     }
     
     getCachedVisibility() {
@@ -1500,7 +1555,7 @@ const MapInteraction = {
             this.interaction.selectRegionAt(e.clientX, e.clientY);
         }
     
-        this.scheduleRender();
+        //this.scheduleRender();
     },
     _handleMouseMove(e) {
         if (this._isPanning) {
@@ -1665,6 +1720,12 @@ const MapFaction = {
             
             if (regionA.ownerId === regionB.ownerId) return;
 
+            const visible = this.fogEnabled && this.playerFactionId !== null && this.playerFactionId !== undefined
+            ? this.getCachedVisibility() : null;
+            
+            if (visible && !visible[regionA.id] && !visible[regionB.id]) return; 
+            if (!this.exploredRegions.has(a) && !this.exploredRegions.has(b)) return; 
+
             if (visibleRect) {
                 const ex = Math.min(edge.p1[0], edge.p2[0]), eX = Math.max(edge.p1[0], edge.p2[0]);
                 const ey = Math.min(edge.p1[1], edge.p2[1]), eY = Math.max(edge.p1[1], edge.p2[1]);
@@ -1689,15 +1750,11 @@ const MapFaction = {
 
         });
     },
+
     getFactionAdjacency() {
+        if (this._cachedAdjacency) return this._cachedAdjacency;
         const count = this.factions.list.length;
         const adjacency = Array.from({ length: count }, () => new Set());
-    
-        for (let i = 0; i < this.terrain.regions.all.length; i++) {
-            const ownerI = this.terrain.regions.all[i].ownerId;
-            if (ownerI === null || ownerI === undefined) continue;
-        }
-    
         this.edgeMap.forEach(edge => {
             if (edge.regionIds.length < 2) return;
             const [a, b] = edge.regionIds;
@@ -1708,7 +1765,8 @@ const MapFaction = {
             adjacency[ownerA].add(ownerB);
             adjacency[ownerB].add(ownerA);
         });
-    
+
+        this._cachedAdjacency = adjacency;
         return adjacency;
     },
     getNeighboringFactions(factionId) {
@@ -1764,18 +1822,17 @@ const MapFaction = {
     
         return { cx, cy, angle, length };
     },
-    renderFactionLabels(ctx) {
-        if (!['factions', 'political'].includes(this.viewMode)) return;
+    renderFactionLabels(ctx, zoomScale) {
+        if (!['factions', 'political', 'global'].includes(this.viewMode) && this.viewLevel !== 'global') return;
         if (!this.factions.list?.length) return;
     
         this.factions.list.forEach(faction => {
-            const path = this.factions.getLabelPath(faction.id);
-            if (!path || path.length < 15) return; // слишком маленькая территория — подпись не влезет разумно
+            if (this.fogEnabled && !this.factions.isDiscovered(faction.id)) return; // ← не показываем неоткрытую фракцию
     
-            this.utils.drawCurvedLabel(ctx, faction.name.toUpperCase(), path.cx, path.cy, path.angle, path.length, {
-                fontSize: 9,
-                color: 'rgba(20, 15, 10, 0.85)',
-                
+            const path = this.factions.getLabelPath(faction.id);
+            if (!path || path.length < 15) return;
+            this.utils.drawCurvedLabel(ctx, faction.name.toUpperCase(), path.cx, path.cy, path.angle, path.length, zoomScale, {
+                fontSize: 9, color: 'rgba(20, 15, 10, 0.85)',
             });
         });
     },
@@ -1785,6 +1842,13 @@ const MapFaction = {
         this.factions.labelPathCache.set(factionId, path);
         return path;
     },
+    isDiscovered(factionId) {
+        if (factionId === this.playerFactionId) return true;
+        for (const regionId of this.exploredRegions) {
+            if (this.terrain.regions.all[regionId]?.ownerId === factionId) return true;
+        }
+        return false;
+    }
 }
 
 const MapTerrain = {
@@ -1792,11 +1856,19 @@ const MapTerrain = {
         const resourceRange = ['food', 'gold', 'production', 'manpower'].includes(this.viewMode)
         ? this.color.getResourceRange(this.viewMode)
         : null;
+
+        const visible = this.fogEnabled && this.playerFactionId !== null && this.playerFactionId !== undefined
+        ? this.getCachedVisibility() : null;
+
         for (let i = 0; i < this.terrain.regions.all.length; i++) {
             const polygon = this.mapVoronoi.cellPolygon(i);
             if (!polygon) continue;
-
+            
             const region = this.terrain.regions.all[i];
+            const isCurrentlyVisible = visible && visible[region.id];
+            const isExplored = this.exploredRegions.has(region.id);
+            const isFactionDiscovered = region.ownerId !== null && this.factions.isDiscovered(region.ownerId)
+
             if (visibleRect && !this.bboxIntersects(region.bbox, visibleRect)) continue;
             const color = this.color.getBase(region, resourceRange);
             ctx.fillStyle = color;
@@ -1807,7 +1879,7 @@ const MapTerrain = {
             ctx.fill();
             ctx.stroke();
 
-            if (region.ownerId !== null && region.ownerId !== undefined && this.factions.list?.[region.ownerId]) {
+            if ((isExplored || isCurrentlyVisible || isFactionDiscovered) && region.ownerId !== null && region.ownerId !== undefined && this.factions.list?.[region.ownerId]) {
                 ctx.save();
                 ctx.globalAlpha = this.viewMode === 'factions' ? 0.65 : (this.viewMode === 'political') ? 0.42 : 0;
                 ctx.fillStyle = this.factions.list[region.ownerId].color;
@@ -2507,10 +2579,15 @@ const MapArmies = {
         const spriteSize = 17; // сам юнит крупнее, чем было
         const plateHeight = 1// / (zoomScale * 0.05);
         const plateWidth = 1.3// / (zoomScale * 0.05);
-        
+
+        const visible = this.fogEnabled && this.playerFactionId !== null && this.playerFactionId !== undefined
+        ? this.getCachedVisibility() : null;
+
         armies.forEach(army => {
             const region = this.terrain.regions.all[army.regionId];
             if (!region) return;
+
+            if (visible && !visible[army.regionId] && army.factionId !== this.playerFactionId) return; 
 
             let drawX = region.x, drawY = region.y;
 
