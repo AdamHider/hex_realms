@@ -1879,7 +1879,7 @@ const MapTerrain = {
             ctx.fill();
             ctx.stroke();
 
-            if ((isExplored || isCurrentlyVisible || isFactionDiscovered) && region.ownerId !== null && region.ownerId !== undefined && this.factions.list?.[region.ownerId]) {
+            if ((isFactionDiscovered) && region.ownerId !== null && region.ownerId !== undefined && this.factions.list?.[region.ownerId]) {
                 ctx.save();
                 ctx.globalAlpha = this.viewMode === 'factions' ? 0.65 : (this.viewMode === 'political') ? 0.42 : 0;
                 ctx.fillStyle = this.factions.list[region.ownerId].color;
