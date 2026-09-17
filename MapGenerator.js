@@ -24,8 +24,8 @@ class MapGenerator {
         this.maxScale = 10;
 
         this._renderScheduled = false;
-        this.mapLayerScale = 5;
-        this.sharpRegionBudget = 260;
+        this.mapLayerScale = 4;
+        this.sharpRegionBudget = 220;
 
         this.viewLevel = 'overview';
         this.layers = {
@@ -33,8 +33,9 @@ class MapGenerator {
             political: this._createLayer(),
             fog: this._createLayer(),
         };
-        this.fogEnabled = options.fogEnabled ?? true;
-        this.globalRegionThreshold = options.globalRegionThreshold ?? 1200;
+        this.fogEnabled = options.fogEnabled ?? false;
+        this.fogColor = 'rgba(5, 8, 15, 0.52)';
+        this.globalRegionThreshold = options.globalRegionThreshold ?? 800;
         this.exploredRegions = new Set();
 
 
@@ -618,137 +619,7 @@ class MapGenerator {
         return dist;
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // SECTION: MAP_SETUP
-    // Точка входа первичного этапа: собирает terrain + факции
-    // в this.terrain.regions.all, кэширует edgeMap. create() — публичная
-    // обёртка, которая сразу же вызывает первый render() и отдаёт
-    // наружу данные для дальнейшей динамической синхронизации.
-    // ═══════════════════════════════════════════════════════════
-
-    create(seed) {
-        this.setup(seed);
-        this.markDirty('terrain', 'political');
-        this.render();
-        return {
-            regions: this.getRegionsData(),
-            factions: this.getFactionsData(),
-        };
-    }
-
-    setup(seed) {
-        if (seed !== undefined) this.utils.setSeed(seed);
-        else this.currentSeed = this.initialSeed;
-
-        this.noisyEdgeCache.clear();
-        
-        const regions = this.terrain.createRegions(this.width, this.height, 10).map((s, i) => ({
-            id: i, x: s.x, y: s.y, elevation: 0, t: 0, biome: 'OCEAN', biomeBand: 'OCEAN',
-            biomeClimate: 'OCEAN', biomeNeutral: 'OCEAN', climateZone: null, isWater: true, city: null,
-            ownerId: null,
-            occupiedBy: null,
-            specialization: 'NONE',
-            pendingSpecialization: null,
-        }));
-
-        const points = new Float64Array(regions.length * 2);
-        for (let i = 0; i < regions.length; i++) {
-            points[i * 2] = regions[i].x;
-            points[i * 2 + 1] = regions[i].y;
-        }
-        const delaunay = new d3.Delaunay(points);
-        const voronoi = delaunay.voronoi([0, 0, this.width, this.height]);
-        
-        const neighbors = this.terrain.createNeighbors(delaunay, regions.length);
-
-        const elevation = this.terrain.createElevation(regions, neighbors);
-
-        const targetFraction = Math.min(0.62, Math.max(0.12, 0.20 + (this.terrain.config.landAmount - 0.5) * 0.35));
-        const { isWater, t } = this.terrain.classifyByLandFraction(elevation, targetFraction);
-
-        const minLandSize = Math.max(4, Math.round(this.terrain.config.regionCount * 0.006));
-        this.terrain.cleanup(isWater, neighbors, minLandSize);
-
-        const temperature = this.terrain.createTemperatures(regions, t);
-        const culturePoles = this.cultures.createPoles();
-        regions.forEach((region, i) => {
-            region.elevation = elevation[i];
-            region.t = t[i];
-            region.isWater = !!isWater[i];
-            region.isTown = false;
-            region.temperature = temperature[i];
-            region.name = this.utils.generateRegionName(region.isWater);
-            const zone = temperature[i] < 0.20 ? 'cold' : temperature[i] > 0.60 ? 'hot' : 'temperate';
-            region.climateZone = zone;
-            if (region.isWater) {
-                const id = this.utils.findBand(this.waterBiomes, t[i]).id;
-                region.biomeBand = id;
-                region.biomeClimate = id;
-                region.biomeNeutral = id;
-                region.culture = null; 
-            } else {
-                const band = this.utils.findBand(this.landElevationBands, t[i]);
-                region.biomeBand = band.id;
-                region.biomeClimate = band.id + '_' + zone;
-                region.biomeNeutral = band.id + '_temperate';
-                region.culture = this.cultures.create(region, culturePoles);
-            }
-            region.decorBias = this.decorations.computeBias(region, regions, neighbors);
-        });
-
-        this.factions.settle(regions, neighbors);
-
-        (this.factions.list || []).forEach(faction => {
-            const capital = regions[faction.capitalRegionId];
-            if (capital) capital.isTown = true;
-        });
-
-        regions.forEach(region => {
-            if (region.isWater || region.isTown) return;
-            if (this.utils.seededRandom() < this.towns.chance) region.isTown = true;
-        });
-
-        const distanceToWater = this.computeDistanceToWater(regions, neighbors);
-
-        regions.forEach((region, i) => {
-            const polygon = voronoi.cellPolygon(i);
-            if (polygon) {
-                let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-                for (const [x, y] of polygon) {
-                    if (x < minX) minX = x; if (x > maxX) maxX = x;
-                    if (y < minY) minY = y; if (y > maxY) maxY = y;
-                }
-                region.bbox = { minX, minY, maxX, maxY };
-                region.labelPath = this.computeRegionLabelPath(region, polygon);
-            } else {
-                region.bbox = { minX: region.x, minY: region.y, maxX: region.x, maxY: region.y };
-            }
-            this.decorations.assignTo(region, polygon || []);
-            region.distanceToWater = distanceToWater[i];
-        });
-        
-        this.vertexGraph = this.rivers.buildVertexGraph(regions, voronoi);
-        this.rivers.annotateVertices(this.vertexGraph, regions);
-
-        regions.forEach(region => {
-            if (region.isTown) {
-                const baseKey = this.towns.buildKey(region);
-                const variant = 1 + Math.floor(this.utils.seededRandom() * this.towns.assets.variantsPerKey);
-                region.townAssetKey = `${baseKey}_${variant}`;
-            }
-        });
-
-        this.factions.labelPathCache = new Map();
-
-        this.terrain.regions.all = regions;
-        this.mapVoronoi = voronoi;
-        this.edgeMap = this.createEdgeMap();
-        this.regionNeighbors = neighbors;
-        this.rivers.generate(regions, neighbors);
-        this.riverProximityIndex = this.rivers.createProximityIndex();
-
-        this.viewTransform = { x: 0, y: 0, scale: 1 };
-    }
+    
     // ═══════════════════════════════════════════════════════════
     // SECTION: MAP_DATA
     // Динамический синтез: превращает статичные mapRegions + текущие
@@ -932,7 +803,137 @@ class MapGenerator {
             if (visible[i]) this.exploredRegions.add(i);
         }
     }
+    // ═══════════════════════════════════════════════════════════
+    // SECTION: MAP_SETUP
+    // Точка входа первичного этапа: собирает terrain + факции
+    // в this.terrain.regions.all, кэширует edgeMap. create() — публичная
+    // обёртка, которая сразу же вызывает первый render() и отдаёт
+    // наружу данные для дальнейшей динамической синхронизации.
+    // ═══════════════════════════════════════════════════════════
 
+    create(seed) {
+        this.setup(seed);
+        this.markDirty('terrain', 'political');
+        this.render();
+        return {
+            regions: this.getRegionsData(),
+            factions: this.getFactionsData(),
+        };
+    }
+
+    setup(seed) {
+        if (seed !== undefined) this.utils.setSeed(seed);
+        else this.currentSeed = this.initialSeed;
+
+        this.noisyEdgeCache.clear();
+        
+        const regions = this.terrain.createRegions(this.width, this.height, 10).map((s, i) => ({
+            id: i, x: s.x, y: s.y, elevation: 0, t: 0, biome: 'OCEAN', biomeBand: 'OCEAN',
+            biomeClimate: 'OCEAN', biomeNeutral: 'OCEAN', climateZone: null, isWater: true, city: null,
+            ownerId: null,
+            occupiedBy: null,
+            specialization: 'NONE',
+            pendingSpecialization: null,
+        }));
+
+        const points = new Float64Array(regions.length * 2);
+        for (let i = 0; i < regions.length; i++) {
+            points[i * 2] = regions[i].x;
+            points[i * 2 + 1] = regions[i].y;
+        }
+        const delaunay = new d3.Delaunay(points);
+        const voronoi = delaunay.voronoi([0, 0, this.width, this.height]);
+        
+        const neighbors = this.terrain.createNeighbors(delaunay, regions.length);
+
+        const elevation = this.terrain.createElevation(regions, neighbors);
+
+        const targetFraction = Math.min(0.62, Math.max(0.12, 0.20 + (this.terrain.config.landAmount - 0.5) * 0.35));
+        const { isWater, t } = this.terrain.classifyByLandFraction(elevation, targetFraction);
+
+        const minLandSize = Math.max(4, Math.round(this.terrain.config.regionCount * 0.006));
+        this.terrain.cleanup(isWater, neighbors, minLandSize);
+
+        const temperature = this.terrain.createTemperatures(regions, t);
+        const culturePoles = this.cultures.createPoles();
+        regions.forEach((region, i) => {
+            region.elevation = elevation[i];
+            region.t = t[i];
+            region.isWater = !!isWater[i];
+            region.isTown = false;
+            region.temperature = temperature[i];
+            region.name = this.utils.generateRegionName(region.isWater);
+            const zone = temperature[i] < 0.20 ? 'cold' : temperature[i] > 0.60 ? 'hot' : 'temperate';
+            region.climateZone = zone;
+            if (region.isWater) {
+                const id = this.utils.findBand(this.waterBiomes, t[i]).id;
+                region.biomeBand = id;
+                region.biomeClimate = id;
+                region.biomeNeutral = id;
+                region.culture = null; 
+            } else {
+                const band = this.utils.findBand(this.landElevationBands, t[i]);
+                region.biomeBand = band.id;
+                region.biomeClimate = band.id + '_' + zone;
+                region.biomeNeutral = band.id + '_temperate';
+                region.culture = this.cultures.create(region, culturePoles);
+            }
+            region.decorBias = this.decorations.computeBias(region, regions, neighbors);
+        });
+
+        this.factions.settle(regions, neighbors);
+
+        (this.factions.list || []).forEach(faction => {
+            const capital = regions[faction.capitalRegionId];
+            if (capital) capital.isTown = true;
+        });
+
+        regions.forEach(region => {
+            if (region.isWater || region.isTown) return;
+            if (this.utils.seededRandom() < this.towns.chance) region.isTown = true;
+        });
+
+        const distanceToWater = this.computeDistanceToWater(regions, neighbors);
+
+        regions.forEach((region, i) => {
+            const polygon = voronoi.cellPolygon(i);
+            if (polygon) {
+                let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                for (const [x, y] of polygon) {
+                    if (x < minX) minX = x; if (x > maxX) maxX = x;
+                    if (y < minY) minY = y; if (y > maxY) maxY = y;
+                }
+                region.bbox = { minX, minY, maxX, maxY };
+                region.labelPath = this.computeRegionLabelPath(region, polygon);
+            } else {
+                region.bbox = { minX: region.x, minY: region.y, maxX: region.x, maxY: region.y };
+            }
+            this.decorations.assignTo(region, polygon || []);
+            region.distanceToWater = distanceToWater[i];
+        });
+        
+        this.vertexGraph = this.rivers.buildVertexGraph(regions, voronoi);
+        this.rivers.annotateVertices(this.vertexGraph, regions);
+
+        regions.forEach(region => {
+            if (region.isTown) {
+                const baseKey = this.towns.buildKey(region);
+                const variant = 1 + Math.floor(this.utils.seededRandom() * this.towns.assets.variantsPerKey);
+                region.townAssetKey = `${baseKey}_${variant}`;
+            }
+        });
+
+        this.factions.labelPathCache = new Map();
+
+        this.terrain.regions.all = regions;
+        this.mapVoronoi = voronoi;
+        this.edgeMap = this.createEdgeMap();
+        this.regionNeighbors = neighbors;
+        this.rivers.generate(regions, neighbors);
+        this.riverProximityIndex = this.rivers.createProximityIndex();
+
+        this.viewTransform = { x: 0, y: 0, scale: 1 };
+    }
     // ═══════════════════════════════════════════════════════════
     // SECTION: MAP_RENDER
     // Второй этап: перекладывает уже готовые this.terrain.regions.all на canvas.
@@ -941,24 +942,23 @@ class MapGenerator {
     // ═══════════════════════════════════════════════════════════
     render() {
         this.perf.frameStart();
-        //this.perf.markStart('total');
-        const visibleRect = this.getVisibleWorldRect();
-        this.updateViewLevel(visibleRect);
+        this._currentVisibleRect = this.getVisibleWorldRect(); // считаем один раз за кадр
+        this.updateViewLevel(this._currentVisibleRect);
     
-        if (this.viewLevel === 'detail') this._drawDetail(visibleRect);
+        if (this.viewLevel === 'detail') this._drawDetail(this._currentVisibleRect);
         else if (this.viewLevel === 'overview') this._drawOverview();
         else this._drawGlobal();
-        //this.perf.markEnd('total');
+    
         this.perf.updateOverlay();
     }
-    _drawGlobal() {
-        this.repaintLayersIfDirty(); // те же layers.terrain/political/fog, что и overview
-
+    _blitStaticLayers() {
+        this.repaintLayersIfDirty();
+    
         this.ctx.save();
         this.ctx.setTransform(1, 0, 0, 1, 0, 0);
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         this.ctx.restore();
-
+    
         const s = this.viewTransform.scale / this.mapLayerScale;
         this.ctx.save();
         this.ctx.translate(this.viewTransform.x, this.viewTransform.y);
@@ -967,36 +967,26 @@ class MapGenerator {
         this.ctx.drawImage(this.layers.political.canvas, 0, 0);
         this.ctx.drawImage(this.layers.fog.canvas, 0, 0);
         this.ctx.restore();
-
-        // подписи фракций — ЕДИНСТВЕННОЕ, что видно в этом режиме поверх статики
+    }
+    
+    _drawOverview() {
+        this._blitStaticLayers();
+        this.ctx.save();
+        this.ctx.translate(this.viewTransform.x, this.viewTransform.y);
+        this.ctx.scale(this.viewTransform.scale, this.viewTransform.scale);
+        this.renderDynamicObjects(this.ctx, this.viewTransform.scale);
+        this.ctx.restore();
+    }
+    
+    _drawGlobal() {
+        this._blitStaticLayers();
         this.ctx.save();
         this.ctx.translate(this.viewTransform.x, this.viewTransform.y);
         this.ctx.scale(this.viewTransform.scale, this.viewTransform.scale);
         this.factions.renderFactionLabels(this.ctx, this.viewTransform.scale);
-        this.ctx.restore();
-    }
-
-    _drawOverview() {
-        this.repaintLayersIfDirty();
-        this.ctx.save();
-        this.ctx.setTransform(1, 0, 0, 1, 0, 0);
-        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-        this.ctx.restore();
-    
-        const s = this.viewTransform.scale / this.mapLayerScale;
-        this.ctx.save();
-        this.ctx.translate(this.viewTransform.x, this.viewTransform.y);
-        this.ctx.scale(s, s);
-        this.ctx.drawImage(this.layers.terrain.canvas, 0, 0);
-        this.ctx.drawImage(this.layers.political.canvas, 0, 0);
-        this.ctx.drawImage(this.layers.fog.canvas, 0, 0);
-        this.ctx.restore();
-        this.ctx.save();
-        this.ctx.translate(this.viewTransform.x, this.viewTransform.y);
-        this.ctx.scale(this.viewTransform.scale, this.viewTransform.scale);
-        this.armies.renderOccupationHatching(this.ctx);
-        this.renderDynamicObjects(this.ctx, this.viewTransform.scale);
-        
+        if (this.armyAnimations && this.armyAnimations.size > 0) {
+            this.armies.render(this.ctx, this.viewTransform.scale);
+        }
         this.ctx.restore();
     }
     
@@ -1033,66 +1023,37 @@ class MapGenerator {
         this.ctx.save();
         this.ctx.translate(this.viewTransform.x, this.viewTransform.y);
         this.ctx.scale(this.viewTransform.scale, this.viewTransform.scale);
-    
-      
-    
-        this.perf.markStart('armies.renderOccupationHatching');
-        this.armies.renderOccupationHatching(this.ctx, visibleRect);
-        this.perf.markEnd('armies.renderOccupationHatching');
-    
+        
         this.perf.markStart('renderDynamicObjects');
         this.renderDynamicObjects(this.ctx, this.viewTransform.scale);
         this.perf.markEnd('renderDynamicObjects');
         
-        this.perf.markStart('fog');
-        if (this.fogEnabled && this.playerFactionId !== null && this.playerFactionId !== undefined) {
-            const visible = this.getCachedVisibility(); // не забудьте про кэш из прошлого сообщения
-            for (let i = 0; i < this.terrain.regions.all.length; i++) {
-                if (visible[i]) continue;
-                const region = this.terrain.regions.all[i];
-                if (visibleRect && !this.bboxIntersects(region.bbox, visibleRect)) continue;
-                const polygon = this.mapVoronoi.cellPolygon(i);
-                if (!polygon) continue;
-                this.ctx.fillStyle = 'rgba(5, 8, 15, 0.52)';
-                this.drawRegionPath(this.ctx, polygon);
-                this.ctx.fill();
-            }
-        }
-        this.perf.markEnd('fog');
+       
 
         this.ctx.restore();
     }
 
     updateViewLevel(visibleRect) {
-        const visibleCount = this.countVisibleRegions(visibleRect);
-        const current = this.viewLevel;
+        const count = this.countVisibleRegions(visibleRect);
+        const levels = ['detail', 'overview', 'global'];
+        const thresholds = [this.sharpRegionBudget, this.globalRegionThreshold, Infinity];
+        const currentIdx = levels.indexOf(this.viewLevel);
     
-        let next;
-        if (visibleCount <= this.sharpRegionBudget) {
-            next = 'detail';
-        } else if (visibleCount <= this.globalRegionThreshold) {
-            next = 'overview';
-        } else {
-            next = 'global';
-        }
+        let targetIdx = thresholds.findIndex(t => count <= t);
     
-        // гистерезис — переключение НАЗАД к более детальному уровню требует заметного запаса, а не точного порога
-        if (current === 'overview' && next === 'detail' && visibleCount > this.sharpRegionBudget * 0.85) next = 'overview';
-        if (current === 'global' && next === 'overview' && visibleCount > this.globalRegionThreshold * 0.85) next = 'global';
-        if (current === 'detail' && next === 'overview' && visibleCount < this.sharpRegionBudget * 1.15) next = 'detail';
-        if (current === 'overview' && next === 'global' && visibleCount < this.globalRegionThreshold * 1.15) next = 'overview';
+        if (targetIdx > currentIdx && count < thresholds[currentIdx]) targetIdx = currentIdx;
+        if (targetIdx < currentIdx && count > thresholds[targetIdx]) targetIdx = currentIdx;
     
-        this.viewLevel = next;
+        this.viewLevel = levels[targetIdx];
     }
     
     renderDynamicObjects(ctx, zoomScale) {
+        this.armies.renderOccupationHatching(ctx);
         this.towns.render(ctx, zoomScale);
         this.armies.renderReachableArea(ctx, zoomScale);
         this.selection.render(ctx, zoomScale);
         this.armies.render(ctx, zoomScale);
     }
-    
-    
     
     getVisibleWorldRect(margin = 40) {
         const vt = this.viewTransform;
@@ -1107,8 +1068,15 @@ class MapGenerator {
         return bbox.maxX >= rect.minX && bbox.minX <= rect.maxX &&
                bbox.maxY >= rect.minY && bbox.minY <= rect.maxY;
     }
+    _paintTerrainContent(ctx, rect = null) {
+        this.terrain.regions.render(ctx, rect);
+        this.rivers.paint(ctx, rect);
+        this.rivers.paintBridges(ctx, rect);
+        this.paintCoastline(ctx, rect);
+        this.decorations.paintTextures(ctx, rect);
+        this.decorations.paint(ctx, rect);
+    }
     scheduleRender() {
-        return this.render();
         if (this._renderScheduled) return;
         this._renderScheduled = true;
         requestAnimationFrame(() => {
@@ -1135,12 +1103,7 @@ class MapGenerator {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, this.layers.terrain.canvas.width, this.layers.terrain.canvas.height);
         ctx.scale(this.mapLayerScale, this.mapLayerScale);
-        this.terrain.regions.render(ctx);
-        this.rivers.paint(ctx);
-        this.rivers.paintBridges(ctx);
-        this.paintCoastline(ctx);
-        this.decorations.paintTextures(ctx);
-        this.decorations.paint(ctx);
+        this._paintTerrainContent(ctx);
         ctx.restore();
     }
     
@@ -1158,24 +1121,12 @@ class MapGenerator {
         ctx.save();
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, this.layers.fog.canvas.width, this.layers.fog.canvas.height);
-    
         if (!this.fogEnabled || playerFactionId === null || playerFactionId === undefined) {
             ctx.restore();
             return;
         }
-    
         ctx.scale(this.mapLayerScale, this.mapLayerScale);
-        const visible = this.factions.computeVisibility(playerFactionId, this.fogVisionHops ?? 2);
-    
-        for (let i = 0; i < this.terrain.regions.all.length; i++) {
-            if (visible[i]) continue; 
-            const polygon = this.mapVoronoi.cellPolygon(i);
-            if (!polygon) continue;
-    
-            ctx.fillStyle = 'rgba(5, 8, 15, 0.52)';
-            this.drawRegionPath(ctx, polygon);
-            ctx.fill();
-        }
+        this._paintFogRegions(ctx);
         ctx.restore();
     }
     paintCoastline(ctx, visibleRect) {
@@ -1202,6 +1153,7 @@ class MapGenerator {
             segments.forEach((pt, k) => k === 0 ? ctx.moveTo(pt.x, pt.y) : ctx.lineTo(pt.x, pt.y));
             ctx.stroke();
         });
+        ctx.filter = 'none';
         ctx.restore();
     }
     repaintLayersIfDirty() {
@@ -1261,7 +1213,6 @@ class MapGenerator {
             visibleRect.minY < r.minY || visibleRect.maxY > r.maxY;
     }
     _repaintDetailCache(visibleRect) {
-        console.log('_repaintDetailCache')
         const margin = (visibleRect.maxX - visibleRect.minX) * 0.6; // запас в 60% ширины экрана в каждую сторону
         const coveredRect = {
             minX: visibleRect.minX - margin, maxX: visibleRect.maxX + margin,
@@ -1283,21 +1234,30 @@ class MapGenerator {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.scale(pxPerWorldUnit, pxPerWorldUnit);
         ctx.translate(-coveredRect.minX, -coveredRect.minY);
-
-        // весь тяжёлый статический пайплайн — теперь только здесь, не в каждом кадре
-        this.terrain.regions.render(ctx, coveredRect);
-        this.rivers.paint(ctx, coveredRect);
-        this.rivers.paintBridges(ctx, coveredRect);
-        this.paintCoastline(ctx, coveredRect);
-        this.decorations.paintTextures(ctx, coveredRect);
-        this.decorations.paint(ctx, coveredRect);
+    
+        this._paintTerrainContent(ctx, coveredRect);
         this.factions.drawBorders(ctx, coveredRect);
-
+        this._paintFogRegions(ctx, coveredRect); // ← см. пункт 4
+    
         ctx.restore();
-
+    
         this.detailCache.valid = true;
         this.detailCache.coveredRect = coveredRect;
         this.detailCache.scale = this.viewTransform.scale;
+    }
+    _paintFogRegions(ctx, rect = null) {
+        const visible = this.getCachedVisibility();
+        if (!visible) return;
+        for (let i = 0; i < this.terrain.regions.all.length; i++) {
+            if (visible[i]) continue;
+            const region = this.terrain.regions.all[i];
+            if (rect && !this.bboxIntersects(region.bbox, rect)) continue;
+            const polygon = this.mapVoronoi.cellPolygon(i);
+            if (!polygon) continue;
+            ctx.fillStyle = this.fogColor; // см. ниже, единая константа
+            this.drawRegionPath(ctx, polygon);
+            ctx.fill();
+        }
     }
     _invalidateDetailCache() {
         this.detailCache.valid = false;
@@ -2522,7 +2482,6 @@ const MapArmies = {
                 queue.push({ id: nb, ap: remaining, region });
             }
         }
-        console.log(queue)
         visited.delete(army.regionId);
         return visited;
     },
@@ -2604,7 +2563,7 @@ const MapArmies = {
             const img = this.armies.assets.get(army);
 
             ctx.save();
-            const spriteBottomY = drawY - plateHeight * 0.5;
+            const spriteBottomY = drawY - plateHeight * 0.5+4;
             const spriteTopY = spriteBottomY - spriteSize;
 
             if (img) {
