@@ -18,18 +18,28 @@ class AIManager {
     
         this.callbacks = {
             onAIAction: options.onAIAction || null,
+            onFactionTurnStart: options.onFactionTurnStart || null,
+            onFactionTurnEnd: options.onFactionTurnEnd || null,
         };
     
         this.lastWarTurn = {};
     }
 
-    runTurn() {
+    async runTurn() {
         const factions = this.game.factionsManager.getAlive().filter(f => !f.isPlayer);
-        factions.forEach(faction => {
+        for (const faction of factions) {
+            if (this.callbacks.onFactionTurnStart) {
+                await this.callbacks.onFactionTurnStart(faction); 
+            }
+    
             this._decideDiplomacy(faction);
             this._decideRecruitment(faction);
             this._decideArmyActions(faction);
-        });
+    
+            if (this.callbacks.onFactionTurnEnd) {
+                await this.callbacks.onFactionTurnEnd(faction);
+            }
+        }
     }
     
     _decideArmyActions(faction) {

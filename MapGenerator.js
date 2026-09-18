@@ -33,7 +33,7 @@ class MapGenerator {
             political: this._createLayer(),
             fog: this._createLayer(),
         };
-        this.fogEnabled = options.fogEnabled ?? false;
+        this.fogEnabled = options.fogEnabled ?? true;
         this.fogColor = 'rgba(5, 8, 15, 0.52)';
         this.globalRegionThreshold = options.globalRegionThreshold ?? 800;
         this.exploredRegions = new Set();
@@ -1650,7 +1650,9 @@ const MapFaction = {
         return faction.flagVariant ? `flag-${faction.colorId}-${faction.flagVariant}` : `flag-${faction.colorId}-1`;
     },
     getFactionFlagImage(faction) {
-        return this.assets.get(this.factions.getFactionFlagKey(faction));
+        const key = this.factions.getFactionFlagKey(faction)
+        if(!this.assets.get(key)) this.assets.load(key)
+        return this.assets.get(key);
     },
     drawBorders(ctx, visibleRect = null) {
         if (!this.factions.list || !this.factions.list.length || !this.edgeMap) return;

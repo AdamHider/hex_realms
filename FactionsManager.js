@@ -21,14 +21,16 @@ class FactionsManager {
             id: mapFaction.id,
             name: mapFaction.name,
             color: mapFaction.color,
+            colorId: mapFaction.colorId,
+            culture: mapFaction.culture,
             capitalRegionId: mapFaction.capitalRegionId,
-            armies: mapFaction.armies || [], // ← добавить
+            armies: mapFaction.armies || [],
             isPlayer,
             isAlive: true,
             personality: isPlayer ? null : this._randomPersonality(),
-            treasury: { gold: 50, manpower: 100 }, // накопительные ресурсы
-            currentFood: 0,       // поток — пересчитывается каждый ход, не хранится между ходами
-            currentProduction: 0, // поток — то же самое
+            treasury: { gold: 50, manpower: 100 },
+            currentFood: 0, 
+            currentProduction: 0,
         };
     }
 

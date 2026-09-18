@@ -114,6 +114,17 @@ class Game {
                 line.textContent = text;
                 log.prepend(line);
             },
+            onFactionTurnStart: async (faction) => {
+                if (skipAiAnimation) return;
+                showAiTurnCard(faction);
+                await sleep(aiTurnSpeed);
+            },
+            onFactionTurnEnd: async (faction) => {
+                if (skipAiAnimation) return;
+                const card = document.getElementById('aiTurnCard');
+                card.style.opacity = '0';
+                await sleep(120);
+            },
         });
         const playerFaction = this.factionsManager.getPlayer();
         if (playerFaction) {
@@ -196,15 +207,17 @@ class Game {
     
         return totals;
     }
-    endTurn() {
-        this.mapGen.applyPendingSpecializations(); // ← новое, самым первым — до расчёта economies в TurnManager
+    async endTurn() {
+        this.mapGen.applyPendingSpecializations();
         this.mapGen.cultures.applyAssimilation();
         const summary = this.turnManager?.endTurn() ?? null;
+    
         if (summary) {
             this.armyManager.collectUpkeep();
             this.factionsManager.checkElimination(this.mapGen);
             this.diplomacyManager.tick();
-            this.aiManager.runTurn();
+
+            await this.aiManager.runTurn(); // ← await
             this.armyManager.resolveOccupations();
             this.mapGen.updateExploredRegions();
             this.armyManager.resetActionPoints();

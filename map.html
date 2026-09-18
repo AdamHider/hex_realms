@@ -177,9 +177,12 @@
                 <option value="culture">Культура</option>
                 
             </select>
-            <button onclick="game.endTurn()"
+            <button id="endTurnBtn" onclick="endTurnClicked()"
                     class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-sm rounded-xl shadow-lg pointer-events-auto transition transform active:scale-95">
                 Завершить ход
+            </button>
+            <button onclick="skipAiAnimation = true" class="fixed bottom-24 right-3 z-50 px-3 py-1.5 bg-slate-800/90 hover:bg-slate-700 text-xs rounded-lg pointer-events-auto">
+                Пропустить ⏭
             </button>
         </div>
 
@@ -212,6 +215,13 @@
                 <div id="diplomacyList" class="overflow-y-auto p-3 flex flex-col gap-2"></div>
             </div>
         </div>
+        <div id="aiTurnOverlay" class="hidden fixed inset-0 z-40 bg-black/70 flex items-center justify-center pointer-events-none">
+            <div class="flex flex-col items-center gap-3 transition-opacity duration-200" id="aiTurnCard">
+                <img id="aiTurnFlag" src="" class="w-24 h-16 object-cover rounded-md border-2 border-slate-600 shadow-2xl" />
+                <div id="aiTurnName" class="text-2xl font-bold text-slate-100 tracking-wide"></div>
+                <div class="text-xs text-slate-400 uppercase tracking-widest">Ход фракции</div>
+            </div>
+        </div>
     </div>
     <script>
         let game;
@@ -219,6 +229,9 @@
         let lastRegion = null;
         let lastArmy = null;
         let lastArmyReachable = [];
+
+        let aiTurnSpeed = 350; 
+        let skipAiAnimation = false;
 
         function switchTab(tab) {
             activeTab = tab;
@@ -540,6 +553,51 @@
                         <div class="flex gap-1">${actions}</div>
                     </div>`;
             }).join('') || `<div class="text-slate-500 text-xs italic">Известных фракций нет</div>`;
+        }
+        function showAiTurnCard(faction) {
+            const overlay = document.getElementById('aiTurnOverlay');
+            const card = document.getElementById('aiTurnCard');
+            const flagImg = document.getElementById('aiTurnFlag');
+            const nameEl = document.getElementById('aiTurnName');
+
+            overlay.classList.remove('hidden');
+
+            const flag = game.mapGen.factions.getFactionFlagImage(faction);
+            flagImg.src = flag ? flag.src : '';
+            flagImg.style.visibility = flag ? 'visible' : 'hidden';
+            nameEl.textContent = faction.name;
+            nameEl.style.color = faction.color;
+
+            card.style.opacity = '1';
+        }
+
+        function hideAiTurnCard() {
+            document.getElementById('aiTurnOverlay').classList.add('hidden');
+        }
+
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+        async function endTurnClicked() {
+            skipAiAnimation = false; 
+            const btn = document.getElementById('endTurnBtn');
+            btn.disabled = true;
+            btn.classList.add('opacity-50', 'cursor-not-allowed');
+            const summary = await game.endTurn();
+
+            hideAiTurnCard();
+            btn.disabled = false;
+            btn.classList.remove('opacity-50', 'cursor-not-allowed');
+
+            if (summary) {
+                document.getElementById('hudTurn').textContent = `Ход ${summary.turnNumber}`;
+                updateHud();
+                if (lastRegion) renderRegionTab(game.mapGen.getRegionData(game.mapGen.terrain.regions.all[lastRegion.id]));
+                if (lastArmy) {
+                    const freshArmy = game.armyManager.list.find(a => a.id === lastArmy.id);
+                    renderArmyTab(freshArmy || null, []);
+                }
+            }
         }
 
         function initInfoPanel() {
