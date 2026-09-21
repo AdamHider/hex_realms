@@ -187,12 +187,13 @@ class Game {
         return {
             food: forecast.food,               // поток — не накопительный, показываем как есть
             production: forecast.production,   // поток
+            ether: forecast.ether,   // поток
             gold: { current: player.treasury.gold, next: goldNextTurn, delta: goldNextTurn - player.treasury.gold },
             manpower: { current: player.treasury.manpower, next: manpowerNextTurn, delta: manpowerNextTurn - player.treasury.manpower },
         };
     }
     getFactionEconomyForecast(factionId) {
-        const totals = { food: 0, production: 0, manpower: 0, gold: 0, upkeep: 0 };
+        const totals = { food: 0, production: 0, manpower: 0, ether: 0, gold: 0, upkeep: 0 };
     
         this.terrain.regions.all.forEach(region => {
             if (region.ownerId !== factionId) return;
@@ -200,6 +201,7 @@ class Game {
             if (!res) return;
             totals.food += res.food;
             totals.production += res.production;
+            totals.ether += res.ether;
             totals.manpower += res.manpower;
             totals.gold += res.gold;
             totals.upkeep += res.upkeep;

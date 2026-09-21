@@ -126,6 +126,11 @@
                     <span id="resProduction" class="text-sm font-semibold text-sky-300">0</span>
                 </div>
                 <div class="w-px bg-slate-700"></div>
+                <div class="flex flex-col items-center min-w-[54px]">
+                    <span class="text-[10px] text-slate-400">⚙️ Эфир.</span>
+                    <span id="resEther" class="text-sm font-semibold text-sky-300">0</span>
+                </div>
+                <div class="w-px bg-slate-700"></div>
                 <div class="flex flex-col items-center min-w-[64px]">
                     <span class="text-[10px] text-slate-400">🪙 Золото</span>
                     <div>
@@ -337,9 +342,9 @@
             
             let html = `
                 <div class="font-semibold text-emerald-400 mb-1">${region.name} · ${biomeLabel}</div>
-                <div>Еда ${res.food.toFixed(1)} · Произв. ${res.production.toFixed(1)}</div>
+                <div>Еда ${res.food.toFixed(1)} · Произв. ${res.production.toFixed(1)}</div> · Эфир. ${res.ether.toFixed(1)}</div>
                 <div>Золото ${res.gold.toFixed(1)} · Содержание ${res.upkeep.toFixed(1)}</div>
-                ${hasPendingChange ? `<div class="text-amber-400 text-[10px] mt-1">След. ход: 🌾${forecast.food.toFixed(1)} ⚙️${forecast.production.toFixed(1)} 🪙${forecast.gold.toFixed(1)}</div>` : ''}
+                ${hasPendingChange ? `<div class="text-amber-400 text-[10px] mt-1">След. ход: 🌾${forecast.food.toFixed(1)} ⚙️${forecast.production.toFixed(1)} 'Э'${forecast.ether.toFixed(1)} 🪙${forecast.gold.toFixed(1)}</div>` : ''}
             `;
 
             if (region.city) html += `<div class="mt-1">Поселение: ${region.city.name}</div>`;
@@ -477,7 +482,8 @@
 
             document.getElementById('resFood').textContent = forecast.food.toFixed(1);
             document.getElementById('resProduction').textContent = forecast.production.toFixed(1);
-
+            document.getElementById('resEther').textContent = forecast.ether.toFixed(1);
+            
             document.getElementById('resGold').textContent = Math.round(forecast.gold.current);
             const goldForecastEl = document.getElementById('resGoldForecast');
             goldForecastEl.textContent = `→ ${Math.round(forecast.gold.next)}`;

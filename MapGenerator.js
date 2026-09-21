@@ -33,7 +33,7 @@ class MapGenerator {
             political: this._createLayer(),
             fog: this._createLayer(),
         };
-        this.fogEnabled = options.fogEnabled ?? true;
+        this.fogEnabled = options.fogEnabled ?? false;
         this.fogColor = 'rgba(5, 8, 15, 0.52)';
         this.globalRegionThreshold = options.globalRegionThreshold ?? 800;
         this.exploredRegions = new Set();
@@ -92,42 +92,40 @@ class MapGenerator {
                     { id: 'blue', hex: '#3b82f6', culture: 'BLUE' },
                     { id: 'dark-blue', hex: '#1d4ed8', culture: 'BLUE' },
                     { id: 'steel-blue', hex: '#475569', culture: 'BLUE' },
-                    { id: 'navy', hex: '#1e293b', culture: 'BLUE' },
                 
                     // чёрная культура (BLACK) — тёмные, холодные нейтральные
                     { id: 'black', hex: '#18181b', culture: 'BLACK' },
                     { id: 'charcoal', hex: '#3f3f46', culture: 'BLACK' },
-                    { id: 'dark-purple', hex: '#4c1d95', culture: 'BLACK' },
                     { id: 'iron', hex: '#52525b', culture: 'BLACK' },
                     { id: 'obsidian', hex: '#27272a', culture: 'BLACK' },
                 
                     // южная культура (YELLOW) — тёплые жёлто-оранжевые
-                    { id: 'yellow', hex: '#eab308', culture: 'YELLOW' },
                     { id: 'gold', hex: '#f4d03f', culture: 'YELLOW' },
                     { id: 'amber', hex: '#f59e0b', culture: 'YELLOW' },
                     { id: 'orange', hex: '#e67e22', culture: 'YELLOW' },
-                    { id: 'sand', hex: '#d4a574', culture: 'YELLOW' },
                 
                     // западная культура (GREEN) — зелёные тона
                     { id: 'light-green', hex: '#86efac', culture: 'GREEN' },
                     { id: 'green', hex: '#22c55e', culture: 'GREEN' },
                     { id: 'dark-green', hex: '#166534', culture: 'GREEN' },
                     { id: 'olive', hex: '#65a30d', culture: 'GREEN' },
-                    { id: 'teal', hex: '#0d9488', culture: 'GREEN' },
                 
                     // восточная культура (RED) — красные/багровые
                     { id: 'red', hex: '#e63946', culture: 'RED' },
-                    { id: 'dark-red', hex: '#991b1b', culture: 'RED' },
-                    { id: 'crimson', hex: '#dc2626', culture: 'RED' },
                     { id: 'maroon', hex: '#7f1d1d', culture: 'RED' },
                     { id: 'brick', hex: '#b91c1c', culture: 'RED' },
                 
                     // центральная культура (PURPLE) — фиолетовые/розовые
-                    { id: 'purple', hex: '#a855f7', culture: 'PURPLE' },
                     { id: 'violet', hex: '#8b5cf6', culture: 'PURPLE' },
                     { id: 'pink', hex: '#ec4899', culture: 'PURPLE' },
                     { id: 'magenta', hex: '#c026d3', culture: 'PURPLE' },
                     { id: 'lavender', hex: '#c4b5fd', culture: 'PURPLE' },
+
+                    // центральная культура (WHITE) — белые
+                    { id: 'sand', hex: '#d4a574', culture: 'WHITE' },
+                    { id: 'ghost', hex: '#f6f9fe', culture: 'WHITE' },
+                    { id: 'grey', hex: '#e2ddda', culture: 'WHITE' },
+                    { id: 'white', hex: '#f7f7f7', culture: 'WHITE' }
                 ],
                 neutral: 'rgba(255, 255, 255, 0)'
             },
@@ -335,6 +333,7 @@ class MapGenerator {
                 { id: 'BLACK', label: 'Чёрные', icon: '⚫', color: '#1e1b1e' },
                 { id: 'GREEN', label: 'Изумрудные', icon: '🟢', color: '#22c55e' },
                 { id: 'PURPLE', label: 'Пурпурные', icon: '🟣', color: '#a855f7' },
+                { id: 'WHITE', label: 'Белые', icon: '🟣', color: '#a855f7' },
             ],
             create: MapCultures.create.bind(this),
             createPoles: MapCultures.createPoles.bind(this),
@@ -407,41 +406,66 @@ class MapGenerator {
     _initConfig() {
         this.biomeDefs = [
             { id: 'DEEP_OCEAN', isWater: true, maxT: 0.45, label: 'Глубокий океан',
-              color: '#2E444F', resources: { food: 0, production: 0, manpower: 0, gold: 0, upkeep: -0.2 } },
+              color: '#2E444F', resources: { food: 0, production: 0, manpower: 0, gold: 0, ether: 0, upkeep: -0.2 } },
             { id: 'OCEAN', isWater: true, maxT: 0.80, label: 'Океан',
-              color: '#344C59', resources: { food: 1, production: 0, manpower: 0, gold: 1, upkeep: -0.3 } },
+              color: '#344C59', resources: { food: 1, production: 0, manpower: 0, gold: 1, ether: 0, upkeep: -0.3 } },
             { id: 'SHALLOW', isWater: true, maxT: Infinity, label: 'Мелководье',
-              color: '#395463', resources: { food: 2, production: 0, manpower: 0, gold: 0, upkeep: -0.3 } },
+              color: '#395463', resources: { food: 2, production: 0, manpower: 0, gold: 0, ether: 0, upkeep: -0.3 } },
             { id: 'COAST', isWater: false, maxT: 0.08, label: 'Побережье',
             colors: { cold: '#A6AD84', temperate: '#A1AD62', hot: '#CCC08D' },
-            resources: { food: 2, production: 1, manpower: 1, gold: 1, upkeep: -0.5 } },
+            resources: { food: 2, production: 1, manpower: 1, gold: 1, ether: 0, upkeep: -0.5 } },
+            
+            { id: 'STEPPE_ETHER', isWater: false, maxT: 0.09, label: 'Эфирный разлом (Побережье)',
+            colors: { cold: '#e50000', temperate: '#e50000', hot: '#e50000' },
+            resources: { food: 2, production: 1, manpower: 1, gold: 1, ether: 3, upkeep: -0.5 } },
+            
             { id: 'STEPPE', isWater: false, maxT: 0.16, label: 'Степь',
             colors: { cold: '#9AA179', temperate: '#929E53', hot: '#C2B57A' },
-            resources: { food: 1, production: 1, manpower: 2, gold: 0, upkeep: -0.5 } },
+            resources: { food: 1, production: 1, manpower: 2, gold: 0, ether: 0, upkeep: -0.5 } },
+            
+            { id: 'STEPPE_ETHER', isWater: false, maxT: 0.17, label: 'Эфирный разлом',
+            colors: { cold: '#e50000', temperate: '#e50000', hot: '#e50000' },
+            resources: { food: 1, production: 1, manpower: 2, gold: 0, ether: 3, upkeep: -0.5 } },
+            
             { id: 'PLAINS', isWater: false, maxT: 0.25, label: 'Равнина',
             colors: { cold: '#9AA179', temperate: '#929E53', hot: '#C2B57A' },
-            resources: { food: 3, production: 1, manpower: 1, gold: 0, upkeep: -0.6 } },
+            resources: { food: 3, production: 1, manpower: 1, gold: 0, ether: 0, upkeep: -0.6 } },
+            
+            { id: 'PLAINS_ETHER', isWater: false, maxT: 0.26, label: 'Эфирный разлом (Равнина)',
+            colors: { cold: '#e50000', temperate: '#e50000', hot: '#e50000' },
+            resources: { food: 1, production: 1, manpower: 2, gold: 0, ether: 3, upkeep: -0.5 } },
+            
             { id: 'GRASSLAND', isWater: false, maxT: 0.35, label: 'Луга',
             colors: { cold: '#9AA179', temperate: '#929E53', hot: '#C2B57A' },
-            resources: { food: 3, production: 1, manpower: 2, gold: 0, upkeep: -0.6 } },
+            resources: { food: 3, production: 1, manpower: 2, gold: 0, ether: 0, upkeep: -0.6 } },
+            
             { id: 'WETLANDS', isWater: false, maxT: 0.45, label: 'Болота',
             colors: { cold: '#9AA179', temperate: '#929E53', hot: '#C2B57A' },
-            resources: { food: 2, production: 0, manpower: 1, gold: 0, upkeep: -0.7 } },
+            resources: { food: 2, production: 0, manpower: 1, gold: 0, ether: 0, upkeep: -0.7 } },
+            
             { id: 'WOODLAND', isWater: false, maxT: 0.56, label: 'Редколесье',
             colors: { cold: '#9AA179', temperate: '#929E53', hot: '#C2B57A' },
-            resources: { food: 1, production: 2, manpower: 1, gold: 0, upkeep: -0.6 } },
+            resources: { food: 1, production: 2, manpower: 1, gold: 0, ether: 0, upkeep: -0.6 } },
+
+            { id: 'WOODLAND_ETHER', isWater: false, maxT: 0.57, label: 'Эфирный разлом (Редколесье)',
+            colors: { cold: '#e50000', temperate: '#e50000', hot: '#e50000' },
+            resources: { food: 1, production: 1, manpower: 2, gold: 0, ether: 3, upkeep: -0.5 } },
+
             { id: 'FOREST', isWater: false, maxT: 0.68, label: 'Лес',
             colors: { cold: '#9AA179', temperate: '#929E53', hot: '#C2B57A' },
-            resources: { food: 1, production: 3, manpower: 1, gold: 0, upkeep: -0.7 } },
+            resources: { food: 1, production: 3, manpower: 1, gold: 0, ether: 0, upkeep: -0.7 } },
+
             { id: 'DENSE_FOREST', isWater: false, maxT: 0.80, label: 'Густой лес',
             colors: { cold: '#9AA179', temperate: '#929E53', hot: '#C2B57A' },
-            resources: { food: 0, production: 3, manpower: 1, gold: 0, upkeep: -0.8 } },
+            resources: { food: 0, production: 3, manpower: 1, gold: 0, ether: 0, upkeep: -0.8 } },
+
             { id: 'HIGHLANDS', isWater: false, maxT: 0.92, label: 'Плоскогорье',
             colors: { cold: '#9AA179', temperate: '#929E53', hot: '#C2B57A' },
-            resources: { food: 0, production: 2, manpower: -1, gold: 2, upkeep: -0.9 } },
+            resources: { food: 0, production: 2, manpower: -1, gold: 2, ether: 0, upkeep: -0.9 } },
+
             { id: 'PEAKS', isWater: false, maxT: Infinity, label: 'Пик',
             colors: { cold: '#909672', temperate: '#86914E', hot: '#B5A870' },
-            resources: { food: 0, production: 1, manpower: -2, gold: 3, upkeep: -1.0 } }
+            resources: { food: 0, production: 1, manpower: -2, gold: 3, ether: 0, upkeep: -1.0 } }
         ];
 
         this.waterBiomes = this.biomeDefs.filter(b => b.isWater);
@@ -463,16 +487,16 @@ class MapGenerator {
             }
         });
 
-        this.cityResourceBonus = { production: 1, manpower: 1, gold: 1, upkeep: -0.5 };
+        this.cityResourceBonus = { production: 1, manpower: 1, ether: 1, gold: 1, upkeep: -0.5 };
         this.climateZoneLabels = { cold: 'холодный', temperate: 'умеренный', hot: 'жаркий' };
 
         this.seasons = {
             SPRING: {
                 label: 'Весна',
                 modifiers: {
-                    cold:      { food: 0.9, production: 1.0, manpower: 1.0, gold: 1.0, upkeep: 1.0 },
-                    temperate: { food: 1.1, production: 1.0, manpower: 1.0, gold: 1.0, upkeep: 1.0 },
-                    hot:       { food: 1.0, production: 1.0, manpower: 1.0, gold: 1.0, upkeep: 1.0 },
+                    cold:      { food: 0.9, production: 1.0, ether: 1.0, manpower: 1.0, gold: 1.0, upkeep: 1.0 },
+                    temperate: { food: 1.1, production: 1.0, ether: 1.0, manpower: 1.0, gold: 1.0, upkeep: 1.0 },
+                    hot:       { food: 1.0, production: 1.0, ether: 1.0, manpower: 1.0, gold: 1.0, upkeep: 1.0 },
                 },
                 tints: {
                     land:  { cold: { color: '#dfeff5', strength: 0.3 }, temperate: { color: '#d9f2a3', strength: 0.15 }, hot: { color: '#f2e6a8', strength: 0.05 } },
@@ -482,9 +506,9 @@ class MapGenerator {
             SUMMER: {
                 label: 'Лето',
                 modifiers: {
-                    cold:      { food: 1.1, production: 1.1, manpower: 1.1, gold: 1.0, upkeep: 1.0 },
-                    temperate: { food: 1.3, production: 1.1, manpower: 1.1, gold: 1.0, upkeep: 1.0 },
-                    hot:       { food: 0.8, production: 0.9, manpower: 0.9, gold: 1.1, upkeep: 1.1 },
+                    cold:      { food: 1.1, production: 1.1, ether: 1.0, manpower: 1.1, gold: 1.0, upkeep: 1.0 },
+                    temperate: { food: 1.3, production: 1.1, ether: 1.0, manpower: 1.1, gold: 1.0, upkeep: 1.0 },
+                    hot:       { food: 0.8, production: 0.9, ether: 1.0, manpower: 0.9, gold: 1.1, upkeep: 1.1 },
                 },
                 tints: {
                     land:  { cold: { color: '#ffffff', strength: 0.05 }, temperate: { color: '#fff4b0', strength: 0.05 }, hot: { color: '#ffdd88', strength: 0.18 } },
@@ -494,9 +518,9 @@ class MapGenerator {
             AUTUMN: {
                 label: 'Осень',
                 modifiers: {
-                    cold:      { food: 0.8, production: 1.0, manpower: 0.9, gold: 1.0, upkeep: 1.0 },
-                    temperate: { food: 1.2, production: 1.0, manpower: 1.0, gold: 1.0, upkeep: 1.0 },
-                    hot:       { food: 1.0, production: 1.0, manpower: 1.0, gold: 1.0, upkeep: 1.0 },
+                    cold:      { food: 0.8, production: 1.0, ether: 1.0, manpower: 0.9, gold: 1.0, upkeep: 1.0 },
+                    temperate: { food: 1.2, production: 1.0, ether: 1.0, manpower: 1.0, gold: 1.0, upkeep: 1.0 },
+                    hot:       { food: 1.0, production: 1.0, ether: 1.0, manpower: 1.0, gold: 1.0, upkeep: 1.0 },
                 },
                 tints: {
                     land:  { cold: { color: '#ffffff', strength: 0.30 }, temperate: { color: '#d9822b', strength: 0.25 }, hot: { color: '#e0a83e', strength: 0.08 } },
@@ -506,9 +530,9 @@ class MapGenerator {
             WINTER: {
                 label: 'Зима',
                 modifiers: {
-                    cold:      { food: 0.3, production: 0.7, manpower: 0.7, gold: 0.9, upkeep: 1.3 },
-                    temperate: { food: 0.6, production: 0.9, manpower: 0.9, gold: 1.0, upkeep: 1.15 },
-                    hot:       { food: 0.9, production: 1.0, manpower: 1.0, gold: 1.0, upkeep: 1.0 },
+                    cold:      { food: 0.3, production: 0.7, ether: 1.0, manpower: 0.7, gold: 0.9, upkeep: 1.3 },
+                    temperate: { food: 0.6, production: 0.9, ether: 1.0, manpower: 0.9, gold: 1.0, upkeep: 1.15 },
+                    hot:       { food: 0.9, production: 1.0, ether: 1.0, manpower: 1.0, gold: 1.0, upkeep: 1.0 },
                 },
                 tints: {
                     land:  { cold: { color: '#ffffff', strength: 0.80 }, temperate: { color: '#ffffff', strength: 0.35 }, hot: { color: '#ffffff', strength: 0.00 } },
@@ -693,7 +717,7 @@ class MapGenerator {
         return forecast;
     }
     getFactionEconomy(factionId) {
-        const totals = { food: 0, production: 0, manpower: 0, gold: 0, upkeep: 0 };
+        const totals = { food: 0, production: 0, manpower: 0, gold: 0, ether: 0, upkeep: 0 };
         let regionCount = 0;
     
         this.terrain.regions.all.forEach(region => {
@@ -703,6 +727,7 @@ class MapGenerator {
             regionCount++;
             totals.food += res.food;
             totals.production += res.production;
+            totals.ether += res.ether;
             totals.manpower += res.manpower;
             totals.gold += res.gold;
             totals.upkeep += res.upkeep;
@@ -711,7 +736,7 @@ class MapGenerator {
         return { ...totals, regionCount };
     }
     getFactionEconomyForecast(factionId) {
-        const totals = { food: 0, production: 0, manpower: 0, gold: 0, upkeep: 0 };
+        const totals = { food: 0, production: 0, manpower: 0, gold: 0, ether: 0, upkeep: 0 };
     
         this.terrain.regions.all.forEach(region => {
             if (region.ownerId !== factionId) return;
@@ -719,6 +744,7 @@ class MapGenerator {
             if (!res) return;
             totals.food += res.food;
             totals.production += res.production;
+            totals.ether += res.ether;
             totals.manpower += res.manpower;
             totals.gold += res.gold;
             totals.upkeep += res.upkeep;
@@ -974,7 +1000,7 @@ class MapGenerator {
         this.ctx.save();
         this.ctx.translate(this.viewTransform.x, this.viewTransform.y);
         this.ctx.scale(this.viewTransform.scale, this.viewTransform.scale);
-        this.renderDynamicObjects(this.ctx, this.viewTransform.scale);
+        this.renderDynamicObjects(this.ctx);
         this.ctx.restore();
     }
     
@@ -1025,7 +1051,7 @@ class MapGenerator {
         this.ctx.scale(this.viewTransform.scale, this.viewTransform.scale);
         
         this.perf.markStart('renderDynamicObjects');
-        this.renderDynamicObjects(this.ctx, this.viewTransform.scale);
+        this.renderDynamicObjects(this.ctx, visibleRect);
         this.perf.markEnd('renderDynamicObjects');
         
        
@@ -1047,12 +1073,12 @@ class MapGenerator {
         this.viewLevel = levels[targetIdx];
     }
     
-    renderDynamicObjects(ctx, zoomScale) {
-        this.armies.renderOccupationHatching(ctx);
-        this.towns.render(ctx, zoomScale);
-        this.armies.renderReachableArea(ctx, zoomScale);
-        this.selection.render(ctx, zoomScale);
-        this.armies.render(ctx, zoomScale);
+    renderDynamicObjects(ctx, visibleRect) {
+        this.armies.renderOccupationHatching(ctx, visibleRect);
+        this.towns.render(ctx, visibleRect);
+        this.armies.renderReachableArea(ctx);
+        this.selection.render(ctx);
+        this.armies.render(ctx);
     }
     
     getVisibleWorldRect(margin = 40) {
@@ -1294,7 +1320,7 @@ const MapColor = {
             const share = region.culture[dominant];
             return this.color.blend('#6b7280', baseColor, share);
         }
-        if (!region.isWater && ['food', 'gold', 'production', 'manpower'].includes(this.viewMode)) {
+        if (!region.isWater && ['food', 'gold', 'production', 'manpower', 'ether'].includes(this.viewMode)) {
             return this.color.getResourceColor(region, this.viewMode, resourceRange);
         }
         region.biome = region.isWater ? region.biomeClimate : (this.showClimate ? region.biomeClimate : region.biomeNeutral);
@@ -1568,15 +1594,12 @@ const MapFaction = {
         const usedRegionIds = new Set();
     
         assignedColors.forEach((colorDef, i) => {
-            // ищем регион, где родная культура этого цвета доминирует, среди ещё не занятых
             const matching = candidatesAll.filter(r =>
                 !usedRegionIds.has(r.id) && r.culture && this.cultures.getDominantOfRegion(r) === colorDef.culture
             );
-    
             const pool = matching.length ? matching : candidatesAll.filter(r => !usedRegionIds.has(r.id));
             if (!pool.length) return;
     
-            // из подходящего пула берём регион подальше от уже выбранных столиц — та же логика раздвижения, что была
             let capital = pool[0];
             if (capitals.length) {
                 let bestDist = -Infinity;
@@ -1591,7 +1614,7 @@ const MapFaction = {
             usedRegionIds.add(capital.id);
             capitals.push(capital);
     
-            const factionName = names ? names[i] : `Фракция ${i + 1}`;
+            const factionName = names ? names[i] : `${colorDef.id} (${colorDef.culture})`;
             capital.city = { name: factionName + ' (столица)' };
     
             this.factions.list.push({
@@ -1815,21 +1838,16 @@ const MapFaction = {
 
 const MapTerrain = {
     renderRegions(ctx, visibleRect = null) {
-        const resourceRange = ['food', 'gold', 'production', 'manpower'].includes(this.viewMode)
+        const resourceRange = ['food', 'gold', 'production', 'manpower', 'ether'].includes(this.viewMode)
         ? this.color.getResourceRange(this.viewMode)
         : null;
-
-        const visible = this.fogEnabled && this.playerFactionId !== null && this.playerFactionId !== undefined
-        ? this.getCachedVisibility() : null;
 
         for (let i = 0; i < this.terrain.regions.all.length; i++) {
             const polygon = this.mapVoronoi.cellPolygon(i);
             if (!polygon) continue;
             
             const region = this.terrain.regions.all[i];
-            const isCurrentlyVisible = visible && visible[region.id];
-            const isExplored = this.exploredRegions.has(region.id);
-            const isFactionDiscovered = region.ownerId !== null && this.factions.isDiscovered(region.ownerId)
+            const isFactionDiscovered = true//region.ownerId !== null && this.factions.isDiscovered(region.ownerId)
 
             if (visibleRect && !this.bboxIntersects(region.bbox, visibleRect)) continue;
             const color = this.color.getBase(region, resourceRange);
@@ -2373,7 +2391,7 @@ const MapDecorations = {
 
     paint(ctx, visibleRect = null) {
         if (!this.decorations.ready || this.viewMode === 'factions' ||
-            ['food', 'gold', 'production', 'manpower'].includes(this.viewMode)) return;
+            ['food', 'gold', 'production', 'manpower', 'ether'].includes(this.viewMode)) return;
 
         this.terrain.regions.all.forEach(region => {
             if (!region.icons || !region.icons.length) return;
@@ -2499,11 +2517,11 @@ const MapArmies = {
         if (this.selection.onArmySelect) this.selection.onArmySelect(army, [...this.selection.reachableSet]);
         this.scheduleRender();
     },
-    renderReachableArea(ctx, zoomScale) {
+    renderReachableArea(ctx) {
         if (!this.selection.reachableSet || !this.selection.reachableSet.size) return;
     
         const reachable = this.selection.reachableSet;
-        const borderWidth = 2.5 / zoomScale;
+        const borderWidth = 2.5;
         const fillAlpha = 0.28;
     
         ctx.save();
@@ -2534,12 +2552,13 @@ const MapArmies = {
         });
         ctx.restore();
     },
-    render(ctx, zoomScale = 1) {
+
+    render(ctx) {
         if (!this.armiesProvider) return;
         const armies = this.armiesProvider();
-        const spriteSize = 17; // сам юнит крупнее, чем было
-        const plateHeight = 1// / (zoomScale * 0.05);
-        const plateWidth = 1.3// / (zoomScale * 0.05);
+        const spriteSize = 17
+        const plateHeight = 1
+        const plateWidth = 1.3
 
         const visible = this.fogEnabled && this.playerFactionId !== null && this.playerFactionId !== undefined
         ? this.getCachedVisibility() : null;
@@ -2555,7 +2574,7 @@ const MapArmies = {
             const anim = this.armies.animations.all.get(army.id);
             if (anim) {
                 const t = Math.min(1, (performance.now() - anim.startTime) / anim.duration);
-                const eased = 1 - Math.pow(1 - t, 2); // ease-out — быстрый старт, плавное торможение
+                const eased = 1 - Math.pow(1 - t, 2);
                 drawX = anim.fromX + (anim.toX - anim.fromX) * eased;
                 drawY = anim.fromY + (anim.toY - anim.fromY) * eased;
             }
@@ -2582,19 +2601,19 @@ const MapArmies = {
             ctx.fillStyle = color;
             ctx.fillRect(drawX - plateWidth / 2, plateY, plateWidth, plateHeight);
             ctx.strokeStyle = '#000000';
-            ctx.lineWidth = 0.4 / zoomScale;
+            ctx.lineWidth = 0.4;
             ctx.strokeRect(drawX - plateWidth / 2, plateY, plateWidth, plateHeight);
     
             ctx.fillStyle = '#ffffff';
             ctx.font = `bold ${plateHeight * 0.75}px sans-serif`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText(army.strength, drawX, plateY + plateHeight / 2 + 0.3 / zoomScale);
+            ctx.fillText(army.strength, drawX, plateY + plateHeight / 2 + 0.3);
   
             // подсветка выбранной армии — рамка вокруг всей связки спрайт+табличка
             if (this.selection.armyId === army.id) {
                 ctx.strokeStyle = this.selection.color;
-                ctx.lineWidth = 1 / zoomScale;
+                ctx.lineWidth = 1;
                 ctx.strokeRect(
                     drawX - plateWidth / 2, plateY, plateWidth, plateHeight
                 );
@@ -2686,7 +2705,7 @@ const MapSelection = {
         this.selection.reachableSet = null;
         this.scheduleRender();
     },
-    renderSelection(ctx, zoomScale) {
+    renderSelection(ctx) {
         if (this.selection.regionId === null) return;
         const region = this.terrain.regions.all[this.selection.regionId];
         if (!region) return;
@@ -2695,10 +2714,10 @@ const MapSelection = {
         if (!polygon) return;
     
         ctx.save();
-        ctx.lineWidth = 3 / zoomScale;
+        ctx.lineWidth = 0.5;
         ctx.strokeStyle = this.selection.color;
         ctx.shadowColor = this.selection.color;
-        ctx.shadowBlur = 4 / zoomScale;
+        ctx.shadowBlur = 2;
         this.drawRegionPath(ctx, polygon);
         ctx.stroke();
         ctx.restore();
@@ -2997,10 +3016,12 @@ const MapTowns = {
         }
         return this.towns.assets.keysByBiome[region.biomeBand] || 'town_plains';
     },
-    render(ctx) {
+    render(ctx, visibleRect = null) {
         if (!this.towns.assets.ready) return;
         this.terrain.regions.all.forEach(region => {
             if (!region.isTown) return;
+            if (visibleRect && !this.bboxIntersects(region.bbox, visibleRect)) return; 
+        
             const size = 11;
             const img = this.assets.get(region.townAssetKey);
             if (img) ctx.drawImage(img, region.x - size / 2, region.y - size + 4, size, size);
@@ -3058,12 +3079,13 @@ const MapCultures = {
         // плюс лёгкий сдвиг через seededRandom, чтобы полюса не были идентичны на каждой карте
         const jitter = () => (this.utils.seededRandom() - 0.5) * 0.15;
         return {
-            BLUE:   { x: 0.35 + jitter(), y: 0.15 + jitter() },
-            BLACK:  { x: 0.65 + jitter(), y: 0.15 + jitter() },
-            YELLOW: { x: 0.5 + jitter(), y: 0.85 + jitter() },
+            BLUE:   { x: 0.25 + jitter(), y: 0.15 + jitter() },
+            BLACK:  { x: 0.45 + jitter(), y: 0.15 + jitter() },
+            YELLOW: { x: 0.35 + jitter(), y: 0.85 + jitter() },
+            WHITE:  { x: 0.8 + jitter(), y: 0.4 + jitter() }, 
             GREEN:  { x: 0.1 + jitter(), y: 0.5 + jitter() },
-            RED:    { x: 0.9 + jitter(), y: 0.5 + jitter() },
-            PURPLE: { x: 0.5 + jitter(), y: 0.5 + jitter() }, // фиолетовые — условно "в центре/повсюду понемногу"
+            RED:    { x: 0.5 + jitter(), y: 0.5 + jitter() },
+            PURPLE: { x: 0.7 + jitter(), y: 0.6 + jitter() },
         };
     },
     applyAssimilation() {

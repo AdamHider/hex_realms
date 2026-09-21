@@ -28,7 +28,7 @@ class FactionsManager {
             isPlayer,
             isAlive: true,
             personality: isPlayer ? null : this._randomPersonality(),
-            treasury: { gold: 50, manpower: 100 },
+            treasury: { gold: 50, manpower: 100, ether: 50 },
             currentFood: 0, 
             currentProduction: 0,
         };
