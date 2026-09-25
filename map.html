@@ -235,7 +235,7 @@
         let lastArmy = null;
         let lastArmyReachable = [];
 
-        let aiTurnSpeed = 350; 
+        let aiTurnSpeed = 50; 
         let skipAiAnimation = false;
 
         function switchTab(tab) {
@@ -277,7 +277,6 @@
                 onTurnEnd: (summary) => {
                     document.getElementById('hudTurn').textContent = `Ход ${summary.turnNumber}`;
                     updateHud();
-                    // если открыта панель региона — держим её в актуальном состоянии
                     if (lastRegion) renderRegionTab(game.mapGen.getRegionData(game.mapGen.terrain.regions.all[lastRegion.id]));
                     if (lastArmy) {
                         const freshArmy = game.armyManager.list.find(a => a.id === lastArmy.id);
@@ -590,7 +589,7 @@
             btn.disabled = true;
             btn.classList.add('opacity-50', 'cursor-not-allowed');
             const summary = await game.endTurn();
-
+            await game.mapGen.shake();
             hideAiTurnCard();
             btn.disabled = false;
             btn.classList.remove('opacity-50', 'cursor-not-allowed');

@@ -156,11 +156,11 @@ class ArmyManager {
         army.regionId = targetRegionId;
         army.actionPoints = 0;
     
-        this.game.mapGen.armies.animations.move(armyId, fromRegionId, targetRegionId); // ← новое
+        this.game.mapGen.armies.animations.move(armyId, fromRegionId, targetRegionId); 
         
-    
         if (this.callbacks.onArmyMoved) {
             this.resolveOccupations()
+            this.game.mapGen._invalidateVisibilityCache();
             this.callbacks.onArmyMoved(army, fromRegionId, targetRegionId);
         }
         this.game.mapGen.scheduleRender();
@@ -232,7 +232,6 @@ class ArmyManager {
                 return;
             }
 
-            // Иначе — просто обновляем текущее состояние оккупации (новая, сменившаяся, или снятая)
             region.occupiedBy = occupierId;
         });
 

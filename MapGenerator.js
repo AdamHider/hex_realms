@@ -33,7 +33,7 @@ class MapGenerator {
             political: this._createLayer(),
             fog: this._createLayer(),
         };
-        this.fogEnabled = options.fogEnabled ?? false;
+        this.fogEnabled = options.fogEnabled ?? true;
         this.fogColor = 'rgba(5, 8, 15, 0.52)';
         this.globalRegionThreshold = options.globalRegionThreshold ?? 800;
         this.exploredRegions = new Set();
@@ -157,7 +157,7 @@ class MapGenerator {
 
         this.terrain = {
             config: {
-                regionCount: options.regionCount || 2500,
+                regionCount: options.regionCount || 3500,
                 peakCount: options.peakCount || 4,
                 peakShape: options.peakShape || 0.7,
                 shapeType: options.shapeType || 'continent',
@@ -333,7 +333,7 @@ class MapGenerator {
                 { id: 'BLACK', label: 'Чёрные', icon: '⚫', color: '#1e1b1e' },
                 { id: 'GREEN', label: 'Изумрудные', icon: '🟢', color: '#22c55e' },
                 { id: 'PURPLE', label: 'Пурпурные', icon: '🟣', color: '#a855f7' },
-                { id: 'WHITE', label: 'Белые', icon: '🟣', color: '#a855f7' },
+                { id: 'WHITE', label: 'Белые', icon: '⚪', color: '#ffffff' },
             ],
             create: MapCultures.create.bind(this),
             createPoles: MapCultures.createPoles.bind(this),
@@ -778,7 +778,7 @@ class MapGenerator {
     setViewMode(mode) {
         this.viewMode = mode;
         this.markDirty('terrain', 'political');
-        this._invalidateDetailCache(); // ← новое
+        this._invalidateDetailCache(); 
         this.render();
     }
     setSeason(season){
@@ -836,11 +836,19 @@ class MapGenerator {
     // обёртка, которая сразу же вызывает первый render() и отдаёт
     // наружу данные для дальнейшей динамической синхронизации.
     // ═══════════════════════════════════════════════════════════
-
+    async shake(){
+        for(var i = 0; i < 400; i++){
+            setTimeout(() => {
+                this.scheduleRender();
+                if(i == 399) return;
+            }, 10*i);
+        }
+    }
     create(seed) {
         this.setup(seed);
         this.markDirty('terrain', 'political');
         this.render();
+        this.shake();
         return {
             regions: this.getRegionsData(),
             factions: this.getFactionsData(),
@@ -1392,6 +1400,7 @@ const MapColor = {
             food:       ['#7a1f1f', '#2f9e44'], // мало — красный, много — зелёный
             gold:       ['#4a2e1a', '#e08e2b'], // мало — коричневый, много — оранжевый
             production: ['#d7e6f2', '#12294f'], // мало — бледно-голубой, много — насыщенный тёмно-синий
+            ether:      ['#d7e6f2', '#12294f'], // мало — бледно-голубой, много — насыщенный тёмно-синий
             manpower:   ['#dbd7d8', '#e83a63'], // мало — бледно-голубой, много — насыщенный тёмно-синий
                
         };
@@ -1765,6 +1774,7 @@ const MapFaction = {
     
         let frontier = [];
         this.terrain.regions.all.forEach((r, i) => {
+            
             if (r.ownerId === factionId) { visible[i] = 1; frontier.push(i); }
         });
     
@@ -1847,7 +1857,6 @@ const MapTerrain = {
             if (!polygon) continue;
             
             const region = this.terrain.regions.all[i];
-            const isFactionDiscovered = true//region.ownerId !== null && this.factions.isDiscovered(region.ownerId)
 
             if (visibleRect && !this.bboxIntersects(region.bbox, visibleRect)) continue;
             const color = this.color.getBase(region, resourceRange);
@@ -1859,7 +1868,7 @@ const MapTerrain = {
             ctx.fill();
             ctx.stroke();
 
-            if ((isFactionDiscovered) && region.ownerId !== null && region.ownerId !== undefined && this.factions.list?.[region.ownerId]) {
+            if (region.ownerId !== null && region.ownerId !== undefined && this.factions.list?.[region.ownerId] && this.factions.isDiscovered(region.ownerId)) {
                 ctx.save();
                 ctx.globalAlpha = this.viewMode === 'factions' ? 0.65 : (this.viewMode === 'political') ? 0.42 : 0;
                 ctx.fillStyle = this.factions.list[region.ownerId].color;
@@ -2521,7 +2530,7 @@ const MapArmies = {
         if (!this.selection.reachableSet || !this.selection.reachableSet.size) return;
     
         const reachable = this.selection.reachableSet;
-        const borderWidth = 2.5;
+        const borderWidth = 0.5;
         const fillAlpha = 0.28;
     
         ctx.save();
@@ -3044,7 +3053,6 @@ const MapTowns = {
 }
 
 const MapCultures = {
-
     create(region, poles) {
         const nx = region.x / this.width, ny = region.y / this.height;
     
@@ -3053,14 +3061,10 @@ const MapCultures = {
         this.cultureIds.forEach(id => {
             const pole = poles[id];
             const dist = Math.hypot(nx - pole.x, ny - pole.y);
-            // экспоненциальное затухание — даёт выраженную кластеризацию (доминирование ближайшей культуры),
-            // а не размытое линейное распределение
             const weight = Math.exp(-dist * this.cultureClusterSharpness);
             weights[id] = weight;
             total += weight;
         });
-    
-        // немного локального шума, чтобы соседние регионы не были идентичны один в один
         const noise = () => 1 + (this.utils.seededRandom() - 0.5) * 0.3;
     
         const culture = {};
@@ -3070,13 +3074,11 @@ const MapCultures = {
             culture[id] = v;
             noisyTotal += v;
         });
-        this.cultureIds.forEach(id => { culture[id] /= noisyTotal; }); // ре-нормализация в сумму 1.0
+        this.cultureIds.forEach(id => { culture[id] /= noisyTotal; });
     
         return culture;
     },
     createPoles() {
-        // фиксированные направления, как вы описали (синие/чёрные — север, жёлтые — юг, зелёные — запад),
-        // плюс лёгкий сдвиг через seededRandom, чтобы полюса не были идентичны на каждой карте
         const jitter = () => (this.utils.seededRandom() - 0.5) * 0.15;
         return {
             BLUE:   { x: 0.25 + jitter(), y: 0.15 + jitter() },
@@ -3089,7 +3091,7 @@ const MapCultures = {
         };
     },
     applyAssimilation() {
-        const assimilationRate = this.cultureAssimilationRate ?? 0.03; // доля сдвига за ход
+        const assimilationRate = this.cultureAssimilationRate ?? 0.03;
     
         this.terrain.regions.all.forEach(region => {
             if (region.isWater || !region.culture) return;
