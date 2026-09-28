@@ -203,7 +203,7 @@ class MapGenerator {
             defaultSizePct: options.iconDefaultSizePct || [0.5, 0.6],
             townExclusionRadius: options.townExclusionRadius ?? 8,
             riverExclusionRadius: options.riverExclusionRadius ?? 3, 
-            gapFactor: options.iconGapFactor ?? 0.7, 
+            gapFactor: options.iconGapFactor ?? 1, 
             sets: {
                 STEPPE:       { count: [20, 40], keys: ['grass_tuft'], sizePct: [0.15, 0.18] },
                 PLAINS:       { count: [20, 40], keys: ['grass_tuft'], sizePct: [0.15, 0.18] },
@@ -220,18 +220,18 @@ class MapGenerator {
                 FOREST:       { count: [20, 40], keys: ['grass_tuft','tree_snow'], sizePct: [0.15, 0.18]  },
                 DENSE_FOREST: { count: [20, 40], keys: ['grass_tuft','tree_snow'], sizePct: [0.15, 0.18]  },
                 WOODLAND:     { count: [20, 40], keys: ['grass_tuft','tree_snow'], sizePct: [0.15, 0.18]  },
-                PEAKS:        { count: [10, 20], keys: ['grass_tuft','mountain_snow'], sizePct: [0.5, 0.55]  },
+                PEAKS:        { count: [10, 20], keys: ['grass_tuft','mountain_snow'], sizePct: [0.7, 0.85]  },
                 HIGHLANDS:    { count: [10, 20], keys: ['grass_tuft','mountain_snow'], sizePct: [0.5, 0.55] },
             },
             hotSets: {
-                COAST:        { count: [10, 20], keys: ['sand'], sizePct: [0.5, 0.6] },
-                STEPPE:       { count: [10, 20], keys: ['sand'], sizePct: [0.65, 0.8] },
-                PLAINS:       { count: [10, 20], keys: ['sand'], sizePct: [0.65, 0.8] },
-                GRASSLAND:    { count: [10, 20], keys: ['palm_lone'], sizePct: [0.15, 0.18] },
-                FOREST:       { count: [20, 40], keys: ['palm_cluster'], sizePct: [0.15, 0.18]  },
-                DENSE_FOREST: { count: [20, 40], keys: ['palm_cluster'], sizePct: [0.15, 0.18]  },
-                WOODLAND:     { count: [20, 40], keys: ['palm_lone'], sizePct: [0.15, 0.18]  },
-                WETLANDS:     { count: [10, 20], keys: ['palm_lone'], sizePct: [0.15, 0.18] },
+                COAST:        { count: [10, 20], keys: ['grass_tuft','sand'], sizePct: [0.5, 0.6] },
+                STEPPE:       { count: [10, 20], keys: ['grass_tuft','sand'], sizePct: [0.65, 0.8] },
+                PLAINS:       { count: [10, 20], keys: ['grass_tuft','sand'], sizePct: [0.65, 0.8] },
+                GRASSLAND:    { count: [10, 20], keys: ['grass_tuft','palm_lone'], sizePct: [0.15, 0.18] },
+                FOREST:       { count: [20, 40], keys: ['grass_tuft','palm_cluster'], sizePct: [0.15, 0.18]  },
+                DENSE_FOREST: { count: [20, 40], keys: ['grass_tuft','palm_cluster'], sizePct: [0.15, 0.18]  },
+                WOODLAND:     { count: [20, 40], keys: ['grass_tuft','palm_lone'], sizePct: [0.15, 0.18]  },
+                WETLANDS:     { count: [10, 20], keys: ['grass_tuft','palm_lone'], sizePct: [0.15, 0.18] },
             },
             waterSets: {
                 DEEP_OCEAN:   { count: [10, 20], keys: ['wave'], sizePct: [0.5, 0.6] },
@@ -936,6 +936,7 @@ class MapGenerator {
 
         const distanceToWater = this.computeDistanceToWater(regions, neighbors);
 
+
         regions.forEach((region, i) => {
             const polygon = voronoi.cellPolygon(i);
             if (polygon) {
@@ -971,9 +972,107 @@ class MapGenerator {
         this.edgeMap = this.createEdgeMap();
         this.regionNeighbors = neighbors;
         this.rivers.generate(regions, neighbors);
+
         this.riverProximityIndex = this.rivers.createProximityIndex();
 
+        this.computeShoreDistance(regions);
+        this.groundPatches = { 
+            shoreBand: 12, shoreMaxCount: 5, shallowBand: 8,
+            snowBand: { start: 0.20, end: 0.34 }, snowMaxCount: 6 };
+        console.log(this.groundPatches)
+        regions.forEach(r => { r.groundPatchList = this.generateGroundPatches(r); });
+
         this.viewTransform = { x: 0, y: 0, scale: 1 };
+    }
+    buildBlobSprite(size, seed, colorHex) {
+        const c = document.createElement('canvas'); c.width = c.height = size*2;
+        const g = c.getContext('2d');
+        const cx = size, cy = size;
+        for (let y = -size; y < size; y++) for (let x = -size; x < size; x++) {
+            const ang = Math.atan2(y, x);
+            const wobble = 0.75 + 0.25 * Math.sin(ang*3 + seed);
+            if (Math.hypot(x, y) < size * wobble * (0.6 + this.pixelDecor.hash01(seed, x*31+y)*0.4)) {
+                g.fillStyle = colorHex; g.fillRect(cx+x, cy+y, 1, 1);
+            }
+        }
+        return c;
+    }
+    
+    paintGroundPatches(ctx, visibleRect = null) {
+        const colors = { sand: '#d9c58a', shallow: 'rgba(140,210,220,0.55)', snow: '#f2f5f2' };
+        ctx.imageSmoothingEnabled = false;
+        this.terrain.regions.all.forEach(region => {
+            if (!region.groundPatchList?.length) return;
+            if (visibleRect && !this.bboxIntersects(region.bbox, visibleRect)) return;
+            region.groundPatchList.forEach(p => {
+                const key = `${p.type}_${Math.round(p.r)}_${p.seed}`;
+                let sprite = this._patchCache?.get(key);
+                if (!sprite) {
+                    if (!this._patchCache) this._patchCache = new Map();
+                    sprite = this.buildBlobSprite(Math.round(p.r*2), p.seed, colors[p.type]);
+                    this._patchCache.set(key, sprite);
+                }
+                ctx.globalAlpha = p.type === 'shallow' ? 1 : 0.85;
+                ctx.drawImage(sprite, p.x - sprite.width/2, p.y - sprite.height/2);
+            });
+        });
+        ctx.globalAlpha = 1;
+    }
+    generateGroundPatches(region) {
+        const patches = [];
+        const rnd = () => this.utils.seededRandom();
+    
+        console.log(region.shoreDist)
+        // Побережье: полоса песка + отдельно мель на воде
+        if (!region.isWater && region.shoreDist < this.groundPatches.shoreBand) {
+            const density = 1 - region.shoreDist / this.groundPatches.shoreBand; // 1 у кромки, 0 на границе полосы
+            const count = Math.round(density * this.groundPatches.shoreMaxCount);
+            for (let i = 0; i < count; i++) {
+                patches.push({ type: 'sand', x: region.x + (rnd()-0.5)*14, y: region.y + (rnd()-0.5)*14,
+                                r: 2 + rnd()*2, seed: (rnd()*99)|0 });
+            }
+        }
+        if (region.isWater && region.shoreDist < this.groundPatches.shallowBand) {
+            patches.push({ type: 'shallow', x: region.x, y: region.y, r: 6, seed: (rnd()*99)|0 });
+        }
+    
+        if (!region.isWater) {
+            const t = region.temperature; 
+            const { start, end } = this.groundPatches.snowBand; // напр. 0.20..0.34
+            if (t < end) {
+                const edgeT = Math.min(1, Math.max(0, (end - t) / (end - start))); // 0 на тёплом краю полосы, 1 глубоко в холоде
+                const noise = (Math.sin(region.x*0.07 + this.currentSeed*0.001)*0.5 +
+                               Math.cos(region.y*0.05 - this.currentSeed*0.0007)*0.5 + 1) / 2; // низкочастотный, даёт пятна, не шум по пикселю
+                const prob = edgeT * 0.8 + noise * 0.2;
+                if (prob > 0.35) {
+                    const count = Math.round(prob * this.groundPatches.snowMaxCount);
+                    for (let i = 0; i < count; i++) {
+                        patches.push({ type: 'snow', x: region.x + (rnd()-0.5)*16, y: region.y + (rnd()-0.5)*16,
+                                        r: 2 + rnd()*3, seed: (rnd()*99)|0 });
+                    }
+                }
+            }
+        }
+        return patches;
+    }
+    computeShoreDistance(regions) {
+        const shoreEdges = [];
+        this.edgeMap.forEach(edge => {
+            if (edge.regionIds.length < 2) return;
+            const [a, b] = edge.regionIds;
+            if (regions[a].isWater !== regions[b].isWater) {
+                shoreEdges.push([(edge.p1[0]+edge.p2[0])/2, (edge.p1[1]+edge.p2[1])/2]);
+            }
+        });
+        regions.forEach(r => {
+            if (r.isWater) { r.shoreDist = 0; return; }
+            let best = Infinity;
+            shoreEdges.forEach(([sx, sy]) => {
+                const d = Math.hypot(r.x - sx, r.y - sy);
+                if (d < best) best = d;
+            });
+            r.shoreDist = best; // мировые единицы
+        });
     }
     // ═══════════════════════════════════════════════════════════
     // SECTION: MAP_RENDER
@@ -1114,6 +1213,7 @@ class MapGenerator {
         this.rivers.paintBridges(ctx, rect);
         this.paintCoastline(ctx, rect);
         this.decorations.paintTextures(ctx, rect);
+        this.paintGroundPatches(ctx, rect);
         this.pixelDecor.paint(ctx, rect, 0.4)
     }
     scheduleRender() {
@@ -1890,7 +1990,7 @@ const MapTerrain = {
 
             this.drawRegionPath(ctx, polygon);
             ctx.fill();
-            ctx.stroke();
+            //ctx.stroke();
 
             if (region.ownerId !== null && region.ownerId !== undefined && this.factions.list?.[region.ownerId] && this.factions.isDiscovered(region.ownerId)) {
                 ctx.save();
@@ -3334,6 +3434,7 @@ const MapPixelDecor = {
             ".llLlLd.",
             ".LLLLLd.",
             ".LLdLdd.",
+            ".LLLddd.",
             "..dddd..",
             "...TT...",
             "...TT..."
@@ -3369,9 +3470,9 @@ const MapPixelDecor = {
             "........"
           ]],
           grass: [[
-            ".l.l...L",
-            "ll.l..LL",
-            ".L..D.L.",
+            ".g.g...G.",
+            "gg.g..GGG",
+            "....G.G..",
           ]],
           cactus: [[
             "....G....",
@@ -3386,30 +3487,30 @@ const MapPixelDecor = {
             '.rRR.', 'rRRkk', 'RkkkR'
           ]],
           mountain: [[
-              ".......................kk...................",
-          "......................kkRRkk................",
-          ".....................kkRRRRkk...............",
-          ".........kk.........kkRRrrRRkk..............",
-          "........kkRRkk.....kkRRrrggRRkk.............",
-          ".......kkRRRRkk...kkRRrrggKKggRRkk..........",
-          ".....kkRRRRRRkk..kkRRrrggKKKKggRRkk.........",
-          "....kkRRrrggRRkkRRrrggKKKKKKggRRkk..........",
-          "...kkRRrrggKKggRRkRRrrggKKkkKKggRRkk........",
-          "..kkRRrrggKKKKggRRkRRrrggkRggkKKggRRkk......",
-          ".kkRRrrggKKKKKKggRRkRRrrggkRRRggkKKggRRkk...",
-          "kkRRrrggKKKKKKKKggRRkRRrrggkRRRRRggkKKggRRkk",
-          "kRRrrggKKKKKKKKKKggRRkRRrrggkkrrggRRkKKggRRr",
-          "RRrrggKKkkKKkkKKggRRkRRrrggxxxxggRRkKKggRrrr",
-          "RrrggkRggkRRkRggkKKggRRkRRrggggggRRkKKggrrrr",
-          "rrggkRRRggkRRkRRRggkKKggRRkRRrrrrrrggRrrrrrr",
-          "ggkRRRRRggkRRkRRRRRggkKKggRRrrrrrrrrrrrrrrrr",
-          "kRRRRRRRRRggkRRRRRRRggkKKgrrrrrrrrrrrrrrrrrr",
-          "RRRRrrrrrRRggkRRRRRRRggkgrrrrrrrrrrrrrrrrrrr",
-          "RRrrrrrrrrrRRggkRRrrrrrgrrrrrrrrrrrrrrrrr...",
-          "rrrrrrrrrrrrrRRgggrrrrrrrrrrrrrrrrpp........",
-          "rrrrrrrrrrrrrrrRRrrrrrrrrrrrrrrrpp..........",
-          "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrpp............",
-          "............................pp.............."
+                ".......................kk.......................",
+                "......................kkRRk.....................",
+                ".....................kkRRRkk....................",
+                "....................kkRRRRRkk...................",
+                "...................kkRRrrRRRkk..................",
+                "..........kk......kkRRrrrrRRRkk.................",
+                ".........kkRk....kkRRrrrrrrRRRkk.......kk.......",
+                "........kkRRk...kkRRrrrrrrrrRRRkk.....kkRk......",
+                ".......kkRRRk..kkRRrrkkkkrrrrRRRkk...kkRRk......",
+                "......kkRRRRkkkRRrrkkkkkkkkrrrrRRRkkkkRRRRk.....",
+                ".....kkRRRRRRRRrrkkkkkkkkkkkkrrrrRRRRRRRRRRk....",
+                "....kkRRRRRRRRrrrrkkkkkkkkkkkkkkrrrrRRRRRRRRk...",
+                "...kkRRRRrrrrrrrrrrkkkkkkkkkkkkkkkkrrrrRRRRRRk..",
+                "..kkRRrrrrrrrrrrrrrrkkkkkkkkkkkkkkkkkkrrrrRRRk..",
+                ".kkRRrrrrrrrrkkkkkkkkkkkkkkkkkkkkkkkkkkkrrrrRRk.",
+                "kkRRrrrrrrrrkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkrrrrRk",
+                "kRRrrrrrrrrkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkrrrrk",
+                "RRrrrrrrrrkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkrrk.",
+                "Rrrrrrrrkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkrr..",
+                "rrrrrrkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkp...",
+                "rrrrkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkpp....",
+                "rrkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkpp......",
+                "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkpp........",
+                "....................pp.........................."
           ]],
       },
       foliage: {
@@ -3437,6 +3538,11 @@ const MapPixelDecor = {
         cold: ['#524842', '#2e2723'], 
         hot: ['#8c6d4f', '#5c4530'] 
       },
+      grass: {
+        temperate: ['#638c35', '#608533'],
+        cold: ['#c0cd72', '#778046'],
+        hot: ['#e7d591', '#b3a56e'],
+      },
       stone: { 
         temperate: ['45618a', '#6d89a4', '#89b2c4'], 
         cold: ['#cbd4dc', '#7e8f9c', '#46525c'], 
@@ -3463,8 +3569,8 @@ const MapPixelDecor = {
       warmTint(hex, w) { return w ? this.color.blend(hex, '#d9b84a', 0.09) : hex; },
   
       resolvePalette(climate, season) {
-        const d = this.pixelDecor, f = d.foliage[climate][season], w = d.wood[climate], s = d.stone[climate];
-        return { l:f[0], L:f[1], d:f[2], g:f[0], G:f[1], D:f[2], T:w[0], t:w[1], r:s[0], R:s[1], k:s[2],
+        const d = this.pixelDecor, f = d.foliage[climate][season], w = d.wood[climate], s = d.stone[climate], g = d.grass[climate];
+        return { l:f[0], L:f[1], d:f[2], g:g[0], G:g[1], D:f[2], T:w[0], t:w[1], r:s[0], R:s[1], k:s[2],
                  S: climate === 'hot' ? '#eadcc0' : '#ffffff', s:'#b9cfe0' };
       },
   
@@ -3509,8 +3615,8 @@ const MapPixelDecor = {
       paint(ctx, visibleRect = null, keep = 1) {
         if (this.viewMode === 'factions' || ['food','gold','production','manpower','ether'].includes(this.viewMode)) return;
         const d = this.pixelDecor;
-        const px = ctx.getTransform().a;                                        // device-пикселей на мировую единицу
-        const cell = Math.max(1, Math.round(d.cellWorld * px)) / px;            // клетка = целое число пикселей
+        const px = ctx.getTransform().a;
+        const cell = Math.max(1, Math.round(d.cellWorld * px)) / px;
         ctx.imageSmoothingEnabled = false;
   
         for (const region of this.terrain.regions.all) {
@@ -3519,14 +3625,12 @@ const MapPixelDecor = {
           if (visibleRect && !this.bboxIntersects(region.bbox, visibleRect)) continue;
           for (const icon of icons) {
               
-            if (icon.lod > keep) continue;                                      // LOD: на дальних слоях часть иконок пропускаем
+            if (icon.lod > keep) continue; 
             
             const s = d.getSprite(icon, region);
             const w = s.w * cell * icon.scale, h = s.h * cell * icon.scale;
             const drawX = Math.round((icon.x - w / 2) * px) / px;
             const drawY = Math.round((icon.y - h / 2) * px) / px;
-
-            // 1. Отрисовка тени (черный полупрозрачный силуэт со смещением)
             
             if(icon.kind == 'tree'){
                 ctx.save();
