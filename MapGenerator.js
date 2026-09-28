@@ -990,7 +990,7 @@ class MapGenerator {
         const cx = size, cy = size;
         for (let y = -size; y < size; y++) for (let x = -size; x < size; x++) {
             const ang = Math.atan2(y, x);
-            const wobble = 0.75 + 0.25 * Math.sin(ang*3 + seed);
+            const wobble = 0.95 + 0.25 * Math.sin(ang*6 + seed);
             if (Math.hypot(x, y) < size * wobble * (0.6 + this.pixelDecor.hash01(seed, x*31+y)*0.4)) {
                 g.fillStyle = colorHex; g.fillRect(cx+x, cy+y, 1, 1);
             }
@@ -1012,7 +1012,7 @@ class MapGenerator {
                     sprite = this.buildBlobSprite(Math.round(p.r*2), p.seed, colors[p.type]);
                     this._patchCache.set(key, sprite);
                 }
-                ctx.globalAlpha = p.type === 'shallow' ? 1 : 0.85;
+                ctx.globalAlpha = p.type === 'shallow' ? 1 : 0.35;
                 ctx.drawImage(sprite, p.x - sprite.width/2, p.y - sprite.height/2);
             });
         });
