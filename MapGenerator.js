@@ -5,7 +5,7 @@ class MapGenerator {
         this.borderMargin = options.borderMargin || 22;
 
         this.showClimate = options.showClimate ?? true;
-        this.currentSeason = options.currentSeason ?? 'SPRING';
+        this.currentSeason = options.currentSeason ?? 'SUMMER';
         this.viewMode = options.viewMode ?? 'terrain';
 
         this.canvas = options.canvas;
@@ -24,8 +24,8 @@ class MapGenerator {
         this.maxScale = 10;
 
         this._renderScheduled = false;
-        this.mapLayerScale = 4;
-        this.sharpRegionBudget = 220;
+        this.mapLayerScale = 6;
+        this.sharpRegionBudget = 120;
 
         this.viewLevel = 'overview';
         this.layers = {
@@ -33,7 +33,7 @@ class MapGenerator {
             political: this._createLayer(),
             fog: this._createLayer(),
         };
-        this.fogEnabled = options.fogEnabled ?? true;
+        this.fogEnabled = options.fogEnabled ?? false;
         this.fogColor = 'rgba(5, 8, 15, 0.52)';
         this.globalRegionThreshold = options.globalRegionThreshold ?? 800;
         this.exploredRegions = new Set();
@@ -164,8 +164,8 @@ class MapGenerator {
                 landAmount: options.landAmount || 0.8,
                 relief: options.relief || 0.9,
                 chaos: options.chaos || 0.2,
-                edgeRoughness: options.edgeRoughness || 0.42,
-                edgeDepth: options.edgeDepth || 5
+                edgeRoughness: options.edgeRoughness || 0.32,
+                edgeDepth: options.edgeDepth || 3
             },
             regions: {
                 all: [],
@@ -199,44 +199,44 @@ class MapGenerator {
         this.decorations = {
             enabled: options.iconsEnabled ?? true,
             ready: false,
-            edgeMargin: options.iconEdgeMargin ?? 1.1,
+            edgeMargin: options.iconEdgeMargin ?? 1.2,
             defaultSizePct: options.iconDefaultSizePct || [0.5, 0.6],
             townExclusionRadius: options.townExclusionRadius ?? 8,
             riverExclusionRadius: options.riverExclusionRadius ?? 3, 
             gapFactor: options.iconGapFactor ?? 0.7, 
             sets: {
-                STEPPE:       { count: [0, 0], keys: ['grass_tuft'], sizePct: [0.15, 0.18] },
-                PLAINS:       { count: [4, 6], keys: ['grass_tuft'], sizePct: [0.15, 0.18] },
-                GRASSLAND:    { count: [2, 3], keys: ['grass_tuft'], sizePct: [0.15, 0.18] },
-                WETLANDS:     { count: [2, 3], keys: ['reed'], sizePct: [0.15, 0.18] },
-                WOODLAND:     { count: [3, 6], keys: ['tree_lone'], sizePct: [0.15, 0.18] },
-                DENSE_FOREST: { count: [8, 10], keys: ['tree_lone'], sizePct: [0.15, 0.18] },
-                FOREST:       { count: [4, 7], keys: ['tree_lone'], sizePct: [0.15, 0.18] },
-                HIGHLANDS:    { count: [2, 3], keys: ['rock'], sizePct: [0.5, 0.55] },
-                PEAKS:        { count: [2, 3], keys: ['mountain'], sizePct: [0.5, 0.55]  },
-                COAST:        { count: [0, 0], keys: ['grass_tuft'], sizePct: [0.15, 0.18] },
+                STEPPE:       { count: [20, 40], keys: ['grass_tuft'], sizePct: [0.15, 0.18] },
+                PLAINS:       { count: [20, 40], keys: ['grass_tuft'], sizePct: [0.15, 0.18] },
+                GRASSLAND:    { count: [20, 40], keys: ['grass_tuft'], sizePct: [0.15, 0.18] },
+                WETLANDS:     { count: [20, 40], keys: ['grass_tuft','reed'], sizePct: [0.15, 0.18] },
+                WOODLAND:     { count: [20, 140], keys: ['grass_tuft','tree_lone'], sizePct: [0.15, 0.18] },
+                DENSE_FOREST: { count: [20, 140], keys: ['grass_tuft','tree_lone'], sizePct: [0.15, 0.18] },
+                FOREST:       { count: [20, 140], keys: ['grass_tuft','tree_lone'], sizePct: [0.15, 0.18] },
+                HIGHLANDS:    { count: [10, 20], keys: ['grass_tuft','rock','tree_lone'], sizePct: [0.5, 0.55] },
+                PEAKS:        { count: [10, 20], keys: ['grass_tuft','mountain','tree_lone'], sizePct: [0.5, 0.55]  },
+                COAST:        { count: [10, 20], keys: ['grass_tuft'], sizePct: [0.15, 0.18] },
             },
             snowSets: {
-                FOREST:       { count: [4, 8], keys: ['tree_snow'], sizePct: [0.15, 0.18]  },
-                DENSE_FOREST: { count: [8, 12], keys: ['tree_snow'], sizePct: [0.15, 0.18]  },
-                WOODLAND:     { count: [6, 8], keys: ['tree_snow'], sizePct: [0.15, 0.18]  },
-                PEAKS:        { count: [2, 3], keys: ['mountain_snow'], sizePct: [0.5, 0.55]  },
-                HIGHLANDS:    { count: [2, 3], keys: ['mountain_snow'], sizePct: [0.5, 0.55] },
+                FOREST:       { count: [20, 40], keys: ['grass_tuft','tree_snow'], sizePct: [0.15, 0.18]  },
+                DENSE_FOREST: { count: [20, 40], keys: ['grass_tuft','tree_snow'], sizePct: [0.15, 0.18]  },
+                WOODLAND:     { count: [20, 40], keys: ['grass_tuft','tree_snow'], sizePct: [0.15, 0.18]  },
+                PEAKS:        { count: [10, 20], keys: ['grass_tuft','mountain_snow'], sizePct: [0.5, 0.55]  },
+                HIGHLANDS:    { count: [10, 20], keys: ['grass_tuft','mountain_snow'], sizePct: [0.5, 0.55] },
             },
             hotSets: {
-                COAST:        { count: [0, 0], keys: ['sand'], sizePct: [0.5, 0.6] },
-                STEPPE:       { count: [0, 0], keys: ['sand'], sizePct: [0.65, 0.8] },
-                PLAINS:       { count: [3, 4], keys: ['sand'], sizePct: [0.65, 0.8] },
-                GRASSLAND:    { count: [2, 3], keys: ['palm_lone'], sizePct: [0.15, 0.18] },
-                FOREST:       { count: [2, 3], keys: ['palm_cluster'], sizePct: [0.15, 0.18]  },
-                DENSE_FOREST: { count: [3, 4], keys: ['palm_cluster'], sizePct: [0.15, 0.18]  },
-                WOODLAND:     { count: [5, 6], keys: ['palm_lone'], sizePct: [0.15, 0.18]  },
-                WETLANDS:     { count: [1, 2], keys: ['palm_lone'], sizePct: [0.15, 0.18] },
+                COAST:        { count: [10, 20], keys: ['sand'], sizePct: [0.5, 0.6] },
+                STEPPE:       { count: [10, 20], keys: ['sand'], sizePct: [0.65, 0.8] },
+                PLAINS:       { count: [10, 20], keys: ['sand'], sizePct: [0.65, 0.8] },
+                GRASSLAND:    { count: [10, 20], keys: ['palm_lone'], sizePct: [0.15, 0.18] },
+                FOREST:       { count: [20, 40], keys: ['palm_cluster'], sizePct: [0.15, 0.18]  },
+                DENSE_FOREST: { count: [20, 40], keys: ['palm_cluster'], sizePct: [0.15, 0.18]  },
+                WOODLAND:     { count: [20, 40], keys: ['palm_lone'], sizePct: [0.15, 0.18]  },
+                WETLANDS:     { count: [10, 20], keys: ['palm_lone'], sizePct: [0.15, 0.18] },
             },
             waterSets: {
-                DEEP_OCEAN:   { count: [1, 2], keys: ['wave'], sizePct: [0.5, 0.6] },
-                OCEAN:        { count: [1, 2], keys: ['wave'], sizePct: [0.5, 0.6] },
-                SHALLOW:      { count: [1, 2], keys: ['wave'], sizePct: [0.5, 0.6] },
+                DEEP_OCEAN:   { count: [10, 20], keys: ['wave'], sizePct: [0.5, 0.6] },
+                OCEAN:        { count: [10, 20], keys: ['wave'], sizePct: [0.5, 0.6] },
+                SHALLOW:      { count: [10, 20], keys: ['wave'], sizePct: [0.5, 0.6] },
             },
             variantsPerKey: {
                 grass_tuft: 3, tree_lone: 3, tree_cluster: 3, tree_snow: 3,  tree_snow_cluster: 3,
@@ -244,15 +244,15 @@ class MapGenerator {
                 palm_lone: 3, palm_cluster: 3, cactus: 1, oasis: 2, red_dot: 1
             },
             biomeAffinity: {
-                FOREST: { FOREST: 1.0, DENSE_FOREST: 0.8, WOODLAND: 0.6 },
-                DENSE_FOREST: { DENSE_FOREST: 1.0, FOREST: 0.8, WOODLAND: 0.5 },
-                WOODLAND: { WOODLAND: 1.0, FOREST: 0.6, DENSE_FOREST: 0.5 },
-                HIGHLANDS: { HIGHLANDS: 1.0, PEAKS: 0.9 },
+                FOREST: { FOREST: 1.0, DENSE_FOREST: 0.0, WOODLAND: 0.0 },
+                DENSE_FOREST: { DENSE_FOREST: 1.0, FOREST: 0.0, WOODLAND: 0.0 },
+                WOODLAND: { WOODLAND: 1.0, FOREST: 0.0, DENSE_FOREST: 0.0 },
+                HIGHLANDS: { HIGHLANDS: 1.0, PEAKS: 0.0 },
                 PEAKS: { PEAKS: 1.0, HIGHLANDS: 0.9 },
             },
             textures: {
-                variantCount: 4,
-                alpha: options.textureAlpha ?? 0.5,
+                variantCount: 1,
+                alpha: options.textureAlpha ?? 0.6,
             },
             loadAssets: MapDecorations.loadAssets.bind(this),
             shrinkPolygon: MapDecorations.shrinkPolygon.bind(this),
@@ -263,6 +263,12 @@ class MapGenerator {
             paint: MapDecorations.paint.bind(this),
             paintTextures: MapDecorations.paintTextures.bind(this),
             computeBias: MapDecorations.computeBias.bind(this),
+        };
+
+        this.pixelDecor = {
+            cellWorld: options.pixelCell ?? 0.4, cache: new Map(), cacheSeason: null,
+            ...MapPixelDecor.data,
+            ...Object.fromEntries(Object.entries(MapPixelDecor.methods).map(([k, f]) => [k, f.bind(this)])),
         };
 
         this.rivers = {
@@ -411,12 +417,13 @@ class MapGenerator {
               color: '#344C59', resources: { food: 1, production: 0, manpower: 0, gold: 1, ether: 0, upkeep: -0.3 } },
             { id: 'SHALLOW', isWater: true, maxT: Infinity, label: 'Мелководье',
               color: '#395463', resources: { food: 2, production: 0, manpower: 0, gold: 0, ether: 0, upkeep: -0.3 } },
+
             { id: 'COAST', isWater: false, maxT: 0.08, label: 'Побережье',
             colors: { cold: '#A6AD84', temperate: '#A1AD62', hot: '#CCC08D' },
             resources: { food: 2, production: 1, manpower: 1, gold: 1, ether: 0, upkeep: -0.5 } },
             
             { id: 'STEPPE_ETHER', isWater: false, maxT: 0.09, label: 'Эфирный разлом (Побережье)',
-            colors: { cold: '#e50000', temperate: '#e50000', hot: '#e50000' },
+            colors: { cold: '#A6AD84', temperate: '#A1AD62', hot: '#CCC08D' },
             resources: { food: 2, production: 1, manpower: 1, gold: 1, ether: 3, upkeep: -0.5 } },
             
             { id: 'STEPPE', isWater: false, maxT: 0.16, label: 'Степь',
@@ -424,7 +431,7 @@ class MapGenerator {
             resources: { food: 1, production: 1, manpower: 2, gold: 0, ether: 0, upkeep: -0.5 } },
             
             { id: 'STEPPE_ETHER', isWater: false, maxT: 0.17, label: 'Эфирный разлом',
-            colors: { cold: '#e50000', temperate: '#e50000', hot: '#e50000' },
+            colors: { cold: '#9AA179', temperate: '#929E53', hot: '#C2B57A' },
             resources: { food: 1, production: 1, manpower: 2, gold: 0, ether: 3, upkeep: -0.5 } },
             
             { id: 'PLAINS', isWater: false, maxT: 0.25, label: 'Равнина',
@@ -432,7 +439,7 @@ class MapGenerator {
             resources: { food: 3, production: 1, manpower: 1, gold: 0, ether: 0, upkeep: -0.6 } },
             
             { id: 'PLAINS_ETHER', isWater: false, maxT: 0.26, label: 'Эфирный разлом (Равнина)',
-            colors: { cold: '#e50000', temperate: '#e50000', hot: '#e50000' },
+            colors: { cold: '#9AA179', temperate: '#929E53', hot: '#C2B57A' },
             resources: { food: 1, production: 1, manpower: 2, gold: 0, ether: 3, upkeep: -0.5 } },
             
             { id: 'GRASSLAND', isWater: false, maxT: 0.35, label: 'Луга',
@@ -448,7 +455,7 @@ class MapGenerator {
             resources: { food: 1, production: 2, manpower: 1, gold: 0, ether: 0, upkeep: -0.6 } },
 
             { id: 'WOODLAND_ETHER', isWater: false, maxT: 0.57, label: 'Эфирный разлом (Редколесье)',
-            colors: { cold: '#e50000', temperate: '#e50000', hot: '#e50000' },
+            colors: { cold: '#9AA179', temperate: '#929E53', hot: '#C2B57A' },
             resources: { food: 1, production: 1, manpower: 2, gold: 0, ether: 3, upkeep: -0.5 } },
 
             { id: 'FOREST', isWater: false, maxT: 0.68, label: 'Лес',
@@ -464,7 +471,7 @@ class MapGenerator {
             resources: { food: 0, production: 2, manpower: -1, gold: 2, ether: 0, upkeep: -0.9 } },
 
             { id: 'PEAKS', isWater: false, maxT: Infinity, label: 'Пик',
-            colors: { cold: '#909672', temperate: '#86914E', hot: '#B5A870' },
+            colors: { cold: '#9AA179', temperate: '#929E53', hot: '#C2B57A' },
             resources: { food: 0, production: 1, manpower: -2, gold: 3, ether: 0, upkeep: -1.0 } }
         ];
 
@@ -848,7 +855,7 @@ class MapGenerator {
         this.setup(seed);
         this.markDirty('terrain', 'political');
         this.render();
-        this.shake();
+        //this.shake();
         return {
             regions: this.getRegionsData(),
             factions: this.getFactionsData(),
@@ -992,17 +999,16 @@ class MapGenerator {
         this.ctx.setTransform(1, 0, 0, 1, 0, 0);
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         this.ctx.restore();
-    
+
+        const src = this._compositeBitmap || this._composite;
+        if (!src) return;
         const s = this.viewTransform.scale / this.mapLayerScale;
         this.ctx.save();
         this.ctx.translate(this.viewTransform.x, this.viewTransform.y);
         this.ctx.scale(s, s);
-        this.ctx.drawImage(this.layers.terrain.canvas, 0, 0);
-        this.ctx.drawImage(this.layers.political.canvas, 0, 0);
-        this.ctx.drawImage(this.layers.fog.canvas, 0, 0);
+        this.ctx.drawImage(src, 0, 0);
         this.ctx.restore();
     }
-    
     _drawOverview() {
         this._blitStaticLayers();
         this.ctx.save();
@@ -1108,7 +1114,7 @@ class MapGenerator {
         this.rivers.paintBridges(ctx, rect);
         this.paintCoastline(ctx, rect);
         this.decorations.paintTextures(ctx, rect);
-        this.decorations.paint(ctx, rect);
+        this.pixelDecor.paint(ctx, rect, 0.4)
     }
     scheduleRender() {
         if (this._renderScheduled) return;
@@ -1167,7 +1173,7 @@ class MapGenerator {
         if (!this.edgeMap) return;
         ctx.save();
         ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
-        ctx.lineWidth = 1;
+        ctx.lineWidth = 0.4;
         ctx.lineJoin = 'round';
         ctx.filter = 'blur(4px)'
     
@@ -1191,9 +1197,10 @@ class MapGenerator {
         ctx.restore();
     }
     repaintLayersIfDirty() {
-        if (this.layers.terrain.dirty) { this._paintTerrainLayer(); this.layers.terrain.dirty = false; }
-        if (this.layers.political.dirty) { this._paintPoliticalLayer(); this.layers.political.dirty = false; }
-        if (this.layers.fog.dirty) { this._paintFogLayer(this.playerFactionId); this.layers.fog.dirty = false; }
+        if (this.layers.terrain.dirty) { this._paintTerrainLayer(); this.layers.terrain.dirty = false; this._rebuildStaticComposite() }
+        if (this.layers.political.dirty) { this._paintPoliticalLayer(); this.layers.political.dirty = false; this._rebuildStaticComposite() }
+        if (this.layers.fog.dirty) { this._paintFogLayer(this.playerFactionId); this.layers.fog.dirty = false; this._rebuildStaticComposite() }
+        
     }
     countVisibleRegions(visibleRect) {
         let count = 0;
@@ -1309,6 +1316,23 @@ class MapGenerator {
             this._cachedVisibility = this.factions.computeVisibility(this.playerFactionId, this.fogVisionHops ?? 2);
         }
         return this._cachedVisibility;
+    }
+    _rebuildStaticComposite() {
+        const { width: w, height: h } = this.layers.terrain.canvas;
+        if (!this._composite) this._composite = document.createElement('canvas');
+        if (this._composite.width !== w || this._composite.height !== h) {
+            this._composite.width = w;
+            this._composite.height = h;
+        }
+        const c = this._composite.getContext('2d');
+        c.clearRect(0, 0, w, h);
+        ['terrain', 'political', 'fog'].forEach(n => c.drawImage(this.layers[n].canvas, 0, 0));
+    
+        createImageBitmap(this._composite).then(bmp => {
+            this._compositeBitmap?.close();
+            this._compositeBitmap = bmp;
+            this.scheduleRender();
+        });
     }
 }
 // ═══════════════════════════════════════════════════════════
@@ -1530,7 +1554,7 @@ const MapInteraction = {
             this._invalidateDetailCache(); // форсируем свежую перезаливку под финальный масштаб
             this.markDirty('political');
             this.render();
-        }, 120);
+        }, 60);
     },
     _handleMouseDown(e) {
         this._isPanning = true;
@@ -2210,11 +2234,11 @@ const MapUtils = {
     },
     drawCurvedLabel(ctx, text, cx, cy, angle, length, options = {}) {
         const fontSize = (options.fontSize ?? 8)  * (length * 0.013) ;
-        const curveStrength = options.curveStrength ?? 0.15; // 0 = прямая линия, выше = сильнее дуга
+        const curveStrength = options.curveStrength ?? 0; // 0 = прямая линия, выше = сильнее дуга
         const letterSpacingScale = options.letterSpacing ?? 1.1;
 
         ctx.save();
-        ctx.font = `bold ${fontSize}px serif`;
+        ctx.font = `bold ${fontSize}px Consolas`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillStyle = options.color ?? 'rgba(20, 15, 10, 0.85)';
@@ -2309,7 +2333,6 @@ const MapDecorations = {
         }
         return this.decorations.sets[region.biomeBand] || null;
     },
-
     generatePlacements(region, polygon) {
         const set = this.decorations.resolveIconSet(region);
         if (!set) return [];
@@ -2326,9 +2349,10 @@ const MapDecorations = {
         const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
         const halfDiag = refDim / 2 || 1;
     
+        const gapFactor = this.decorations.gapFactor;
+
         const count = set.count[0] + Math.floor(this.utils.seededRandom() * (set.count[1] - set.count[0] + 1));
         const placements = [];
-        const gapFactor = this.decorations.gapFactor;
     
         for (let n = 0; n < count; n++) {
             const candidates = [];
@@ -2345,7 +2369,7 @@ const MapDecorations = {
                 const corners = [[x - insetHalf, y - insetHalf], [x + insetHalf, y - insetHalf],
                                   [x - insetHalf, y + insetHalf], [x + insetHalf, y + insetHalf]];
                 if (!corners.every(([px, py]) => this.decorations.pointInPolygon(px, py, inner))) continue;
-    
+                
                 const tooClose = placements.some(p => {
                     const required = (p.size / 2 + size / 2) * gapFactor;
                     return Math.hypot(p.x - x, p.y - y) < required;
@@ -2366,10 +2390,8 @@ const MapDecorations = {
                 }
 
                 candidates.push({ x, y, size });
-
-                
             }
-    
+
             if (!candidates.length) continue;
 
             let chosen = candidates[0];
@@ -2383,11 +2405,19 @@ const MapDecorations = {
             } else {
                 chosen = candidates[Math.floor(this.utils.seededRandom() * candidates.length)];
             }
-    
+            
             const key = set.keys[Math.floor(this.utils.seededRandom() * set.keys.length)];
-            const variant = 1 + Math.floor(this.utils.seededRandom() * (this.decorations.variantsPerKey[key] || 1));
-            placements.push({ assetName: `${key}_${variant}`, x: chosen.x, y: chosen.y, size: chosen.size, rotation: 0 });
+            const rnd = () => this.utils.seededRandom();
+            const kind = this.pixelDecor.kindByKey[key]; if (!kind) continue;
+            const warmP = Math.min(1, Math.max(0, (region.temperature - 0.3) * 1.5));   // плавный тёплый градиент внутри зоны
+            placements.push({ kind, x: chosen.x, y: chosen.y,
+            shape: (rnd() * 2) | 0, seed: (rnd() * 4) | 0,
+            shade: ((rnd() * 3) | 0) - 1, warm: rnd() < warmP ? 1 : 0,
+            scale: 1,
+            lod: rnd() });
+    
         }
+        placements.sort((a, b) => a.y - b.y);
         return placements;
     },
 
@@ -2407,17 +2437,124 @@ const MapDecorations = {
             if (visibleRect && !this.bboxIntersects(region.bbox, visibleRect)) return;
 
             region.icons.forEach(icon => {
+                console.log(icon.assetName)
                 const img = this.assets.get(icon.assetName);
                 if (!img) return;
                 ctx.save();
+                /*
+                ctx.fillStyle = '#166534';
+                ctx.globalAlpha = 0.5
+                ctx.beginPath();
+                ctx.fillRect(icon.x, icon.y, 0.5, 0.5);
+                ctx.fill();*/
+
+                ctx.translate(icon.x, icon.y);
+                
+                const ps = 0.4; 
+
+                const drawPx = (dx, dy, color) => {
+                    ctx.fillStyle = color;
+                    ctx.fillRect(dx * ps, dy * ps, ps, ps);
+                };
+                 if (icon.assetName === 'tree_lone_1') {
+                    const green = '#388c2d';
+                    const lightgreen = '#2fa22b';
+                    const darkgreen = '#20522a';
+                    const brown = '#795548';
+                    drawPx(-1, -2, lightgreen); drawPx(0, -2, green); drawPx(1, -2, darkgreen);
+                    drawPx(-1, -1, lightgreen); drawPx(0, -1, green); drawPx(1, -1, darkgreen);
+                    drawPx(0, 0, brown);
+                } else
+                if(icon.assetName.indexOf('tree') !== -1){
+                    const green = '#388c2d'; // Листва
+                    const lightgreen = '#2fa22b'; // Листва
+                    const darkgreen = '#20522a'; // Листва
+                    const brown = '#795548'; // Ствол
+        
+                    drawPx(0, -3, green); 
+                    drawPx(-1, -2, lightgreen); drawPx(0, -2, green); drawPx(1, -2, darkgreen);
+                    drawPx(-1, -1, lightgreen); drawPx(0, -1, green); drawPx(1, -1, darkgreen);
+                    
+                    drawPx(0, 0, brown);
+                    drawPx(0, 1, brown);
+                }
+                // Цвета для дерева
+                if(icon.assetName.indexOf('grass_tuft_1') !== -1){
+                    const green = '#388c2d';
+                    const darkgreen = '#20522a';
+                
+                    // Маленький низкий пучок травы
+                    drawPx(-1, 0, darkgreen);
+                    drawPx(0, -1, green);
+                    drawPx(1, 0, darkgreen);
+                } else
+                // Цвета для дерева
+                if(icon.assetName.indexOf('grass') !== -1){
+                    const grassLight = '#55a630';
+                    const grassDark = '#2b9348';
+
+                    // Пучок травы
+                    drawPx(-1, 0, grassDark);
+                    drawPx(0, -1, grassLight);
+                    drawPx(0, 0, grassDark);
+                    drawPx(1, 0, grassLight);
+                } 
+                if(icon.assetName.indexOf('mountain') !== -1){
+                    // Большая и сложная гора
+                    // Используем больше оттенков серого для сложного рельефа
+                    const snow = '#ffffff';
+                    const stoneTop = '#e0e0e0'; // Светлый камень под снегом
+                    const stoneMid = '#bdbdbd'; // Основной серый
+                    const stoneDark = '#9e9e9e'; // Тень
+                    const stoneDeep = '#757575'; // Глубокая тень
+                    const rockBase = '#616161'; // Основание
+                    const rockDark = '#424242'; // Самый темный камень внизу
+
+                    // --- ВЫСОКИЙ ПИК (Пиксели по оси Y идут вверх от -6 до 0) ---
+
+                    // Ряд 1: Вершина (снег)
+                    drawPx(0, -6, snow);
+
+                    // Ряд 2: Верхний склон
+                    drawPx(-1, -5, stoneTop); drawPx(0, -5, snow); drawPx(1, -5, stoneMid);
+
+                    // Ряд 3: Снежный карниз и тень
+                    drawPx(-2, -4, stoneTop); drawPx(-1, -4, stoneTop); drawPx(0, -4, snow);
+                    drawPx(1, -4, stoneDark); drawPx(2, -4, stoneDeep);
+
+                    // Ряд 4: Тело пика (расширяется)
+                    drawPx(-3, -3, stoneMid); drawPx(-2, -3, stoneMid); drawPx(-1, -3, stoneMid);
+                    drawPx(0, -3, stoneDark); drawPx(1, -3, stoneDark);
+                    drawPx(2, -3, stoneDeep); drawPx(3, -3, stoneDeep);
+
+                    // Ряд 5: Переход к основанию (сложная текстура)
+                    drawPx(-3, -2, stoneMid); drawPx(-2, -2, stoneDark); drawPx(-1, -2, stoneDeep);
+                    drawPx(0, -2, stoneDeep); drawPx(1, -2, stoneDeep);
+                    drawPx(2, -2, rockBase); drawPx(3, -2, rockBase);
+
+                    // --- МАССИВНОЕ ОСНОВАНИЕ (Y = -1 и Y = 0) ---
+
+                    // Ряд 6: Верх основания (широкий)
+                    drawPx(-4, -1, stoneDeep); drawPx(-3, -1, rockBase); drawPx(-2, -1, rockBase);
+                    drawPx(-1, -1, rockBase); drawPx(0, -1, rockDark); drawPx(1, -1, rockDark);
+                    drawPx(2, -1, rockDark); drawPx(3, -1, rockDark); drawPx(4, -1, rockBase);
+
+                    // Ряд 7: Самый низ (полный блок)
+                    drawPx(-4, 0, rockDark); drawPx(-3, 0, rockDark); drawPx(-2, 0, rockDark);
+                    drawPx(-1, 0, rockBase); drawPx(0, 0, rockBase); drawPx(1, 0, rockBase);
+                    drawPx(2, 0, rockBase); drawPx(3, 0, rockDark); drawPx(4, 0, rockDark);
+                }
+
+                /*
                 ctx.translate(icon.x, icon.y);
                 ctx.rotate(icon.rotation);
-                ctx.drawImage(img, -icon.size / 2, -icon.size / 2, icon.size, icon.size);
+                ctx.drawImage(img, -icon.size / 2, -icon.size / 2, icon.size, icon.size);*/
                 ctx.restore();
             });
         });
     },
     paintTextures(ctx, visibleRect = null) {
+        return;
         if (!this.decorations.ready) return;
         this.terrain.regions.all.forEach((region, i) => {
             if (!region.textureVariant) return;
@@ -3187,3 +3324,227 @@ const MapPerf = {
             `--- stages (last frame) ---\n${stages}`;
     }
 }
+
+const MapPixelDecor = {
+    data: {
+      patterns: {
+        oak: [[
+            "...ll...",
+            "...lll..",
+            ".llLlLd.",
+            ".LLLLLd.",
+            ".LLdLdd.",
+            "..dddd..",
+            "...TT...",
+            "...TT..."
+          ]],
+          pine: [[
+            "....l...",
+            "...lLL..",
+            "..lLLd..",
+            "..lLLd..",
+            ".llLLLd.",
+            ".lLLLLd.",
+            ".LLLLdd.",
+            "...TT..."
+          ]],
+          palm: [[
+            "l..l..L.",
+            ".l.L.L..",
+            "..lTLd..",
+            "...TT...",
+            "...TT...",
+            "...Tt...",
+            "...Tt...",
+            "........"
+          ]],
+          bare: [[
+            ".t...t..",
+            "..t.t...",
+            "...T....",
+            "..tTTt..",
+            "...TT...",
+            "...TT...",
+            "...TT...",
+            "........"
+          ]],
+          grass: [[
+            ".l.l...L",
+            "ll.l..LL",
+            ".L..D.L.",
+          ]],
+          cactus: [[
+            "....G....",
+            "..G.G.G..",
+            "G.GGG.GGG",
+            "GGGGGGGGG",
+            "..GGGGG..",
+            "....G....",
+            "....G...."
+          ]],
+          rock: [[
+            '.rRR.', 'rRRkk', 'RkkkR'
+          ]],
+          mountain: [[
+              ".......................kk...................",
+          "......................kkRRkk................",
+          ".....................kkRRRRkk...............",
+          ".........kk.........kkRRrrRRkk..............",
+          "........kkRRkk.....kkRRrrggRRkk.............",
+          ".......kkRRRRkk...kkRRrrggKKggRRkk..........",
+          ".....kkRRRRRRkk..kkRRrrggKKKKggRRkk.........",
+          "....kkRRrrggRRkkRRrrggKKKKKKggRRkk..........",
+          "...kkRRrrggKKggRRkRRrrggKKkkKKggRRkk........",
+          "..kkRRrrggKKKKggRRkRRrrggkRggkKKggRRkk......",
+          ".kkRRrrggKKKKKKggRRkRRrrggkRRRggkKKggRRkk...",
+          "kkRRrrggKKKKKKKKggRRkRRrrggkRRRRRggkKKggRRkk",
+          "kRRrrggKKKKKKKKKKggRRkRRrrggkkrrggRRkKKggRRr",
+          "RRrrggKKkkKKkkKKggRRkRRrrggxxxxggRRkKKggRrrr",
+          "RrrggkRggkRRkRggkKKggRRkRRrggggggRRkKKggrrrr",
+          "rrggkRRRggkRRkRRRggkKKggRRkRRrrrrrrggRrrrrrr",
+          "ggkRRRRRggkRRkRRRRRggkKKggRRrrrrrrrrrrrrrrrr",
+          "kRRRRRRRRRggkRRRRRRRggkKKgrrrrrrrrrrrrrrrrrr",
+          "RRRRrrrrrRRggkRRRRRRRggkgrrrrrrrrrrrrrrrrrrr",
+          "RRrrrrrrrrrRRggkRRrrrrrgrrrrrrrrrrrrrrrrr...",
+          "rrrrrrrrrrrrrRRgggrrrrrrrrrrrrrrrrpp........",
+          "rrrrrrrrrrrrrrrRRrrrrrrrrrrrrrrrpp..........",
+          "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrpp............",
+          "............................pp.............."
+          ]],
+      },
+      foliage: {
+        temperate: { 
+            SPRING: ['#a3c75c', '#85b04a', '#608533', '#405c21'], 
+            SUMMER: ['#86a84d', '#638c35', '#456623', '#2c4215'], 
+            AUTUMN: ['#d6b052', '#b38634', '#8c6020', '#5e3f12'], 
+            WINTER: ['#c4d1cc', '#9eb0a8', '#73877e', '#4c5c55'] 
+          },
+          cold: { 
+            SPRING: ['#8ab399', '#638f73', '#426650', '#2a4233'], 
+            SUMMER: ['#69947a', '#477057', '#304f3b', '#1c3024'], 
+            AUTUMN: ['#a8bd78', '#829953', '#5c6e38', '#3b4723'], 
+            WINTER: ['#f2f5f7', '#c5d1d9', '#91a4b0', '#63737d'] 
+          },
+          hot: { 
+            SPRING: ['#b3c75c', '#8fa838', '#667a23', '#425215'], 
+            SUMMER: ['#a3b84a', '#7d942e', '#596b1f', '#364210'], 
+            AUTUMN: ['#c7ab52', '#a38431', '#7a601e', '#4f3d10'], 
+            WINTER: ['#a8c75c', '#8fa838', '#667a23', '#425215'] 
+          },
+      },
+      wood: { 
+        temperate: ['#6b5344', '#3d2e26'], 
+        cold: ['#524842', '#2e2723'], 
+        hot: ['#8c6d4f', '#5c4530'] 
+      },
+      stone: { 
+        temperate: ['45618a', '#6d89a4', '#89b2c4'], 
+        cold: ['#cbd4dc', '#7e8f9c', '#46525c'], 
+        hot: ['#d6c2a8', '#9e896f', '#665543'] 
+      },
+      kindByKey: { tree_lone:'tree', tree_cluster:'tree', tree_snow:'tree', tree_snow_cluster:'tree',
+                   palm_lone:'tree', palm_cluster:'tree', oasis:'tree', grass_tuft:'grass', reed:'grass',
+                   mountain:'mountain', mountain_snow:'mountain', rock:'rock', cactus:'cactus' },
+    },
+  
+    methods: {
+      toGrid(def) {
+        if (Array.isArray(def)) return { w: def[0].length, h: def.length, cells: def.join('').split('') };
+        return { w: def.w, h: def.cells.length / def.w, cells: def.cells };
+      },
+  
+      hash01(a, b) {   // детерминированный «шум» для формы
+        let h = (Math.imul(a + 1, 374761393) + Math.imul(b + 1, 668265263)) >>> 0;
+        h = Math.imul(h ^ (h >>> 13), 1274126177) >>> 0;
+        return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+      },
+  
+      shade(hex, step) { return step ? this.color.blend(hex, step > 0 ? '#ffffff' : '#000000', Math.abs(step) * 0.07) : hex; },
+      warmTint(hex, w) { return w ? this.color.blend(hex, '#d9b84a', 0.09) : hex; },
+  
+      resolvePalette(climate, season) {
+        const d = this.pixelDecor, f = d.foliage[climate][season], w = d.wood[climate], s = d.stone[climate];
+        return { l:f[0], L:f[1], d:f[2], g:f[0], G:f[1], D:f[2], T:w[0], t:w[1], r:s[0], R:s[1], k:s[2],
+                 S: climate === 'hot' ? '#eadcc0' : '#ffffff', s:'#b9cfe0' };
+      },
+  
+      resolveFamily(kind, climate, season) {   // одно «дерево» — разные виды по климату и сезону
+        if (kind !== 'tree') return kind;
+        if (climate === 'cold') return 'pine';
+        if (climate === 'hot') return 'palm';
+        return season === 'WINTER' ? 'bare' : 'oak';
+      },
+  
+      buildSprite(sp) {
+        const d = this.pixelDecor;
+        const variants = d.patterns[sp.family];
+        const { w, h, cells } = d.toGrid(variants[sp.shape % variants.length]);
+        const pal = d.resolvePalette(sp.climate, sp.season);
+  
+        const c = document.createElement('canvas'); c.width = w; c.height = h;
+        const g = c.getContext('2d');
+        for (let i = 0; i < cells.length; i++) {
+          const role = cells[i]; if (!role || role === '.' || role === ' ') continue;
+          const x = i % w, y = (i / w) | 0;
+          const structural = role === 'T' || role === 't' || y === h - 1;
+          if (!structural && d.hash01(sp.seed, i) < 0.10) continue;          // форма: выпадают «рыхлые» пиксели
+          let color = role[0] === '#' ? role : pal[role];
+          if ('lLdgGDrRk'.includes(role)) color = d.warmTint(d.shade(color, sp.shade), sp.warm);   // цвет: яркость и тёплый сдвиг
+          g.fillStyle = color;
+          g.fillRect(x, y, 1, 1);
+        }
+        return { canvas: c, w, h };
+      },
+  
+      getSprite(icon, region) {
+        const d = this.pixelDecor, climate = region.climateZone || 'temperate', season = this.currentSeason;
+        if (d.cacheSeason !== season) { d.cache.clear(); d.cacheSeason = season; }   // нужен только текущий сезон
+        const family = d.resolveFamily(icon.kind, climate, season);
+        const key = `${family}|${icon.shape}|${icon.seed}|${icon.flip}|${icon.shade}|${icon.warm}|${climate}`;
+        let s = d.cache.get(key);
+        if (!s) { s = d.buildSprite({ family, climate, season, shape: icon.shape, seed: icon.seed, flip: icon.flip, shade: icon.shade, warm: icon.warm }); d.cache.set(key, s); }
+        return s;
+      },
+  
+      paint(ctx, visibleRect = null, keep = 1) {
+        if (this.viewMode === 'factions' || ['food','gold','production','manpower','ether'].includes(this.viewMode)) return;
+        const d = this.pixelDecor;
+        const px = ctx.getTransform().a;                                        // device-пикселей на мировую единицу
+        const cell = Math.max(1, Math.round(d.cellWorld * px)) / px;            // клетка = целое число пикселей
+        ctx.imageSmoothingEnabled = false;
+  
+        for (const region of this.terrain.regions.all) {
+          const icons = region.icons;
+          if (!icons?.length) continue;
+          if (visibleRect && !this.bboxIntersects(region.bbox, visibleRect)) continue;
+          for (const icon of icons) {
+              
+            if (icon.lod > keep) continue;                                      // LOD: на дальних слоях часть иконок пропускаем
+            
+            const s = d.getSprite(icon, region);
+            const w = s.w * cell * icon.scale, h = s.h * cell * icon.scale;
+            const drawX = Math.round((icon.x - w / 2) * px) / px;
+            const drawY = Math.round((icon.y - h / 2) * px) / px;
+
+            // 1. Отрисовка тени (черный полупрозрачный силуэт со смещением)
+            
+            if(icon.kind == 'tree'){
+                ctx.save();
+                ctx.globalAlpha = 0.08;     
+                ctx.filter = 'brightness(0)';  
+                const shadowCenterX = drawX + w / 2 + 1;
+                const shadowCenterY = drawY + h / 2 + 1 ;
+
+                ctx.translate(shadowCenterX, shadowCenterY);
+                ctx.rotate(1.5);
+                ctx.drawImage(s.canvas, -w / 2, -h / 2, w*0.75, h);
+                ctx.restore(); 
+            }
+
+            // 2. Отрисовка самого объекта поверх тени
+            ctx.drawImage(s.canvas, drawX, drawY, w, h);
+          }
+        }
+      },
+    },
+  };
