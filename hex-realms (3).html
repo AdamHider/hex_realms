@@ -353,15 +353,17 @@
 
   // ============================================================
   //  ОГЛАВЛЕНИЕ (порядок разделов = порядок будущих файлов)
-  //  1. data.js    — справочники: местность, ресурсы, цены, фракции, здания
-  //  2. hex.js     — геометрия и сущности: клетка, армия, фракция, регион, поселение
-  //  3. mapgen.js  — генератор карты: рельеф, реки, регионы, поселения, ресурсы
-  //  4. paint/     — отрисовка карты: слои, спрайты, здания, сетка, города
-  //  5. game.js    — партия: состояние мира и запросы к нему
-  //  6. rules.js   — правила: экономика, строительство, бой, движение, действия
-  //  7. ui.js      — ход игрока, камера, ввод, подсветка, панель, подписи
-  //  8. ai.js      — ходы фракций ИИ
-  //  9. boot.js    — запуск: загрузка, тема, настройки
+  //  1. data/      — справочники: местность, ресурсы, цены, фракции, здания
+  //  2. core/      — EventBus и Entity: события и база всех сущностей
+  //  3. hex.js, entities/ — геометрия, клетка, юнит, здание, объект, фракция, регион
+  //  4. world/     — Terrain и WorldMap: правила местности и инстанс карты
+  //  5. mapgen.js  — генератор карты: рельеф, реки, регионы, поселения, ресурсы
+  //  6. paint/     — отрисовка карты: слои, спрайты, здания, сетка, города
+  //  7. game.js, turn.js — партия, отношения фракций и порядок хода
+  //  8. rules/     — экономика, строительство, бой, движение, действия
+  //  9. ai.js      — ходы фракций ИИ
+  // 10. ui/        — ход игрока, камера, ввод, панель, подписи
+  // 11. boot.js    — запуск: загрузка, тема, настройки
   // ============================================================
 
   // ============================================================
@@ -456,9 +458,63 @@
   };
 
   // ============================================================
-  //  2. ГЕОМЕТРИЯ И СУЩНОСТИ (hex.js, entities.js)
-  //  Клетка, армия, фракция, регион, поселение — классы с полями состояния
-  //  и короткими методами; правила и отрисовка читают их одинаково.
+  //  2. ЯДРО (core/events.js, core/entity.js)
+  //  EventBus — события сущностей: общие идут через game, персональные —
+  //  через саму сущность. Entity — база всех сущностей: uid, type,
+  //  жизненный цикл update()/destroy() и своя шина событий.
+  // ============================================================
+
+  // Шина событий: on() возвращает функцию отписки, '*' ловит все события
+  class EventBus {
+    constructor(){ this.handlers = new Map(); }
+    on(type, fn){
+      if(!this.handlers.has(type)) this.handlers.set(type, new Set());
+      this.handlers.get(type).add(fn);
+      return () => this.off(type, fn);
+    }
+    off(type, fn){
+      const set = this.handlers.get(type);
+      if(set) set.delete(fn);
+    }
+    emit(type, payload = this){
+      const set = this.handlers.get(type);
+      if(set) [...set].forEach(fn => fn(payload));
+      const all = this.handlers.get('*');
+      if(all) [...all].forEach(fn => fn({ type, payload }));
+    }
+  }
+
+  // Общие события партии: их эмитит game, слушает интерфейс. У сущностей
+  // события свои ('move', 'upgrade', 'destroy'…)
+  const EVENTS = {
+    roundStart: 'round:start',   // новый раунд
+    capture: 'hex:capture',      // клетка закреплена за фракцией
+    gameOver: 'game:over',       // партия окончена: { won, text }
+    log: 'log',                  // новая строка журнала
+  };
+
+  // Базовая сущность. update() вызывается раз в ход (по умолчанию ничего),
+  // destroy() снимает сущность с карты и эмитит 'destroy'.
+  let nextEntityId = 1;
+  class Entity extends EventBus {
+    constructor(type){
+      super();
+      this.uid = nextEntityId++;
+      this.type = type;
+      this.dead = false;
+    }
+    update(){}
+    destroy(){
+      if(this.dead) return;
+      this.dead = true;
+      this.emit('destroy', this);
+    }
+  }
+
+  // ============================================================
+  //  3. ГЕОМЕТРИЯ И СУЩНОСТИ (hex.js, entities/*.js)
+  //  Клетка, юнит, здание, объект, фракция, регион, поселение, река — сущности
+  //  с общим жизненным циклом (update/destroy) и своими событиями.
   // ============================================================
 
   // ---------- Осевые координаты клеток ----------
@@ -494,31 +550,131 @@
     return seen.size === cells.length;
   };
 
-  class Hex {
+  // ---------- Клетка карты ----------
+  // Сабинстанс карты: местность, владелец, юнит, здание и объект. Клетка не знает
+  // правил — их применяют game и rules, меняя состояние через place/unplace.
+  class Hex extends Entity {
     constructor(q, r){
+      super('hex');
       this.q = q;
       this.r = r;
       this.terrain = 'plains';
-      this.owner = null;      // id фракции-владельца
+      this.owner = null;         // id фракции-владельца
       this.capital = false;
-      this.unit = null;       // армия на клетке (Army)
-      this.building = null;   // { kind, level }
+      this.region = undefined;   // id региона
+      this.regionKind = undefined;
+      this.unit = null;          // юнит на клетке
+      this.building = null;      // здание (поселение, поле)
+      this.object = null;        // объект (рудник)
+      this.settlement = null;    // поселение, чей центр или район — эта клетка
+      this.level = undefined;    // 1–3: густота леса, размер поселения, богатство угодий
+      this.spec = undefined;     // специализация поселения
+      this.res = {};             // что клетка даёт владельцу
+      this.occ = undefined;      // кто оккупирует (захват — в начале его хода)
+      this.pending = null;       // заказ работ на ход
     }
+    // Юнит встаёт на клетку и уходит с неё только через эти методы —
+    // так ссылка unit.hex всегда верна
+    place(unit){
+      this.unit = unit;
+      if(unit) unit.hex = this;
+      return unit;
+    }
+    unplace(unit = this.unit){
+      if(unit && this.unit === unit){
+        this.unit = null;
+        unit.hex = null;
+      }
+      return unit;
+    }
+    update(){ if(this.unit) this.unit.update(); }
   }
 
-  class Army {
+  // ---------- Юнит (армия) ----------
+  // Сила, владелец и флаг «ходил». Методы меняют только сам юнит; куда ему
+  // можно идти, решает Movement, а исход боя — Combat.
+  class Unit extends Entity {
     constructor(owner, strength = RULES.warriorStrength){
+      super('unit');
       this.owner = owner;
       this.strength = strength;
       this.hasMoved = false;
+      this.hex = null;
     }
     get maxed(){ return this.strength >= RULES.maxArmy; }
+
+    update(){ this.hasMoved = false; }        // новый ход — снова можно идти
+    move(to){                                 // встать на клетку (бой и оккупацию ведут правила)
+      if(this.hex) this.hex.unplace(this);
+      to.place(this);
+      this.hasMoved = true;
+      this.emit('move', to);
+      return this;
+    }
+    merge(other){                             // слияние: силы складываются, второй юнит уходит с карты
+      this.strength += other.strength;
+      this.hasMoved = true;
+      other.destroy();
+      this.emit('merge', other);
+      return this;
+    }
+    upgrade(){                                // +1 к силе (подкрепление)
+      this.strength++;
+      this.emit('upgrade', this);
+      return this;
+    }
     // Потери в бою: половина силы противника, но армия не исчезает совсем
-    takeCasualties(opponentStrength){ this.strength = Math.max(1, this.strength - (opponentStrength >> 1)); }
+    takeCasualties(opponentStrength){
+      this.strength = Math.max(1, this.strength - (opponentStrength >> 1));
+      this.emit('casualties', this);
+      return this;
+    }
+    destroy(){
+      if(this.hex) this.hex.unplace(this);
+      super.destroy();
+    }
   }
 
-  class Player {
+  // ---------- Здание ----------
+  // kind: 'settlement' (поселение или район города) или 'field' (поле).
+  // level 1–3; у поселения размер дублируется в h.level — его читает отрисовка.
+  class Building extends Entity {
+    constructor(kind, level = 1){
+      super('building');
+      this.kind = kind;
+      this.level = level;
+    }
+    get isSettlement(){ return this.kind === 'settlement'; }
+    get label(){ return BUILDING_TYPES[this.kind].label; }
+    upgrade(){
+      this.level++;
+      this.emit('upgrade', this);
+      return this;
+    }
+  }
+
+  // ---------- Объект на карте ----------
+  // Рудник в горах у края: сам ничего не даёт, но усиливает соседние
+  // промышленные поселения (см. MapGen.cellResources).
+  class MapObject extends Entity {
+    constructor(kind, hex){
+      super('object');
+      this.kind = kind;          // 'gold' | 'iron'
+      this.hex = hex || null;
+    }
+    get label(){ return this.kind === 'gold' ? 'Золото' : 'Железо'; }
+    destroy(){
+      if(this.hex) this.hex.object = null;
+      super.destroy();
+    }
+  }
+
+  // ---------- Фракция ----------
+  // Игрок (id 0) и ИИ: казна, цвета, флаг «в игре». Отношения к другим
+  // фракциям хранит таблица Relations, а не сама фракция.
+  class Faction extends Entity {
     constructor(id, faction){
+      super('faction');
       this.id = id;
       this.name = faction.name;
       this.color = faction.color;
@@ -527,13 +683,21 @@
       this.alive = true;
       this.res = { gold:30, production:6, population:10, food:4 };
     }
+    get isPlayer(){ return this.id === 0; }
     canAfford(cost){ return RES_KEYS.every(k => this.res[k] >= (cost[k] || 0)); }
     pay(cost){ RES_KEYS.forEach(k => { this.res[k] -= cost[k] || 0; }); }
     receive(cost){ RES_KEYS.forEach(k => { this.res[k] += cost[k] || 0; }); }
+    destroy(){
+      this.alive = false;
+      this.emit('out', this);
+      super.destroy();
+    }
   }
 
-  class Region {
+  // ---------- Регион ----------
+  class Region extends Entity {
     constructor(center, cells){
+      super('region');
       this.center = center;
       this.cells = cells || [center];
       this.id = -1;
@@ -551,22 +715,27 @@
     }
   }
 
-  class Settlement {
+  // ---------- Поселение ----------
+  // Основное поселение региона или район города (district указывает на основное)
+  class Settlement extends Entity {
     constructor(id, name, region, main, district = null){
+      super('settlement');
       this.id = id;
       this.name = name;
       this.region = region;
       this.main = main;
-      this.district = district;   // основное поселение, если это район
-      this.founding = false;      // изначальное поселение региона (его нельзя снести)
+      this.district = district;
+      this.founding = false;     // изначальное поселение региона (его нельзя снести)
     }
     get level(){ return this.main.level; }
     get root(){ return this.district || this; }
   }
 
-  // Река — ребро между двумя клетками; bridge — можно ли через него перейти
-  class RiverEdge {
+  // ---------- Река ----------
+  // Ребро между двумя клетками; bridge — можно ли через него перейти
+  class River extends Entity {
     constructor(a, b, x1, y1, x2, y2, river, rand){
+      super('river');
       this.a = a;
       this.b = b;
       this.x1 = x1;
@@ -579,8 +748,59 @@
     }
   }
 
+  // ============================================================
+  //  4. МИР (world/terrain.js, world/map.js)
+  //  Terrain — правила местности, WorldMap — инстанс карты: клетки, реки,
+  //  регионы, поселения. Генерацию делает MapGen, карта хранит результат
+  //  и отвечает на вопросы о соседстве и владении.
+  // ============================================================
+
+  class Terrain {
+    constructor(kinds = TERRAIN){ this.kinds = kinds; }
+    // Та же проверка, что у генератора карты: правило одно на всех
+    passable(hex){ return isPassable(hex); }
+    cost(hex){ return this.kinds[hex.terrain].move || 1; }
+    // Название с учётом уровня: «Лес» → «Густой лес»
+    label(hex){
+      const names = LEVEL_NAMES[hex.terrain];
+      return names && hex.level ? names[hex.level - 1] : this.kinds[hex.terrain].label;
+    }
+  }
+
+  class WorldMap extends Entity {
+    constructor(seed){
+      super('map');
+      this.seed = seed;
+      this.terrain = new Terrain();
+      this.hexes = createHexes();
+      this.rivers = new Map();
+      this.regions = [];
+      this.settlements = [];
+      const generated = MapGen.build(this.hexes, seed);
+      this.rivers = generated.rivers;
+      this.regions = generated.regions;
+      this.settlements = generated.settlements;
+    }
+    get(q, r){ return this.hexes.get(key(q, r)); }
+    // Соседи без учёта рек и проходимости
+    around(h){ return adjacent(this.hexes, h); }
+    // Соседи, в которые можно пойти: реку без моста перейти нельзя
+    neighbors(h){ return this.around(h).filter(n => this.crossable(h, n)); }
+    crossable(a, b){
+      const river = this.rivers.get(edgeKey(a, b));
+      return !river || river.bridge;
+    }
+    ownedBy(pid){
+      let count = 0;
+      this.hexes.forEach(h => { if(h.owner === pid) count++; });
+      return count;
+    }
+    update(){ this.hexes.forEach(h => h.update()); }
+  }
+
   // ---------- Game state ----------
   let game = null;
+
 
   // ============================================================
   //  Шум: детерминированный value-noise (одно и то же по seed)
@@ -627,7 +847,7 @@
   const smooth = t => { t = clamp01(t); return t * t * (3 - 2 * t); };
 
   // ============================================================
-  //  3. ГЕНЕРАТОР КАРТЫ (mapgen.js)
+  //  5. ГЕНЕРАТОР КАРТЫ (mapgen.js)
   //  Поле высоты и влажности → тип клетки → реки, регионы, поселения, угодья, ресурсы.
   //  build(hexes, seed) — единственный вход; шаги идут в этом порядке:
   //  рельеф → материк → реки → регионы → мосты → поселения → угодья → ресурсы.
@@ -879,7 +1099,7 @@
       regions.filter(r => r.kind === 'settled').forEach(region => {
         const center = region.center;
         center.level = 1 + (Noise.hash(center.q, center.r, seed + 60) * 3 | 0);
-        center.building = { kind: 'settlement' };
+        center.building = new Building('settlement');
         center.spec = 'civil';
         const settlement = new Settlement(list.length, region.name, region.id, center);
         settlement.founding = true;
@@ -966,7 +1186,7 @@
           const [left, right] = b ? a.hexes.filter(h => b.hexes.includes(h)) : [];
           if(right){
             const rand = Noise.hash(left.q * 7 + right.q, left.r * 7 + right.r, seed + 53);
-            edges.set(edgeKey(left, right), new RiverEdge(left, right, a.x, a.y, b.x, b.y, made, rand));
+            edges.set(edgeKey(left, right), new River(left, right, a.x, a.y, b.x, b.y, made, rand));
           }
         });
         made++;
@@ -1046,7 +1266,7 @@
                   : h.settlement ? h.level
                   : 1 + (Noise.hash(h.q, h.r, seed + 60) * 3 | 0);
       if(['forest', 'farm', 'village'].includes(h.terrain)) h.level = level;
-      if(h.terrain === 'farm' && !building) h.building = { kind: 'field', level };   // и природное поле — здание: его можно улучшить и снести
+      if(h.terrain === 'farm' && !building) h.building = new Building('field', level);   // и природное поле — здание: его можно улучшить и снести
 
       const res = {};
       const add = (kind, value) => { res[kind] = (res[kind] || 0) + value; };
@@ -1062,7 +1282,7 @@
         if(spec === 'production'){
           add('production', 2 * level);
           add('production', Math.min(4, count(n => n.terrain === 'forest')));
-          neighbors.filter(n => n.ore).forEach(n => add(n.ore === 'gold' ? 'gold' : 'production', 3));
+          neighbors.filter(n => n.object).forEach(n => add(n.object.kind === 'gold' ? 'gold' : 'production', 3));
         }
         if(spec === 'food'){ add('food', 2 * level); add('food', Math.min(3, count(n => n.terrain === 'farm'))); }
         if(spec === 'trade'){ add('gold', 2 * level); add('gold', Math.min(3, count(n => n.terrain === 'village'))); }
@@ -1076,11 +1296,11 @@
       const onEdge = adjacent(hexes, h).some(n => !TERRAIN[n.terrain].impassable);
       const chance = h.regionKind === 'industrial' ? o.mineIndustrial : o.ore;
       if(!onEdge || Noise.hash(h.q, h.r, seed + 61) >= chance) return;
-      h.ore = Noise.hash(h.q, h.r, seed + 62) < o.goldMine ? 'gold' : 'iron';
+      h.object = new MapObject(Noise.hash(h.q, h.r, seed + 62) < o.goldMine ? 'gold' : 'iron', h);
     },
   };
   // ============================================================
-  //  4. ОТРИСОВКА КАРТЫ (paint/*.js)
+  //  6. ОТРИСОВКА КАРТЫ (paint/*.js)
   //  Карта рисуется один раз в скрытый холст (кадр = целая карта)
   //  Слои идут по PIPELINE; у каждого свой контур: build(p) — считает данные, paint(p) — рисует.
   //  У пикселя нет «одного типа»: он смешивает до трёх ближайших клеток, поэтому лес плавно переходит
@@ -1217,38 +1437,63 @@
 
   // exact — готовый полноцветный рисунок: каждый пиксель — ровный квадрат k×k своего цвета, без зерна, контура и подсветки;
   // тень — силуэт, сдвинутый на один пиксель рисунка
-  function stamp(ctx, rows, pal, x, y, k = 1, exact = false, outline = true){
-    const w = rows[0].length, left = x - Math.floor(w * k / 2), top = y - rows.length * k;
-    const paint = {};   // цвета палитры в стиле карты — по одному разу на вызов
-    for(const ch in pal) paint[ch] = rgb(grade(pal[ch], 'object'));
-    // Соседние пиксели строки одного цвета рисуются одним прямоугольником (в нём одинаковые пиксели — результат тот же, вызовов втрое меньше); same — продолжается ли серия
-    const runs = (same, draw) => rows.forEach((row, j) => { for(let i = 0; i < w;){ if(row[i] === '.'){ i++; continue; } let e = i + 1; while(e < w && same(row[e], row[i])) e++; draw(row[i], i, j, e - i); i = e; } });
-    if(exact){
-      ctx.fillStyle = 'rgba(14,26,40,0.24)';
-      runs((a) => a !== '.', (ch, i, j, n) => ctx.fillRect(left + (i + 1) * k, top + (j + 1) * k, n * k, k));
-      runs((a, b) => a === b, (ch, i, j, n) => { ctx.fillStyle = paint[ch]; ctx.fillRect(left + i * k, top + j * k, n * k, k); });
-      return;
+  // Спрайт: строки символов и палитра. Рисуется попиксельно — с зерном, светом
+  // внутри пикселя и контуром по силуэту; якорь — низ по центру.
+  class Sprite {
+    constructor(rows, pal){
+      this.rows = rows;
+      this.pal = pal;
     }
-    ctx.fillStyle = 'rgba(14,26,40,0.28)';
-    ctx.fillRect(left + 2 * k, y - k, w * k, 2 * k);
-    if(k === 1){ runs((a, b) => a === b, (ch, i, j, n) => { ctx.fillStyle = paint[ch]; ctx.fillRect(left + i, top + j, n, 1); }); return; }
-    rows.forEach((row, j) => {
-      for(let i = 0; i < w; i++){
-        const ch = row[i];
-        if(ch === '.') continue;
-        const base = grade(pal[ch], 'object');   // нужен числовой цвет — для оттенков зерна
-        const empty = (di, dj) => { const r = rows[j + dj]; return !r || r[i + di] === undefined || r[i + di] === '.'; };
-        for(let sy = 0; sy < k; sy++){
-          for(let sx = 0; sx < k; sx++){
-            let shade = 1 + (Noise.hash(left + i * k + sx, top + j * k + sy, 77) - 0.5) * 0.14;               // зерно
-            shade += sx + sy === 0 ? 0.07 : sx + sy === 2 * k - 2 ? -0.09 : 0;                               // свет и тень внутри пикселя
-            if(outline && (sx === 0 && empty(-1, 0)) || (sx === k - 1 && empty(1, 0)) || (sy === 0 && empty(0, -1)) || (sy === k - 1 && empty(0, 1))) shade -= 0.38;   // контур по силуэту
-            ctx.fillStyle = rgb(base.map(v => v * shade));
-            ctx.fillRect(left + i * k + sx, top + j * k + sy, 1, 1);
+    get width(){ return this.rows[0].length; }
+    get height(){ return this.rows.length; }
+    stamp(ctx, x, y, k = 1, exact = false, outline = true){
+      const rows = this.rows, pal = this.pal;
+      const w = rows[0].length, left = x - Math.floor(w * k / 2), top = y - rows.length * k;
+      const paint = {};   // цвета палитры в стиле карты — по одному разу на вызов
+      for(const ch in pal) paint[ch] = rgb(grade(pal[ch], 'object'));
+      // Соседние пиксели строки одного цвета рисуются одним прямоугольником (в нём одинаковые пиксели — результат тот же, вызовов втрое меньше); same — продолжается ли серия
+      const runs = (same, draw) => rows.forEach((row, j) => { for(let i = 0; i < w;){ if(row[i] === '.'){ i++; continue; } let e = i + 1; while(e < w && same(row[e], row[i])) e++; draw(row[i], i, j, e - i); i = e; } });
+      if(exact){
+        ctx.fillStyle = 'rgba(14,26,40,0.24)';
+        runs((a) => a !== '.', (ch, i, j, n) => ctx.fillRect(left + (i + 1) * k, top + (j + 1) * k, n * k, k));
+        runs((a, b) => a === b, (ch, i, j, n) => { ctx.fillStyle = paint[ch]; ctx.fillRect(left + i * k, top + j * k, n * k, k); });
+        return;
+      }
+      ctx.fillStyle = 'rgba(14,26,40,0.28)';
+      ctx.fillRect(left + 2 * k, y - k, w * k, 2 * k);
+      if(k === 1){ runs((a, b) => a === b, (ch, i, j, n) => { ctx.fillStyle = paint[ch]; ctx.fillRect(left + i, top + j, n, 1); }); return; }
+      rows.forEach((row, j) => {
+        for(let i = 0; i < w; i++){
+          const ch = row[i];
+          if(ch === '.') continue;
+          const base = grade(pal[ch], 'object');   // нужен числовой цвет — для оттенков зерна
+          const empty = (di, dj) => { const r = rows[j + dj]; return !r || r[i + di] === undefined || r[i + di] === '.'; };
+          for(let sy = 0; sy < k; sy++){
+            for(let sx = 0; sx < k; sx++){
+              let shade = 1 + (Noise.hash(left + i * k + sx, top + j * k + sy, 77) - 0.5) * 0.14;               // зерно
+              shade += sx + sy === 0 ? 0.07 : sx + sy === 2 * k - 2 ? -0.09 : 0;                               // свет и тень внутри пикселя
+              if(outline && (sx === 0 && empty(-1, 0)) || (sx === k - 1 && empty(1, 0)) || (sy === 0 && empty(0, -1)) || (sy === k - 1 && empty(0, 1))) shade -= 0.38;   // контур по силуэту
+              ctx.fillStyle = rgb(base.map(v => v * shade));
+              ctx.fillRect(left + i * k + sx, top + j * k + sy, 1, 1);
+            }
           }
         }
-      }
-    });
+      });
+    }
+  }
+
+  // Спрайты кэшируются по паре «строки + палитра»: на кадр их рисуются сотни,
+  // а одни и те же строки встречаются с разными палитрами (деревья, стены)
+  const spriteCache = new WeakMap();
+  function spriteOf(rows, pal){
+    let byPal = spriteCache.get(rows);
+    if(!byPal){ byPal = new Map(); spriteCache.set(rows, byPal); }
+    let sprite = byPal.get(pal);
+    if(!sprite){ sprite = new Sprite(rows, pal); byPal.set(pal, sprite); }
+    return sprite;
+  }
+  function stamp(ctx, rows, pal, x, y, k = 1, exact = false, outline = true){
+    return spriteOf(rows, pal).stamp(ctx, x, y, k, exact, outline);
   }
 
   // ВРЕМЕННЫЕ параметры формы всех границ (фракций, регионов, клеток, зон) — подбираются ползунками, потом станут константами:
@@ -1283,11 +1528,11 @@
         }
         const soft = o.softness * HEX_SIZE;
         const K = Math.sqrt(3), HX = HEX_SIZE * K, HY = HEX_SIZE * 1.5;
-        const rivers = [...game.rivers.values()];
+        const rivers = [...game.map.rivers.values()];
 
         // облик клетки с учётом уровня: гуще лес, крупнее поселение, больше пашни
         const looks = new Map();
-        game.hexes.forEach(h => {
+        game.map.hexes.forEach(h => {
           const base = h.capital ? LOOK.capital : LOOK[h.terrain];
           const scale = h.capital ? 1.3 : h.level ? LEVEL[h.terrain][h.level - 1] : 1;
           looks.set(key(h.q, h.r), { ...base, trees: base.trees * scale, town: (base.town || 0) * scale, farm: (base.farm || 0) * scale });
@@ -1295,13 +1540,13 @@
 
         // облики клеток — в плоский массив по координатам (в пикселе их семь)
         let qLo = Infinity, qHi = -Infinity, rLo = Infinity, rHi = -Infinity;
-        game.hexes.forEach(h => {
+        game.map.hexes.forEach(h => {
           qLo = Math.min(qLo, h.q); qHi = Math.max(qHi, h.q);
           rLo = Math.min(rLo, h.r); rHi = Math.max(rHi, h.r);
         });
         const QW = qHi - qLo + 1, grid = new Array(QW * (rHi - rLo + 1)).fill(null);
         looks.forEach((look, k) => {
-          const h = game.hexes.get(k);
+          const h = game.map.hexes.get(k);
           grid[(h.q - qLo) + (h.r - rLo) * QW] = look;
         });
         const lookAt = (q, r) => (q < qLo || q > qHi || r < rLo || r > rHi ? null : grid[(q - qLo) + (r - rLo) * QW]) || LOOK.water;
@@ -1557,16 +1802,16 @@
 
       build(p){
         p.mines = [];
-        game.hexes.forEach(h => {
-          if(!h.ore) return;
+        game.map.hexes.forEach(h => {
+          if(!h.object) return;
           const c = axialToPixel(h.q, h.r);
           let dx = 0, dy = 0;
           DIRS.forEach(([dq, dr]) => {   // сдвигаем залежь к соседним проходимым клеткам — на край гор
-            const n = game.hexes.get(key(h.q + dq, h.r + dr));
+            const n = game.map.hexes.get(key(h.q + dq, h.r + dr));
             if(n && !TERRAIN[n.terrain].impassable){ const m = axialToPixel(n.q, n.r); dx += m.x - c.x; dy += m.y - c.y; }
           });
           const len = Math.hypot(dx, dy) || 1;
-          p.mines.push({ x: Math.round((c.x + dx / len * 11 + p.offx) / p.S), y: Math.round((c.y + dy / len * 11 + 5 + p.offy) / p.S), kind: h.ore, hex: h });
+          p.mines.push({ x: Math.round((c.x + dx / len * 11 + p.offx) / p.S), y: Math.round((c.y + dy / len * 11 + 5 + p.offy) / p.S), kind: h.object.kind, hex: h });
         });
         p.mines.sort((a, b) => a.y - b.y);
       },
@@ -1605,7 +1850,7 @@
             const r = Noise.hash(gx, gy, seed + 34);
             // вдоль границ регионов деревья расступаются: у линии — пусто, дальше шанс остаться растёт
             const wx = (x + 0.5) * S - offx, wy = (y - 3 * f) * S - offy;   // середина кроны в мировых координатах
-            const own = pixelToAxial(wx, wy), cell = game.hexes.get(key(own.q, own.r));
+            const own = pixelToAxial(wx, wy), cell = game.map.hexes.get(key(own.q, own.r));
             if(cell && (cell.terrain === 'farm' || cell.terrain === 'village')) continue;   // лес не заходит на поля и поселения соседних клеток
             let gap = Infinity;   // дальше 2·clear от границы деревья не редеют — дальние отрезки не считаем
             for(const border of borderSegs){
@@ -1813,7 +2058,7 @@
       farms(p, dirty){
         const boxes = [...p.mineBoxes, ...[...p.built.values()].flatMap(d => d.boxes)], base = boxes.length;
         p.mills = { items: [], boxes: [] };
-        game.hexes.forEach(h => { if(h.terrain === 'farm'){ this.windmill(p, h, p.mills.items, boxes); this.farmstead(p, h, p.mills.items, boxes); } });
+        game.map.hexes.forEach(h => { if(h.terrain === 'farm'){ this.windmill(p, h, p.mills.items, boxes); this.farmstead(p, h, p.mills.items, boxes); } });
         this.fences(p, p.mills.items, dirty);
         p.mills.boxes = boxes.slice(base);
         this.assemble(p);
@@ -1822,7 +2067,7 @@
       // Группы для отрисовки: город — основное поселение (первым) и все его районы любого уровня; поселения без района — каждое само по себе
       groups(){
         const by = new Map();
-        game.settlements.forEach(st => { const root = st.district || st; (by.get(root) || by.set(root, [root]).get(root)); if(st !== root) by.get(root).push(st); });
+        game.map.settlements.forEach(st => { const root = st.district || st; (by.get(root) || by.set(root, [root]).get(root)); if(st !== root) by.get(root).push(st); });
         return [...by.values()];
       },
 
@@ -1950,7 +2195,7 @@
           // какие рёбра клеток выходят за пределы территории города: 0 — к своему городу,
           // 1 — наружу, 2 — к поселению другого региона (там нужен промежуток)
           outer: cityHexes.map(h => DIRS.map(([dq, dr]) => {
-            const neighbor = game.hexes.get(key(h.q + dq, h.r + dr));
+            const neighbor = game.map.hexes.get(key(h.q + dq, h.r + dr));
             return inSet.has(neighbor) ? 0 : neighbor && neighbor.terrain === 'village' ? 2 : 1;
           })),
         };
@@ -1961,7 +2206,7 @@
         const tint = (pl, f, d) => Object.fromEntries(Object.entries(pl).map(([k, v]) => [k, v.map((x, i) => Math.max(0, Math.min(255, Math.round(x * f + d * [1, 0, -1][i]))))]));   // оттенок: светлее/темнее и чуть теплее/холоднее
         // 1. порт у воды (место у берега не ограничено занятой площадью)
         S.noReach = true;
-        cityHexes.forEach((h, i) => { if(DIRS.some(([dq, dr]) => { const n = game.hexes.get(key(h.q + dq, h.r + dr)); return n && n.terrain === 'water'; })) this.harbor(p, i, data, S, hash, pal); });   // порт — у каждого гекса на берегу
+        cityHexes.forEach((h, i) => { if(DIRS.some(([dq, dr]) => { const n = game.map.hexes.get(key(h.q + dq, h.r + dr)); return n && n.terrain === 'water'; })) this.harbor(p, i, data, S, hash, pal); });   // порт — у каждого гекса на берегу
         S.noReach = false;
         // ворота — на стороне гекса, где нет воды
         const gates = this.sides().map(([nx, ny]) => this.edgeAt(S, Math.atan2(ny, nx), o.wallInset)).filter(g => !this.coast(p, g.x, g.y, o.shore + 2)), gate = gates.length ? gates[hash(0, 20) * gates.length | 0] : null;
@@ -2129,7 +2374,7 @@
       // Готовые ограды хранятся по клеткам (p.fenceCache): после стройки заново считаются только те, что рядом с изменившимися клетками dirty (не дальше двух клеток — рельеф там мог измениться)
       fences(p, list, dirty = []){
         p.fenceCache = p.fenceCache || new Map();
-        game.hexes.forEach(h => {
+        game.map.hexes.forEach(h => {
           if(h.terrain !== 'farm' || (h.level || 1) < 2) return;
           const id = key(h.q, h.r) + ':' + h.level, kept = p.fenceCache.get(id);
           if(kept && !dirty.some(d => hexDist(d, h) <= 2)){ list.push(...kept); return; }
@@ -2166,7 +2411,7 @@
       options: { arch: 2, thick: 1 },   // высота арки в середине и толщина настила — в пикселях рисунка (умножаются на масштаб детализации)
 
       build(p){
-        p.bridges = [...game.rivers.values()].filter(e => e.bridge).map(e => {
+        p.bridges = [...game.map.rivers.values()].filter(e => e.bridge).map(e => {
           const mx = (e.x1 + e.x2) / 2, my = (e.y1 + e.y2) / 2, [wx, wy] = Layers.Field.warp(mx, my, p.seed);
           const a = Math.atan2(e.y2 - e.y1, e.x2 - e.x1) + Math.PI / 2;   // мост перпендикулярен течению
           // на экране река сдвинута «скручиванием», поэтому мост ставим в обратную сторону
@@ -2237,7 +2482,7 @@
         cells.forEach(h => {
           const c = axialToPixel(h.q, h.r);
           SIDES.forEach(({ dq, dr, i }) => {
-            if(own.has(game.hexes.get(key(h.q + dq, h.r + dr)))) return;
+            if(own.has(game.map.hexes.get(key(h.q + dq, h.r + dr)))) return;
             const ends = [-30, 30].map(d => { const a = (60 * i + d) * Math.PI / 180; return [c.x + HEX_SIZE * Math.cos(a), c.y + HEX_SIZE * Math.sin(a)]; });
             const a = i * Math.PI / 3;   // внутрь клетки — против направления стороны
             edges.set(id(...ends[0]), { from: ends[0], to: ends[1], nx: -Math.cos(a), ny: -Math.sin(a) });
@@ -2293,13 +2538,13 @@
 
       // Контуры нужны и для рисования, и чтобы деревья расступались вдоль границ (Trees.build)
       build(p){
-        p.borders = game.regions.flatMap(r => this.loops(r.cells));
+        p.borders = game.map.regions.flatMap(r => this.loops(r.cells));
         p.borderSegs = p.borders.flatMap(pts => pts.map((a, i) => { const b = pts[(i + 1) % pts.length]; return { x1: a[0], y1: a[1], x2: b[0], y2: b[1] }; }));
       },
 
       // Сетка и границы регионов рисуются на отдельных прозрачных холстах (p.gridLayer, p.regionLayer): игра включает и выключает их, не перерисовывая карту
       paint(p){
-        const { offx, offy } = p, hexes = game.hexes;
+        const { offx, offy } = p, hexes = game.map.hexes;
         const layer = () => { const c = document.createElement('canvas'); c.width = p.fullW; c.height = p.fullH; return c; };
         p.gridLayer = layer(); p.regionLayer = layer();
         let ctx = p.gridLayer.getContext('2d');
@@ -2415,25 +2660,32 @@
   };
 
   // Экран конца хода (как в Total War): по шагам — работы, ход каждой фракции с её действиями, доходы, перерисовка карты
-  const TurnScreen = {
-    el: document.getElementById('turnScreen'), list: document.getElementById('turnSteps'), bar: document.getElementById('turnBar'), title: document.getElementById('turnTitle'),
-    show(round){ this.list.innerHTML = ''; this.bar.style.width = '0'; this.title.textContent = 'Ход ' + round + ' · противники'; this.el.style.display = 'flex'; },
+  // Экран хода противников: что происходит и сколько осталось
+  class TurnScreenView {
+    constructor(){
+      this.el = document.getElementById('turnScreen');
+      this.list = document.getElementById('turnSteps');
+      this.bar = document.getElementById('turnBar');
+      this.title = document.getElementById('turnTitle');
+    }
+    show(round){ this.list.innerHTML = ''; this.bar.style.width = '0'; this.title.textContent = 'Ход ' + round + ' · противники'; this.el.style.display = 'flex'; }
     async step(text, lines = []){
       const li = document.createElement('li');
       li.innerHTML = `<b>${text}</b>` + lines.map(l => `<div>${l}</div>`).join('');
       this.list.appendChild(li); this.list.scrollTop = this.list.scrollHeight;
-      await new Promise(r => setTimeout(r, (320 + 90 * Math.min(lines.length, 4)) * 2 / Math.max(2, game.players.length - 1)));   // чем больше ИИ, тем короче показ каждого, чтобы ход не тянулся
-    },
-    progress(frac){ this.bar.style.width = Math.round(frac * 100) + '%'; },
-    hide(){ this.progress(1); this.el.style.display = 'none'; },
-  };
+      await new Promise(r => setTimeout(r, (320 + 90 * Math.min(lines.length, 4)) * 2 / Math.max(2, game.factions.length - 1)));   // чем больше ИИ, тем короче показ каждого, чтобы ход не тянулся
+    }
+    progress(frac){ this.bar.style.width = Math.round(frac * 100) + '%'; }
+    hide(){ this.progress(1); this.el.style.display = 'none'; }
+  }
+  const TurnScreen = new TurnScreenView();
   let logTap = null;   // пока не null, сообщения журнала копятся и сюда (для шагов ИИ)
 
   // ============================================================
-  //  5. ПАРТИЯ (game.js)
-  //  Создание мира (клетки, столицы, стартовые владения) и состояние партии:
-  //  клетки, фракции, регионы, поселения, реки, выделение, журнал.
-  //  Правила и отрисовка читают состояние через game.
+  //  7. ПАРТИЯ И ХОДЫ (game.js, turn.js)
+  //  Game — состояние партии: карта, фракции, отношения, выделение, журнал.
+  //  TurnManager — порядок хода: ходы ИИ, доход, стройки, захваты, раунд.
+  //  Отношения фракций — отдельная таблица Relation на пару.
   // ============================================================
 
   // Все клетки карты в форме шестиугольника радиуса MAP_RADIUS
@@ -2449,13 +2701,13 @@
 
   // Столицы — по кругу на 0.65 радиуса карты, первая (игрока) сверху. Столица ставится в город,
   // поэтому ищем ближайшее к точке поселение, достаточно далёкое от уже занятых столиц
-  function placeCapitals(hexes, players, seed){
+  function placeCapitals(hexes, factions, seed){
     const all = [...hexes.values()];
     const ring = MAP_RADIUS * 0.65;
     const minGap = Math.round(MAP_RADIUS * 0.45);
     const capitals = [];
-    players.forEach((player, i) => {
-      const angle = -Math.PI / 2 + i * 2 * Math.PI / players.length;
+    factions.forEach((faction, i) => {
+      const angle = -Math.PI / 2 + i * 2 * Math.PI / factions.length;
       const target = pixelToAxial(Math.cos(angle) * ring * HEX_SIZE * 1.6, Math.sin(angle) * ring * HEX_SIZE * 1.6);
       let best = null, bestScore = Infinity;
       all.forEach(h => {
@@ -2466,7 +2718,7 @@
         if(score < bestScore){ bestScore = score; best = h; }
       });
       if(!best) return;
-      best.owner = player.id;
+      best.owner = faction.id;
       best.capital = true;
       if(best.settlement){   // столица — крупный город с самого начала
         best.level = 3;
@@ -2495,21 +2747,54 @@
       const region = regions[id];
       region.cells.forEach(c => { c.owner = i; });
       const garrison = region.cells.find(c => c.capital) || region.center;
-      garrison.unit = new Army(i);
+      garrison.place(new Unit(i));
     }));
   }
 
-  class Game {
+  // ---------- Отношения фракций ----------
+  // Пара хранится один раз, порядок не важен. По умолчанию все воюют:
+  // чужая клетка враждебна, пока не заключён мир.
+  class Relation extends Entity {
+    constructor(a, b, state = 'war'){
+      super('relation');
+      this.a = Math.min(a, b);
+      this.b = Math.max(a, b);
+      this.state = state;
+    }
+    get hostile(){ return this.state === 'war'; }
+    setState(state){
+      if(state === this.state) return this;
+      this.state = state;
+      this.emit('change', this);
+      return this;
+    }
+  }
+
+  class Relations extends EventBus {
+    constructor(){ super(); this.pairs = new Map(); }
+    between(a, b){
+      if(a === b) return null;
+      const id = Math.min(a, b) + ':' + Math.max(a, b);
+      if(!this.pairs.has(id)) this.pairs.set(id, new Relation(a, b));
+      return this.pairs.get(id);
+    }
+    hostile(a, b){
+      if(a === null || a === undefined || b === null || b === undefined || a === b) return false;
+      return this.between(a, b).hostile;
+    }
+  }
+
+  // ---------- Партия ----------
+  class Game extends Entity {
     constructor(seed){
+      super('game');
       this.seed = seed;
-      this.hexes = createHexes();
-      const map = MapGen.build(this.hexes, seed);
-      this.rivers = map.rivers;
-      this.regions = map.regions;
-      this.settlements = map.settlements;
-      this.players = FACTIONS.map((faction, id) => new Player(id, faction));
-      const capitals = placeCapitals(this.hexes, this.players, seed);
-      assignStartingRegions(this.hexes, this.regions, capitals);
+      this.map = new WorldMap(seed);
+      this.factions = FACTIONS.map((faction, id) => new Faction(id, faction));
+      this.relations = new Relations();
+      this.turns = new TurnManager(this);
+      const capitals = placeCapitals(this.map.hexes, this.factions, seed);
+      assignStartingRegions(this.map.hexes, this.map.regions, capitals);
 
       // состояние интерфейса
       this.selected = null;
@@ -2525,26 +2810,16 @@
       this.log('Началась новая партия. Нанимайте воинов и захватывайте землю, двигая их на соседние клетки.');
     }
 
-    get player(){ return this.players[0]; }
+    get player(){ return this.factions[0]; }
 
     // ---------- Запросы ----------
-    at(q, r){ return this.hexes.get(key(q, r)); }
+    at(q, r){ return this.map.get(q, r); }
 
-    // Соседи, в которые можно пойти: реку без моста перейти нельзя
-    neighbors(h){ return adjacent(this.hexes, h).filter(n => this.crossable(h, n)); }
-
-    crossable(a, b){
-      const river = this.rivers.get(edgeKey(a, b));
-      return !river || river.bridge;
-    }
-
-    // Враждебна ли клетка для фракции: на ней чужая армия или она принадлежит другой фракции
-    isHostile(h, pid){ return (h.unit && h.unit.owner !== pid) || (h.owner !== null && h.owner !== pid); }
-
-    ownedCount(pid){
-      let count = 0;
-      this.hexes.forEach(h => { if(h.owner === pid) count++; });
-      return count;
+    // Враждебна ли клетка для фракции: на ней чужая армия или она принадлежит фракции, с которой война
+    isHostile(h, pid){
+      if(h.unit && h.unit.owner !== pid) return true;
+      if(h.owner === null || h.owner === pid) return false;
+      return this.relations.hostile(pid, h.owner);
     }
 
     // ---------- Журнал ----------
@@ -2552,57 +2827,110 @@
       this.messages.push(text);
       if(logTap) logTap.push(text);
       if(this.messages.length > 40) this.messages.shift();
-      const el = document.getElementById('log');
-      el.innerHTML = this.messages.slice().reverse().map(m => `<div>${m}</div>`).join('');
+      this.emit(EVENTS.log, text);
     }
 
-    // ---------- Конец хода ----------
+    // ---------- Конец партии ----------
+    // Фракция без земель выбывает; партия кончается, если игрок потерял всё или остался один
+    checkGameOver(){
+      this.factions.forEach(faction => {
+        if(faction.alive && this.map.ownedBy(faction.id) === 0){
+          faction.destroy();
+          this.log(`${faction.name} потерял все земли и выбыл из игры.`);
+        }
+      });
+      const alive = this.factions.filter(faction => faction.alive);
+      if(!this.player.alive) this.finish(false, 'Ваши земли захвачены. Партия окончена.');
+      else if(alive.length === 1 && alive[0].isPlayer) this.finish(true, 'Все соперники разгромлены. Карта — ваша.');
+    }
+
+    finish(won, text){
+      this.over = true;
+      this.emit(EVENTS.gameOver, { won, text });
+    }
+
+    update(){ this.map.update(); }
+  }
+
+  // ---------- Ходы ----------
+  // Ход: ходы ИИ → доход → завершение строек → обновление карты → сброс движения →
+  // захваты → новый раунд. Что показывать по ходу, решает presenter (интерфейс).
+  class TurnManager extends Entity {
+    constructor(game){
+      super('turn');
+      this.game = game;
+      this.presenter = null;
+    }
+
+    async endTurn(){
+      const game = this.game, show = this.presenter;
+      if(game.over || game.busy) return;
+      game.busy = true;
+      game.mode = null;
+      game.selected = null;
+      show.begin(game.round);
+      for(const faction of game.factions.filter(f => f.ai)){
+        if(!faction.alive) continue;
+        logTap = [];
+        AI.turn(faction.id);
+        const lines = logTap.slice(0, 5);
+        logTap = null;
+        await show.faction(faction.name, lines.length ? lines : ['выжидает']);
+      }
+      this.collectIncome();
+      await show.step('Сбор доходов');
+      if(Construction.finish()) await show.step('Работы завершены', ['Стройки и сносы закончены — перед вашим ходом']);   // заказы завершаются после ходов ИИ
+      if(game.repaint){   // стройки (игрока и ИИ), снос и вырубка — карта обновляется вокруг изменившихся клеток, один раз за ход
+        game.repaint = false;
+        await show.step('Обновление карты');
+        await show.repaint(frac => show.progress(frac));
+      }
+      this.resetMoves();
+      this.resolveOccupations(0);   // армии игрока, простоявшие на оккупированных клетках, закрепляют захват
+      game.round++;
+      show.round(game.round);
+      game.checkGameOver();
+      game.busy = false;
+      show.end();
+      game.emit(EVENTS.roundStart, game.round);
+    }
+
     // Доход: каждая неоккупированная клетка приносит ресурсы владельцу
     collectIncome(){
-      this.hexes.forEach(h => {
+      this.game.map.hexes.forEach(h => {
         if(h.owner === null || h.occ !== undefined) return;
-        this.players[h.owner].receive(Economy.yieldOf(h));
+        this.game.factions[h.owner].receive(Economy.yieldOf(h));
       });
     }
 
-    resetMoves(){ this.hexes.forEach(h => { if(h.unit) h.unit.hasMoved = false; }); }
+    resetMoves(){ this.game.map.hexes.forEach(h => { if(h.unit) h.unit.update(); }); }
 
     // Оккупация переходит в захват в начале следующего хода оккупанта — если его армия так и стоит на клетке
     resolveOccupations(pid){
-      this.hexes.forEach(h => {
+      const game = this.game;
+      game.map.hexes.forEach(h => {
         if(h.occ !== pid) return;
         delete h.occ;
         if(!h.unit || h.unit.owner !== pid) return;
         const previous = h.owner;
         h.owner = pid;
+        h.emit(EVENTS.capture, { hex: h, previous, pid });
         if(previous !== null && previous !== pid){
           const lostCapital = h.capital;
           h.capital = false;
-          this.log(`${this.players[pid].name} закрепил захват клетки (${h.q}, ${h.r}) у «${this.players[previous].name}»${lostCapital ? ' — столица пала!' : '.'}`);
+          game.log(`${game.factions[pid].name} закрепил захват клетки (${h.q}, ${h.r}) у «${game.factions[previous].name}»${lostCapital ? ' — столица пала!' : '.'}`);
         } else if(pid === 0){
-          this.log(`Клетка (${h.q}, ${h.r}) закреплена за вами.`);
+          game.log(`Клетка (${h.q}, ${h.r}) закреплена за вами.`);
         }
       });
-    }
-
-    // Фракция без земель выбывает; конец партии — если игрок потерял всё или остался один
-    checkGameOver(){
-      this.players.forEach(player => {
-        if(player.alive && this.ownedCount(player.id) === 0){
-          player.alive = false;
-          this.log(`${player.name} потерял все земли и выбыл из игры.`);
-        }
-      });
-      const alive = this.players.filter(player => player.alive);
-      if(!this.player.alive) endGame(false, 'Ваши земли захвачены. Партия окончена.');
-      else if(alive.length === 1 && alive[0].id === 0) endGame(true, 'Все соперники разгромлены. Карта — ваша.');
     }
   }
 
   function newGame(seed){ game = new Game(seed); }
 
+
   // ============================================================
-  //  6. ПРАВИЛА (rules.js)
+  //  8. ПРАВИЛА (rules/*.js)
   //  Экономика, строительство, бой, движение и действия игрока — чистые
   //  расчёты над состоянием game; отрисовку и ввод они не трогают.
   // ============================================================
@@ -2618,7 +2946,7 @@
     // Доход фракции за ход: все её клетки, кроме оккупированных
     incomeOf(pid){
       const sum = {};
-      game.hexes.forEach(h => {
+      game.map.hexes.forEach(h => {
         if(h.owner !== pid || h.occ !== undefined) return;
         const res = this.yieldOf(h);
         RES_KEYS.forEach(k => { sum[k] = (sum[k] || 0) + (res[k] || 0); });
@@ -2627,7 +2955,7 @@
     },
     // Строка вида «💰12 ⚒3» — только ненулевые ресурсы
     format(res){ return RES_KEYS.filter(k => res[k]).map(k => RESOURCES[k].icon + res[k]).join(' ') || '—'; },
-    levelName(h){ return (LEVEL_NAMES[h.terrain] && h.level) ? LEVEL_NAMES[h.terrain][h.level - 1] : TERRAIN[h.terrain].label; },
+    levelName(h){ return game.map.terrain.label(h); },
   };
 
   // ---------- Строительство ----------
@@ -2671,7 +2999,7 @@
       }
       if(b && this.level(h) < 3){
         list.push({
-          label: `Улучшить: ${BUILDING_TYPES[b.kind].label} → ${this.level(h) + 1} ур. · 1 ход`,
+          label: `Улучшить: ${b.label} → ${this.level(h) + 1} ур. · 1 ход`,
           what: b.kind, cost: this.cost(b.kind, this.level(h) + 1, h.spec), order: 'upgrade',
           apply: () => this.upgrade(h),
         });
@@ -2682,9 +3010,9 @@
           cost: { gold: 3 * h.level }, order: 'spec', apply: () => { h.spec = spec; },
         }));
       }
-      const hasDistricts = h.settlement && game.settlements.some(st => st.district === h.settlement);
+      const hasDistricts = h.settlement && game.map.settlements.some(st => st.district === h.settlement);
       if(b && !mainSettlement && !hasDistricts){
-        list.push({ label: `Снести: ${BUILDING_TYPES[b.kind].label} · 1 ход`, gain: this.refund(h), order: 'demolish' });
+        list.push({ label: `Снести: ${b.label} · 1 ход`, gain: this.refund(h), order: 'demolish' });
       }
       if(h.terrain === 'forest'){
         list.push({ label: 'Вырубить лес · 1 ход', gain: { production: 2 * (h.level || 1) }, order: 'clear' });
@@ -2692,43 +3020,44 @@
       return list;
     },
     create(h, kind, spec){
-      h.building = { kind, level: 1 };
+      h.building = new Building(kind);
       if(kind === 'field'){ h.terrain = 'farm'; h.level = 1; }
       if(kind === 'settlement'){
         h.terrain = 'village'; h.level = 1; h.spec = spec;
         // район пристраивается к соседним поселениям своего региона; разные города срастаются в один
-        const roots = [...new Set(game.settlements.filter(st => hexDist(st.main, h) === 1 && st.region === h.region).map(st => st.root))];
+        const roots = [...new Set(game.map.settlements.filter(st => hexDist(st.main, h) === 1 && st.region === h.region).map(st => st.root))];
         const root = roots.find(st => st.founding) || roots[0] || null;
         roots.filter(st => st !== root).forEach(st => {
           st.district = root;
-          game.settlements.forEach(other => { if(other.district === st) other.district = root; });
+          game.map.settlements.forEach(other => { if(other.district === st) other.district = root; });
         });
-        const id = Math.max(-1, ...game.settlements.map(st => st.id)) + 1;
+        const id = Math.max(-1, ...game.map.settlements.map(st => st.id)) + 1;
         const settlement = new Settlement(id, root ? root.name : 'Новое селение', h.region, h, root);
         h.settlement = settlement;
-        game.settlements.push(settlement);
+        game.map.settlements.push(settlement);
       }
     },
     upgrade(h){
       const b = h.building;
-      if(b.kind === 'settlement'){ h.level++; h.houses = undefined; }   // улучшение поселения — больше домов
-      else { b.level++; if(b.kind === 'field') h.level = b.level; }
+      if(b.isSettlement){ h.level++; h.houses = undefined; }   // улучшение поселения — больше домов
+      else { b.upgrade(); if(b.kind === 'field') h.level = b.level; }
     },
     demolish(h){
       const kind = h.building.kind;
       if(kind === 'field') h.terrain = 'plains';
       if(kind === 'settlement'){
         h.terrain = 'plains';
-        game.settlements = game.settlements.filter(st => st.main !== h);
+        game.map.settlements = game.map.settlements.filter(st => st.main !== h);
         delete h.settlement;
         delete h.houses;
       }
       delete h.level; delete h.spec;
+      h.building.destroy();
       h.building = null;
     },
     // Заказ работ фракции pid: оплата сразу, сами работы сделает finish в конце хода. false — не хватает ресурсов
     order(h, action, pid){
-      const player = game.players[pid];
+      const player = game.factions[pid];
       if(action.cost){
         if(!player.canAfford(action.cost)) return false;
         player.pay(action.cost);
@@ -2740,16 +3069,16 @@
     run(h, action){
       if(!this.order(h, action, 0)) return;
       game.log(`${action.label.split(' · ')[0]}: работы займут ход (${h.q}, ${h.r}).`);
-      render(); Panel.update();
+      ui.update();
     },
     // Конец хода: заказанные работы завершаются — владелец получает возврат, клетка освобождается.
     // Возвращает число завершённых работ
     finish(){
       let done = 0;
-      game.hexes.forEach(h => {
+      game.map.hexes.forEach(h => {
         if(!h.pending) return;
         const { kind, gain, apply } = h.pending;
-        const owner = h.owner !== null ? game.players[h.owner] : null;
+        const owner = h.owner !== null ? game.factions[h.owner] : null;
         h.pending = null;
         if(owner && gain) owner.receive(gain);
         if(apply) apply();   // стройка или улучшение
@@ -2759,7 +3088,7 @@
         (game.dirty = game.dirty || new Set()).add(h);   // карта обновится только вокруг этих клеток
         done++;
       });
-      if(done){ MapGen.resources(game.hexes, game.seed); game.repaint = true; }   // соседи влияют друг на друга — ресурсы пересчитываются на всей карте
+      if(done){ MapGen.resources(game.map.hexes, game.seed); game.repaint = true; }   // соседи влияют друг на друга — ресурсы пересчитываются на всей карте
       return done;
     },
   };
@@ -2776,7 +3105,7 @@
     wallDefense(h){
       if(!h.settlement) return 0;
       const root = h.settlement.root;
-      const cityLevel = Math.max(...game.settlements.filter(st => st.root === root).map(st => st.main.level));
+      const cityLevel = Math.max(...game.map.settlements.filter(st => st.root === root).map(st => st.main.level));
       return RULES.wallDefense[cityLevel - 1];
     },
     defenseOf(h, strength = h.unit ? h.unit.strength : 0){
@@ -2784,7 +3113,7 @@
     },
     // Союзные армии в радиусе одной клетки от места боя (кроме exclude) добавляют половину своей силы
     supportAt(place, pid, exclude){
-      return game.neighbors(place).reduce((sum, n) => {
+      return game.map.neighbors(place).reduce((sum, n) => {
         const ally = n.unit && n.unit.owner === pid && n.unit !== exclude;
         return sum + (ally ? Math.floor(n.unit.strength * RULES.supportShare) : 0);
       }, 0);
@@ -2801,7 +3130,7 @@
     interceptor(to, army = to.unit, passing = false){
       if(to.unit && !passing) return null;   // на клетке уже армия — это бой, а не перехват
       const defense = this.defenseOf(to, army.strength) + this.supportAt(to, army.owner, army);
-      return game.neighbors(to).find(e =>
+      return game.map.neighbors(to).find(e =>
         e.unit && e.unit.owner !== army.owner &&
         e.unit.strength + TERRAIN[e.terrain].attack + this.supportAt(to, e.unit.owner, e.unit) > defense
       ) || null;
@@ -2829,9 +3158,9 @@
         queue.sort((a, b) => found.get(a).cost - found.get(b).cost);
         const current = queue.shift(), step = found.get(current);
         if(step.end) continue;
-        game.neighbors(current).forEach(next => {
-          if(!isPassable(next)) return;
-          const cost = step.cost + TERRAIN[next.terrain].move;
+        game.map.neighbors(current).forEach(next => {
+          if(!game.map.terrain.passable(next)) return;
+          const cost = step.cost + game.map.terrain.cost(next);
           if(cost > RULES.movePoints || (found.has(next) && found.get(next).cost <= cost)) return;
           let kind, end = true;
           if(next.unit && next.unit.owner === army.owner){
@@ -2870,12 +3199,12 @@
       const army = current.unit;
       for(let i = 1; i < path.length - 1; i++){
         const next = path[i], guard = Combat.interceptor(next, army, true);
-        if(current.unit === army){ if(current.occ === pid) delete current.occ; current.unit = null; }
+        if(current.unit === army){ if(current.occ === pid) delete current.occ; current.unplace(army); }
         if(guard){
           guard.unit.takeCasualties(army.strength);
           return { result: 'intercepted', guard, trail: path.slice(0, i + 1) };
         }
-        if(!next.unit) next.unit = army;   // на своей армии не останавливаются — её перепрыгивают
+        if(!next.unit) next.place(army);   // на своей армии не останавливаются — её перепрыгивают
         current = next;
       }
       const last = path[path.length - 1], guard = Combat.interceptor(last, army);
@@ -2886,21 +3215,20 @@
     // 'lost' — атака отбита. Вход на чужую или ничью клетку — оккупация (h.occ = кто оккупирует):
     // ресурсов она не приносит, захват — на следующем ходу
     step(from, to, actingPlayer, army = from.unit){
-      if(!isPassable(to)) return false;
+      if(!game.map.terrain.passable(to)) return false;
       if(!army || army.owner !== actingPlayer || army.hasMoved) return false;
-      if(!game.neighbors(from).includes(to)) return false;
+      if(!game.map.neighbors(from).includes(to)) return false;
       const leave = () => {   // армия ушла — оккупация снята
         if(from.unit === army){
-          from.unit = null;
+          from.unplace(army);
           if(from.occ === actingPlayer) delete from.occ;
         }
       };
 
       if(to.unit && to.unit.owner === actingPlayer){       // слияние: силы складываются
         if(army.strength + to.unit.strength > RULES.maxArmy) return false;
-        to.unit.strength += army.strength;
-        to.unit.hasMoved = true;
-        leave();
+        to.unit.merge(army);                                // армия уходит с прежней клетки
+        if(from.occ === actingPlayer) delete from.occ;
         return 'merged';
       }
       const guard = Combat.interceptor(to, army);
@@ -2921,7 +3249,7 @@
         delete to.occ;                                   // оккупация побеждённого снята
         result = 'captured';
       }
-      to.unit = army;
+      to.place(army);
       army.hasMoved = true;
       leave();
       if(to.owner !== actingPlayer) to.occ = actingPlayer;
@@ -2938,99 +3266,22 @@
       const player = game.player;
       if(game.over || h.owner !== 0 || h.unit || !player.canAfford(COSTS.recruit)) return;
       player.pay(COSTS.recruit);
-      h.unit = new Army(0);
+      h.place(new Unit(0));
       game.log(`Вы наняли воина на (${h.q}, ${h.r}).`);
-      render(); Panel.update();
+      ui.update();
     },
     reinforce(h){
       const player = game.player;
       if(game.over || h.owner !== 0 || !h.unit || h.unit.maxed || !player.canAfford(COSTS.reinforce)) return;
       player.pay(COSTS.reinforce);
-      h.unit.strength++;
+      h.unit.upgrade();
       game.log(`Армия на (${h.q}, ${h.r}) усилена: сила ${h.unit.strength}.`);
-      render(); Panel.update();
+      ui.update();
     },
   };
 
   // ============================================================
-  //  7. ХОД ИГРОКА (ui.js)
-  //  Путь и анимация армии, выбор клетки: клики превращаются в правила.
-  // ============================================================
-  let anim = null;           // идущая анимация { pts, lens, total, army, shown, start, dur, t }
-  const ARMY_SPEED = 0.45;   // скорость армии, пикселей карты в миллисекунду
-
-  function animate(path, army){
-    const pts = path.map(h=>{ const p = pixelForHex(h); return { x:p.x, y:p.y + 1 }; });
-    const lens = [0];
-    for(let i=1; i<pts.length; i++) lens.push(lens[i-1] + Math.hypot(pts[i].x - pts[i-1].x, pts[i].y - pts[i-1].y));
-    const total = lens[lens.length-1];
-    anim = { pts, lens, total, army, shown:{ owner:army.owner, strength:army.strength }, start:performance.now(), dur:Math.min(900, Math.max(180, total/ARMY_SPEED)), t:0 };
-    const step = now=>{
-      if(!anim) return;
-      anim.t = Math.min(1, (now - anim.start)/anim.dur);
-      if(anim.t>=1){ anim = null; render(); Panel.update(); game.checkGameOver(); return; }
-      render();
-      requestAnimationFrame(step);
-    };
-    if(typeof requestAnimationFrame === 'function') requestAnimationFrame(step); else anim = null;   // без кадров — без анимации
-  }
-  function animPoint(a){   // где армия на ломаной пути в момент a.t
-    const d = a.total * a.t;
-    let i = 1;
-    while(i < a.lens.length - 1 && a.lens[i] < d) i++;
-    const seg = a.lens[i] - a.lens[i-1] || 1, k = Math.min(1, Math.max(0, (d - a.lens[i-1])/seg));
-    return { x:a.pts[i-1].x + (a.pts[i].x - a.pts[i-1].x)*k, y:a.pts[i-1].y + (a.pts[i].y - a.pts[i-1].y)*k };
-  }
-
-  function moveArmy(from, dest, route){
-    const army = from.unit, path = Movement.pathTo(route, from, dest), via = path[path.length - 2];
-    const hostile = game.isHostile(dest, 0);
-    const foeName = hostile ? game.players[(dest.unit && dest.unit.owner!==0) ? dest.unit.owner : dest.owner].name : null;
-    const cb = hostile ? Combat.resolve(via, dest, army) : null;
-    const wasMine = dest.owner===0;
-    const out = Movement.travel(path, 0);
-    if(out.result==='captured'){
-      game.log(wasMine
-        ? `Ваша армия освободила клетку (${dest.q}, ${dest.r}): ${cb.attack} против ${cb.defense}.`
-        : `Ваша армия победила «${foeName}» (${cb.attack} против ${cb.defense}) и оккупирует клетку (${dest.q}, ${dest.r}). Захват — на следующем ходу, если армия останется.`);
-    } else if(out.result==='lost'){
-      game.log(`Атака на (${dest.q}, ${dest.r}) отбита (${cb.attack} против ${cb.defense}) — армия разбита.`);
-    } else if(out.result==='intercepted'){
-      game.log(`Армию перехватила и уничтожила армия «${game.players[out.guard.unit.owner].name}» на подходе к (${dest.q}, ${dest.r}).`);
-    } else if(out.result==='merged'){
-      game.log(`Армии объединены на (${dest.q}, ${dest.r}): сила ${dest.unit.strength}.`);
-    } else if(out.result===true){
-      game.log(dest.occ===0 ? `Армия оккупирует клетку (${dest.q}, ${dest.r}). Захват — на следующем ходу, если армия останется.` : `Армия пришла на клетку (${dest.q}, ${dest.r}).`);
-    }
-    game.selected = null;
-    game.mode = null;
-    animate(out.trail, army);
-    render(); Panel.update(); game.checkGameOver();
-  }
-
-  // Выбор: клик по клетке выделяет клетку и её регион; клик по своей армии — только армию (и точки хода), второй клик по ней — снова клетку и регион.
-  // Вкладки панели меняют фокус: клетка (клетка и регион), регион (весь регион), армия. Если открыт «Регион», клик по другой клетке остаётся на нём.
-  // Клик по точке хода выбранной армии — ход с анимацией
-  function selectHex(h){
-    if(game.over || anim) return;
-    const prev = game.selected, ready = x => x.unit && x.unit.owner===0 && !x.unit.hasMoved;
-    if(game.mode==='army' && prev && ready(prev) && prev!==h){
-      const route = Movement.reach(prev);
-      if(route.has(h) && route.get(h).kind!=='pass'){ moveArmy(prev, h, route); return; }
-    }
-    if(prev===h && ready(h)){
-      game.mode = game.mode==='army' ? 'cell' : 'army';
-    } else if(prev===h){
-      game.selected = null; game.mode = null;           // повторный клик по тайлу снимает выделение
-    } else {
-      game.selected = h;
-      game.mode = ready(h) ? 'army' : (game.mode==='region' && h.region!==undefined ? 'region' : 'cell');
-    }
-    render(); Panel.update();
-  }
-
-  // ============================================================
-  //  8. ИИ ФРАКЦИИ (ai.js)
+  //  9. ИИ ФРАКЦИИ (ai.js)
   //  Цель — целая граница: армии берут только клетки, примыкающие к своей земле
   //  (без отдалённых островков), стоят там, где рядом враги, бьют самого слабого
   //  из соседей, а казна тратится и на войско, и на развитие.
@@ -3064,8 +3315,8 @@
     },
 
     turn(pid){
-      if(!game.players[pid].alive) return;
-      game.resolveOccupations(pid);
+      if(!game.factions[pid].alive) return;
+      game.turns.resolveOccupations(pid);
       const survey = this.survey(pid);
       this.recruit(pid, survey);
       this.build(pid, survey);
@@ -3075,14 +3326,14 @@
     // Обстановка: свои клетки, угроза клетке (сила вражеских армий рядом), открытость границы,
     // нужда в армии и главный противник (самый слабый из соседей по границе)
     survey(pid){
-      const hexes = [...game.hexes.values()];
+      const hexes = [...game.map.hexes.values()];
       const mine = hexes.filter(h => h.owner === pid);
       const foes = hexes.filter(h => h.unit && h.unit.owner !== pid);
       const threat = this.threatMap(foes);
-      const open = h => game.neighbors(h).filter(n => n.owner !== pid && isPassable(n)).length;
+      const open = h => game.map.neighbors(h).filter(n => n.owner !== pid && game.map.terrain.passable(n)).length;
       const need = h => threat(h) + this.options.openWeight * open(h) + (h.capital ? this.options.capitalNeed : 0);
       const rivals = new Set();
-      mine.forEach(h => game.neighbors(h).forEach(n => { if(n.owner !== null && n.owner !== pid) rivals.add(n.owner); }));
+      mine.forEach(h => game.map.neighbors(h).forEach(n => { if(n.owner !== null && n.owner !== pid) rivals.add(n.owner); }));
       const power = id => hexes.reduce((sum, h) => sum + (h.unit && h.unit.owner === id ? h.unit.strength : 0), 0);
       return { hexes, mine, threat, open, need, focus: [...rivals].sort((a, b) => power(a) - power(b))[0] };
     },
@@ -3106,7 +3357,7 @@
     // Найм там, где армия нужнее всего, пока армий меньше, чем нужно земле (лишнее золото — в дополнительные
     // армии: так копится перевес для наступления); усиление армии, которой врагов рядом больше, чем сил
     recruit(pid, survey){
-      const player = game.players[pid], options = this.options;
+      const player = game.factions[pid], options = this.options;
       const armies = survey.hexes.filter(h => h.unit && h.unit.owner === pid);
       const spareGold = Math.max(0, Math.floor((player.res.gold - options.surplus) / options.goldPerArmy));
       const wanted = Math.min(
@@ -3118,7 +3369,7 @@
       for(const h of free){
         if(hired >= options.maxHires || armies.length + hired >= wanted || !player.canAfford(COSTS.recruit)) break;
         player.pay(COSTS.recruit);
-        h.unit = new Army(pid);
+        h.place(new Unit(pid));
         hired++;
       }
       if(hired) game.log(`${player.name} нанимает ${hired > 1 ? 'войска' : 'воина'}.`);
@@ -3133,7 +3384,7 @@
     // Стройка: заказы с лучшей отдачей на потраченное; в запасе остаётся часть цены найма
     // (при угрозе у границы — вся)
     build(pid, survey){
-      const player = game.players[pid], options = this.options;
+      const player = game.factions[pid], options = this.options;
       const danger = survey.mine.some(h => survey.threat(h) > 0 && survey.open(h) > 0);
       const reserve = Object.fromEntries(RES_KEYS.map(k => [k, Math.round((COSTS.recruit[k] || 0) * (danger ? 1 : options.reserve))]));
       const price = cost => RES_KEYS.reduce((sum, k) => sum + (cost[k] || 0), 0);
@@ -3159,7 +3410,7 @@
     // Сколько ресурсов в ход принесёт стройка: поле — еда с соседних поселений; поселение — только как
     // район у своих (граница целая), по специализации и соседям; улучшение — рост уровня
     worth(h, action, pid){
-      const neighbors = game.neighbors(h);
+      const neighbors = game.map.neighbors(h);
       const own = test => neighbors.filter(n => n.owner === pid && test(n)).length;
       const any = test => neighbors.filter(test).length;
       if(action.order === 'upgrade') return action.what === 'field' ? 1 : 3.5;
@@ -3170,14 +3421,14 @@
         civil: 3,
         food: 2 + Math.min(3, any(n => n.terrain === 'farm')),
         trade: 2 + Math.min(3, any(n => n.terrain === 'village')),
-        production: 2 + Math.min(4, any(n => n.terrain === 'forest')) + 3 * any(n => n.ore),
+        production: 2 + Math.min(4, any(n => n.terrain === 'forest')) + 3 * any(n => n.object),
       }[action.spec];
       return 1 + bonus;
     },
 
     // Каждая армия выбирает лучшую цель в пределах хода — или остаётся, если стоять полезнее
     move(pid, survey){
-      const player = game.players[pid];
+      const player = game.factions[pid];
       survey.hexes
         .filter(h => h.unit && h.unit.owner === pid && !h.unit.hasMoved && h.occ !== pid)
         .sort((a, b) => b.unit.strength - a.unit.strength)
@@ -3193,7 +3444,7 @@
           const kind = route.get(dest).kind, wasCapital = dest.capital;
           const defender = (dest.unit && dest.unit.owner !== pid) ? dest.unit.owner : dest.owner;
           Movement.travel(Movement.pathTo(route, h, dest), pid);
-          if(kind === 'good') game.log(`${player.name} атакует «${game.players[defender].name}» и оккупирует клетку${wasCapital ? ' (столица!)' : ''}.`);
+          if(kind === 'good') game.log(`${player.name} атакует «${game.factions[defender].name}» и оккупирует клетку${wasCapital ? ' (столица!)' : ''}.`);
         });
     },
 
@@ -3213,14 +3464,14 @@
       if(route.kind === 'own') return (survey.need(t) - survey.need(h)) * options.moveWeight - route.cost * options.moveCost;
       if(route.kind === 'merge') return options.mergeWeight * (survey.need(t) - survey.need(h));
 
-      const ring = game.neighbors(t);
+      const ring = game.map.neighbors(t);
       const ownNeighbors = ring.filter(n => n.owner === pid).length;
       if(!ownNeighbors) return -Infinity;   // клетка не примыкает к своей земле — это островок, границу рвать незачем
       const hostile = t.owner !== null && t.owner !== pid;
       const foe = t.unit && t.unit.owner !== pid ? t.unit.strength : 0;
       let score = this.value(t)
         + ownNeighbors * options.adjacent
-        - ring.filter(n => n.owner !== pid && isPassable(n)).length * options.ragged
+        - ring.filter(n => n.owner !== pid && game.map.terrain.passable(n)).length * options.ragged
         - route.cost * options.distance;
       if(hostile) score += options.hostile + (t.owner === survey.focus ? options.focus : 0);
       if(route.kind === 'good'){
@@ -3233,44 +3484,47 @@
 
   function aiTurn(pid){ AI.turn(pid); }
 
-  function endGame(won, text){
-    game.over = true;
-    document.getElementById('overlay').style.display='flex';
-    document.getElementById('overlayTitle').textContent = won ? 'Победа' : 'Поражение';
-    document.getElementById('overlayTitle').style.color = won ? 'var(--gold)' : 'var(--danger)';
-    document.getElementById('overlayText').textContent = text;
-  }
 
-  async function endTurn(){
-    if(game.over || anim || game.busy) return;
-    game.busy = true;
-    game.mode = null;
-    game.selected = null;
-    TurnScreen.show(game.round);
-    for(const p of game.players.filter(pl => pl.ai)){
-      const pid = p.id;
-      if(!p.alive) continue;
-      logTap = [];
-      aiTurn(pid);
-      const lines = logTap.slice(0, 5); logTap = null;
-      await TurnScreen.step(p.name, lines.length ? lines : ['выжидает']);
+  // Интерфейс: панель, журнал, экран итога и показ хода. Слушает события партии
+  // (журнал, конец игры) и отдаёт менеджеру ходов presenter.
+  class Interface extends Entity {
+    constructor(){ super('interface'); }
+
+    // Перерисовать карту и обновить панель
+    update(){ render(); Panel.update(); }
+
+    // Журнал — эхо событий game: сама партия только копит сообщения
+    renderLog(){
+      document.getElementById('log').innerHTML = game.messages.slice().reverse().map(m => `<div>${m}</div>`).join('');
     }
-    game.collectIncome();
-    await TurnScreen.step('Сбор доходов');
-    if(Construction.finish()) await TurnScreen.step('Работы завершены', ['Стройки и сносы закончены — перед вашим ходом']);   // заказы завершаются после ходов ИИ
-    if(game.repaint){   // стройки (игрока и ИИ), снос и вырубка — карта обновляется вокруг изменившихся клеток, один раз за ход
-      game.repaint = false;
-      await TurnScreen.step('Обновление карты');
-      await repaintTerrain(frac => TurnScreen.progress(frac));
+
+    // Итог партии: game.finish() эмитит событие, интерфейс показывает экран
+    overlay(won, text){
+      document.getElementById('overlay').style.display='flex';
+      document.getElementById('overlayTitle').textContent = won ? 'Победа' : 'Поражение';
+      document.getElementById('overlayTitle').style.color = won ? 'var(--gold)' : 'var(--danger)';
+      document.getElementById('overlayText').textContent = text;
     }
-    game.resetMoves();
-    game.resolveOccupations(0);   // армии игрока, простоявшие на оккупированных клетках, закрепляют захват
-    game.round++;
-    document.getElementById('roundLabel').textContent = 'Round ' + game.round;
-    game.checkGameOver();
-    game.busy = false;
-    TurnScreen.hide();
-    render(); Panel.update();
+
+    // Что показывать по ходу: менеджер ходов зовёт эти методы, интерфейс решает, как
+    presenter(){
+      return {
+        begin: round => TurnScreen.show(round),
+        faction: (name, lines) => TurnScreen.step(name, lines),
+        step: (title, lines) => TurnScreen.step(title, lines),
+        progress: frac => TurnScreen.progress(frac),
+        round: n => { document.getElementById('roundLabel').textContent = 'Round ' + n; },
+        repaint: fn => repaintTerrain(fn),
+        end: () => { TurnScreen.hide(); this.update(); },
+      };
+    }
+  }
+  const ui = new Interface();
+
+  // Кнопка «Закончить ход»: пока идёт анимация армии, ход не начинается
+  function endTurn(){
+    if(interaction.busy) return;
+    return game.turns.endTurn();
   }
 
   // Обновление карты после строительства: перерисовываются только окрестности изменившихся клеток (game.dirty) в текущем стиле, кэш остальных стилей устарел;
@@ -3291,10 +3545,94 @@
   }
 
   // ============================================================
-  //  ИНТЕРФЕЙС (ui.js, продолжение)
-  //  Камера, ввод, подсветка, панель, подписи и кадр — всё, что показывает
-  //  состояние game и превращает клики в правила.
+  //  10. ИНТЕРФЕЙС (ui/*.js)
+  //  Ход игрока, камера, ввод, подсветка, панель, подписи и кадр — всё,
+  //  что показывает состояние game и превращает клики в правила.
   // ============================================================
+  // ---------- Ход игрока: путь, анимация, выбор ----------
+  // Взаимодействие с картой: выбор клетки, ход армии и анимация её пути
+  class Interaction extends Entity {
+    constructor(){
+      super('interaction');
+      this.anim = null;      // идущая анимация { pts, lens, total, army, shown, start, dur, t }
+      this.speed = 0.45;     // скорость армии, пикселей карты в миллисекунду
+    }
+    get busy(){ return !!this.anim; }
+
+    animate(path, army){
+      const pts = path.map(h=>{ const p = pixelForHex(h); return { x:p.x, y:p.y + 1 }; });
+      const lens = [0];
+      for(let i=1; i<pts.length; i++) lens.push(lens[i-1] + Math.hypot(pts[i].x - pts[i-1].x, pts[i].y - pts[i-1].y));
+      const total = lens[lens.length-1];
+      this.anim = { pts, lens, total, army, shown:{ owner:army.owner, strength:army.strength }, start:performance.now(), dur:Math.min(900, Math.max(180, total/this.speed)), t:0 };
+      const step = now=>{
+        if(!this.anim) return;
+        this.anim.t = Math.min(1, (now - this.anim.start)/this.anim.dur);
+        if(this.anim.t>=1){ this.anim = null; ui.update(); game.checkGameOver(); return; }
+        render();
+        requestAnimationFrame(step);
+      };
+      if(typeof requestAnimationFrame === 'function') requestAnimationFrame(step); else this.anim = null;   // без кадров — без анимации
+    }
+
+    // Где армия на ломаной пути в момент a.t
+    point(a){
+      const d = a.total * a.t;
+      let i = 1;
+      while(i < a.lens.length - 1 && a.lens[i] < d) i++;
+      const seg = a.lens[i] - a.lens[i-1] || 1, k = Math.min(1, Math.max(0, (d - a.lens[i-1])/seg));
+      return { x:a.pts[i-1].x + (a.pts[i].x - a.pts[i-1].x)*k, y:a.pts[i-1].y + (a.pts[i].y - a.pts[i-1].y)*k };
+    }
+
+    move(from, dest, route){
+      const army = from.unit, path = Movement.pathTo(route, from, dest), via = path[path.length - 2];
+      const hostile = game.isHostile(dest, 0);
+      const foeName = hostile ? game.factions[(dest.unit && dest.unit.owner!==0) ? dest.unit.owner : dest.owner].name : null;
+      const cb = hostile ? Combat.resolve(via, dest, army) : null;
+      const wasMine = dest.owner===0;
+      const out = Movement.travel(path, 0);
+      if(out.result==='captured'){
+        game.log(wasMine
+          ? `Ваша армия освободила клетку (${dest.q}, ${dest.r}): ${cb.attack} против ${cb.defense}.`
+          : `Ваша армия победила «${foeName}» (${cb.attack} против ${cb.defense}) и оккупирует клетку (${dest.q}, ${dest.r}). Захват — на следующем ходу, если армия останется.`);
+      } else if(out.result==='lost'){
+        game.log(`Атака на (${dest.q}, ${dest.r}) отбита (${cb.attack} против ${cb.defense}) — армия разбита.`);
+      } else if(out.result==='intercepted'){
+        game.log(`Армию перехватила и уничтожила армия «${game.factions[out.guard.unit.owner].name}» на подходе к (${dest.q}, ${dest.r}).`);
+      } else if(out.result==='merged'){
+        game.log(`Армии объединены на (${dest.q}, ${dest.r}): сила ${dest.unit.strength}.`);
+      } else if(out.result===true){
+        game.log(dest.occ===0 ? `Армия оккупирует клетку (${dest.q}, ${dest.r}). Захват — на следующем ходу, если армия останется.` : `Армия пришла на клетку (${dest.q}, ${dest.r}).`);
+      }
+      game.selected = null;
+      game.mode = null;
+      this.animate(out.trail, army);
+      ui.update(); game.checkGameOver();
+    }
+
+  // Выбор: клик по клетке выделяет клетку и её регион; клик по своей армии — только армию (и точки хода), второй клик по ней — снова клетку и регион.
+  // Вкладки панели меняют фокус: клетка (клетка и регион), регион (весь регион), армия. Если открыт «Регион», клик по другой клетке остаётся на нём.
+  // Клик по точке хода выбранной армии — ход с анимацией
+    select(h){
+      if(game.over || this.busy) return;
+      const prev = game.selected, ready = x => x.unit && x.unit.owner===0 && !x.unit.hasMoved;
+      if(game.mode==='army' && prev && ready(prev) && prev!==h){
+        const route = Movement.reach(prev);
+        if(route.has(h) && route.get(h).kind!=='pass'){ this.move(prev, h, route); return; }
+      }
+      if(prev===h && ready(h)){
+        game.mode = game.mode==='army' ? 'cell' : 'army';
+      } else if(prev===h){
+        game.selected = null; game.mode = null;           // повторный клик по тайлу снимает выделение
+      } else {
+        game.selected = h;
+        game.mode = ready(h) ? 'army' : (game.mode==='region' && h.region!==undefined ? 'region' : 'cell');
+      }
+      ui.update();
+    }
+  }
+  const interaction = new Interaction();
+
 
   // ---------- Отрисовка кадра: холст, слои и порядок ----------
   let canvas, ctx, terrainLayer, terrainCache = {};
@@ -3307,33 +3645,40 @@
   }
   let world = { w:0, h:0, offx:0, offy:0 };   // размер карты в её собственных пикселях (холст — окно, камера смотрит на карту)
 
-  // ---------- Камера: перемещение и зум ----------
-  // Холст занимает весь экран; карта — большая картинка, на которую смотрит камера (view): сдвиг x, y и масштаб scale
-  const view = { x:0, y:0, scale:1, min:0.3, max:4 };
+  // ---------- Камера ----------
+  // Холст занимает весь экран; карта — большая картинка, на которую смотрит
+  // камера: сдвиг x, y и масштаб scale.
+  class Camera {
+    constructor(){ this.x = 0; this.y = 0; this.scale = 1; this.min = 0.3; this.max = 4; }
+    // Вся карта по центру экрана
+    fit(){
+      const cw = canvas.width/dpr(), ch = canvas.height/dpr();
+      this.scale = Math.min(cw/world.w, ch/world.h);
+      this.min = this.scale*0.9;
+      this.x = (cw - world.w*this.scale)/2;
+      this.y = (ch - world.h*this.scale)/2;
+    }
+    // Карту нельзя унести за экран: на виду остаётся не меньше пятой части
+    clamp(){
+      const cw = canvas.width/dpr(), ch = canvas.height/dpr(), w = world.w*this.scale, h = world.h*this.scale;
+      this.x = Math.min(cw*0.8, Math.max(cw*0.2 - w, this.x));
+      this.y = Math.min(ch*0.8, Math.max(ch*0.2 - h, this.y));
+    }
+    // Масштаб вокруг точки экрана: она остаётся на месте
+    zoomAt(factor, cx, cy){
+      const s = Math.min(this.max, Math.max(this.min, this.scale*factor));
+      this.x = cx - (cx - this.x)*(s/this.scale);
+      this.y = cy - (cy - this.y)*(s/this.scale);
+      this.scale = s;
+      this.clamp();
+    }
+  }
+  const camera = new Camera();
   const dpr = () => window.devicePixelRatio || 1;
   function fitCanvas(){   // размер холста = размер контейнера (в физических пикселях)
     const r = canvas.parentElement.getBoundingClientRect();
     canvas.width = Math.max(1, Math.round(r.width*dpr()));
     canvas.height = Math.max(1, Math.round(r.height*dpr()));
-  }
-  function fitView(){     // вся карта по центру экрана
-    const cw = canvas.width/dpr(), ch = canvas.height/dpr();
-    view.scale = Math.min(cw/world.w, ch/world.h);
-    view.min = view.scale*0.9;
-    view.x = (cw - world.w*view.scale)/2;
-    view.y = (ch - world.h*view.scale)/2;
-  }
-  function clampView(){   // карту нельзя унести за экран: на виду остаётся не меньше пятой части
-    const cw = canvas.width/dpr(), ch = canvas.height/dpr(), w = world.w*view.scale, h = world.h*view.scale;
-    view.x = Math.min(cw*0.8, Math.max(cw*0.2 - w, view.x));
-    view.y = Math.min(ch*0.8, Math.max(ch*0.2 - h, view.y));
-  }
-  function zoomAt(factor, cx, cy){   // масштаб вокруг точки экрана: она остаётся на месте
-    const s = Math.min(view.max, Math.max(view.min, view.scale*factor));
-    view.x = cx - (cx - view.x)*(s/view.scale);
-    view.y = cy - (cy - view.y)*(s/view.scale);
-    view.scale = s;
-    clampView();
   }
 
   // Ввод: мышь и касания через pointer events. Один палец или мышь — перемещение (короткое касание — клик), два пальца — зум
@@ -3355,15 +3700,15 @@
     if(pointers.size===1){
       if(!gesture.moved && Math.hypot(p.x - gesture.x0, p.y - gesture.y0) < 6) return;   // пока это ещё клик
       gesture.moved = true;
-      view.x += dx; view.y += dy;
+      camera.x += dx; camera.y += dy;
     } else if(pointers.size===2){
       const [a, b] = [...pointers.values()], r = canvas.getBoundingClientRect();
       const dist = Math.hypot(a.x - b.x, a.y - b.y), mid = { x:(a.x + b.x)/2 - r.left, y:(a.y + b.y)/2 - r.top };
-      if(gesture.dist) zoomAt(dist/gesture.dist, mid.x, mid.y);
-      if(gesture.mid){ view.x += mid.x - gesture.mid.x; view.y += mid.y - gesture.mid.y; }
+      if(gesture.dist) camera.zoomAt(dist/gesture.dist, mid.x, mid.y);
+      if(gesture.mid){ camera.x += mid.x - gesture.mid.x; camera.y += mid.y - gesture.mid.y; }
       gesture.dist = dist; gesture.mid = mid; gesture.moved = true;
     }
-    clampView();
+    camera.clamp();
     requestRender();
   }
   function onPointerUp(e){
@@ -3374,10 +3719,10 @@
   function onWheel(e){
     e.preventDefault();
     const p = canvasPoint(e);
-    zoomAt(Math.exp(-e.deltaY*0.0015), p.x, p.y);
+    camera.zoomAt(Math.exp(-e.deltaY*0.0015), p.x, p.y);
     requestRender();
   }
-  function navZoom(factor){ zoomAt(factor, canvas.width/dpr()/2, canvas.height/dpr()/2); render(); }
+  function navZoom(factor){ camera.zoomAt(factor, canvas.width/dpr()/2, canvas.height/dpr()/2); render(); }
 
   function setupCanvas(){
     canvas = document.getElementById('board');
@@ -3392,8 +3737,8 @@
     canvas.addEventListener('wheel', onWheel, { passive:false });
     document.getElementById('zoomIn').onclick = ()=>navZoom(1.25);
     document.getElementById('zoomOut').onclick = ()=>navZoom(0.8);
-    document.getElementById('zoomFit').onclick = ()=>{ fitView(); render(); };
-    const onResize = ()=>{ fitCanvas(); clampView(); render(); };
+    document.getElementById('zoomFit').onclick = ()=>{ camera.fit(); render(); };
+    const onResize = ()=>{ fitCanvas(); camera.clamp(); render(); };
     if(typeof ResizeObserver !== 'undefined') new ResizeObserver(onResize).observe(canvas.parentElement);
     else window.addEventListener('resize', onResize);
   }
@@ -3434,7 +3779,7 @@
   }
   // Размер игрового мира в пикселях (по всем клеткам плюс поле моря); кэш слоёв карты сбрасывается
   function computeWorld(){
-    const pts = Array.from(game.hexes.values()).map(h=>axialToPixel(h.q,h.r));
+    const pts = Array.from(game.map.hexes.values()).map(h=>axialToPixel(h.q,h.r));
     const pad = HEX_SIZE * 1.6;   // поле моря вокруг карты
     const minX = Math.min(...pts.map(p=>p.x)) - HEX_SIZE - pad;
     const maxX = Math.max(...pts.map(p=>p.x)) + HEX_SIZE + pad;
@@ -3448,7 +3793,7 @@
   function adoptWorld(){
     terrainLayer = terrainFor(Painter.theme);   // рельеф рисуется один раз на партию и стиль
     fitCanvas();
-    fitView();
+    camera.fit();
   }
   // Рисует рельеф текущего стиля с остановками: загрузчик успевает показывать, что происходит
   async function warmTerrain(onProgress){
@@ -3463,10 +3808,10 @@
 
   function hexAtEvent(evt){
     const c = canvasPoint(evt);
-    const mx = (c.x - view.x)/view.scale;     // экранная точка → координаты карты
-    const my = (c.y - view.y)/view.scale;
+    const mx = (c.x - camera.x)/camera.scale;     // экранная точка → координаты карты
+    const my = (c.y - camera.y)/camera.scale;
     let best=null, bestD=Infinity;
-    game.hexes.forEach(h=>{
+    game.map.hexes.forEach(h=>{
       const p = pixelForHex(h);
       const d = (p.x-mx)*(p.x-mx)+(p.y-my)*(p.y-my);
       if(d<bestD){ bestD=d; best=h; }
@@ -3476,7 +3821,7 @@
   }
   function onCanvasClick(evt){
     const h = hexAtEvent(evt);
-    if(h) selectHex(h);
+    if(h) interaction.select(h);
   }
 
   // Армия под курсором: подсвечиваем её зону перехвата и поддержки (перерисовка только при смене клетки)
@@ -3490,14 +3835,14 @@
     const terrain = TERRAIN[h.terrain];
     if(terrain.impassable) return `${terrain.label} · непроходимо`;
     let text = `${Economy.levelName(h)} · ${Economy.format(Economy.yieldOf(h))}`;
-    if(h.owner !== null) text += ` · ${game.players[h.owner].name}`;
+    if(h.owner !== null) text += ` · ${game.factions[h.owner].name}`;
     if(h.name) text += ` · «${h.name}»`;
     if(h.region !== undefined){
-      const region = game.regions[h.region];
+      const region = game.map.regions[h.region];
       text += ` · Регион ${region.id + 1} (${region.cells.length} кл.), ${REGION_KINDS[region.kind].hint} «${region.name}»`;
     }
     if(h.capital) text += ' · Столица';
-    if(h.occ !== undefined) text += ` · Оккупация: ${game.players[h.occ].name}`;
+    if(h.occ !== undefined) text += ` · Оккупация: ${game.factions[h.occ].name}`;
     if(h.unit) text += ` · Армия (${h.unit.strength})`;
     return text;
   }
@@ -3532,7 +3877,7 @@
   // Подпись состояния карты: меняется, когда меняются владельцы и оккупация (границы), а с units — ещё и армии (клетки хода). Дешёвая замена перерисовке «на всякий случай»
   function stateSig(units){
     let sig = 0;
-    game.hexes.forEach(h => {
+    game.map.hexes.forEach(h => {
       let part = (h.owner ?? -1) + 2 + (h.occ ?? -1) * 7;
       if(units && h.unit) part += 1000 + h.unit.owner * 50 + h.unit.strength + (h.unit.hasMoved ? 7 : 0);
       sig = (sig * 31 + part) | 0;
@@ -3558,7 +3903,7 @@
     cv.width = world.w * bake; cv.height = world.h * bake;   // смена размера заодно очищает холст
     c.scale(bake, bake);
     c.lineJoin = 'round';
-    game.players.forEach((pl, i) => {
+    game.factions.forEach((pl, i) => {
       const cells = territoryOf(i);
       if(!cells.length) return;
       const path = outlineOf(cells), outside = new Path2D(path);
@@ -3582,7 +3927,7 @@
       c.shadowBlur = 0;
     });
     // оккупированные клетки — штриховка цветом оккупанта (ресурсов не приносят, пока захват не закреплён)
-    game.hexes.forEach(h => {
+    game.map.hexes.forEach(h => {
       if(h.occ === undefined) return;
       const p = pixelForHex(h);
       c.save();
@@ -3590,7 +3935,7 @@
       c.beginPath();
       for(let i = -40; i <= 40; i += 6){ c.moveTo(p.x + i - 26, p.y + 26); c.lineTo(p.x + i + 26, p.y - 26); }
       c.lineWidth = 2;
-      c.strokeStyle = game.players[h.occ].color;
+      c.strokeStyle = game.factions[h.occ].color;
       c.globalAlpha = 0.9;
       c.stroke();
       c.restore();
@@ -3622,10 +3967,10 @@
 
   // Клетки для границы фракции: её земля (кроме клеток, оккупированных врагом) и клетки, которые оккупировала она сама, если они примыкают к территории
   function territoryOf(pid){
-    const all = [...game.hexes.values()];
+    const all = [...game.map.hexes.values()];
     const set = new Set(all.filter(h=>h.owner===pid && h.occ===undefined));
     const pending = all.filter(h=>h.occ===pid);
-    const touches = h => DIRS.some(([dq,dr])=>set.has(game.hexes.get(key(h.q+dq, h.r+dr))));
+    const touches = h => DIRS.some(([dq,dr])=>set.has(game.map.hexes.get(key(h.q+dq, h.r+dr))));
     for(let grew=true; grew;){
       grew = false;
       pending.forEach(h=>{ if(!set.has(h) && touches(h)){ set.add(h); grew = true; } });
@@ -3635,7 +3980,7 @@
 
   // Армия-щит: поле основного цвета фракции, кайма второстепенного; цифра — сила; ходившие бледнее
   function drawArmy(x, cy, unit, moved){
-    const pl = game.players[unit.owner];
+    const pl = game.factions[unit.owner];
     ctx.globalAlpha = moved ? 0.5 : 1;
     shieldPath(x, cy, 20, 24); ctx.fillStyle = '#171310'; ctx.fill();   // тёмный контур
     shieldPath(x, cy, 17, 21); ctx.fillStyle = pl.color2; ctx.fill();   // кайма
@@ -3730,18 +4075,18 @@
   }
 
   function paintSettlementLabels(){
-    if(view.scale < 0.55) return;
+    if(camera.scale < 0.55) return;
     const d = dpr();
-    const fs = Math.round(9 * d * Math.min(1.3, Math.max(0.85, view.scale)));
+    const fs = Math.round(9 * d * Math.min(1.3, Math.max(0.85, camera.scale)));
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.font = `400 ${fs}px Georgia, 'Times New Roman', serif`;
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
-    game.settlements.forEach(st => {
+    game.map.settlements.forEach(st => {
       if(st.district) return;   // подпись — у города, а не у каждого района
       const pt = pixelForHex(st.main);
-      const x = (pt.x * view.scale + view.x) * d, y = ((pt.y - 26) * view.scale + view.y) * d;
+      const x = (pt.x * camera.scale + camera.x) * d, y = ((pt.y - 26) * camera.scale + camera.y) * d;
       const padX = fs * 0.6, padY = fs * 0.32, pip = fs * 0.5;
       const boxW = textWidth(st.name, ctx.font) + padX * 2 + pip + fs * 0.3;
       const boxH = fs + padY * 2, x0 = x - boxW / 2, y0 = y - boxH / 2;
@@ -3751,7 +4096,7 @@
       // значок владельца (серый — ничей)
       ctx.beginPath();
       ctx.arc(x0 + padX + pip / 2, y, pip / 2, 0, Math.PI * 2);
-      ctx.fillStyle = st.main.owner === null ? '#8a8f7a' : game.players[st.main.owner].color;
+      ctx.fillStyle = st.main.owner === null ? '#8a8f7a' : game.factions[st.main.owner].color;
       ctx.fill();
       ctx.lineWidth = d * 0.8; ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.stroke();
       ctx.fillStyle = 'rgba(243,231,200,0.8)';
@@ -3763,9 +4108,9 @@
   // Армия под курсором: её зона перехвата и поддержки (1 клетка вокруг) — заливка основного цвета, пунктир второстепенного
   function paintHoverZone(){
     if(game.hover && game.hover.unit){
-      const cells = game.neighbors(game.hover).filter(n=>!TERRAIN[n.terrain].impassable);
+      const cells = game.map.neighbors(game.hover).filter(n => game.map.terrain.passable(n));
       if(cells.length){
-        const pl = game.players[game.hover.unit.owner];
+        const pl = game.factions[game.hover.unit.owner];
         const zone = outlineOf(cells);
         ctx.globalAlpha = 0.22;
         ctx.fillStyle = pl.color;
@@ -3786,7 +4131,7 @@
   function paintSelection(){
     let partial = null;
     if(game.selected && game.mode!=='army'){
-      const h = game.selected, r = h.region!==undefined ? game.regions[h.region] : null;
+      const h = game.selected, r = h.region!==undefined ? game.map.regions[h.region] : null;
       const ctrl = r ? r.control() : { held:[h], full:true };
       if(ctrl.held.length){ ctx.fillStyle = 'rgba(255,255,255,0.07)'; ctx.fill(outlineOf(ctrl.held)); }
       if(game.mode==='cell'){
@@ -3813,9 +4158,9 @@
 
   // Флаги столиц — в цветах владельца
   function paintFlags(){
-    game.hexes.forEach(h=>{
+    game.map.hexes.forEach(h=>{
       if(!h.capital) return;
-      const p = pixelForHex(h), pl = game.players[h.owner];
+      const p = pixelForHex(h), pl = game.factions[h.owner];
       ctx.strokeStyle = '#f5eddb';
       ctx.lineWidth = 1.6;
       ctx.beginPath(); ctx.moveTo(p.x,p.y-14); ctx.lineTo(p.x,p.y-2); ctx.stroke();
@@ -3827,8 +4172,8 @@
 
   // Армии-щиты; идущая армия рисуется в текущей точке пути, а на клетке пока не показывается
   function paintArmies(){
-    game.hexes.forEach(h=>{
-      if(!h.unit || (anim && h.unit===anim.army)) return;
+    game.map.hexes.forEach(h=>{
+      if(!h.unit || (interaction.anim && h.unit === interaction.anim.army)) return;
       const p = pixelForHex(h), cy = p.y + (h.capital ? 10 : 1);
       drawArmy(p.x, cy, h.unit, h.unit.hasMoved);
       if(h.unit.owner===0 && !h.unit.hasMoved){   // готов к ходу — светлый ободок вокруг щита
@@ -3848,14 +4193,14 @@
         ctx.shadowBlur = 0;
       }
     });
-    if(anim){ const q = animPoint(anim); drawArmy(q.x, q.y, anim.shown, false); }
+    if(interaction.anim){ const q = interaction.point(interaction.anim); drawArmy(q.x, q.y, interaction.anim.shown, false); }
   }
 
   // Клетки с заказанными работами помечены значком до конца хода: молоток — снос, вырубка, недра; песочные часы — стройка и улучшение
   function paintPending(){
     ctx.save();
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = '12px sans-serif';
-    game.hexes.forEach(h => {
+    game.map.hexes.forEach(h => {
       if(!h.pending) return;
       const p = pixelForHex(h);
       ctx.beginPath(); ctx.arc(p.x, p.y - 8, 9, 0, Math.PI * 2);
@@ -3886,8 +4231,8 @@
   function render(){
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    const k = dpr()*view.scale;                 // камера: сдвиг и масштаб карты
-    ctx.setTransform(k, 0, 0, k, dpr()*view.x, dpr()*view.y);
+    const k = dpr()*camera.scale;                 // камера: сдвиг и масштаб карты
+    ctx.setTransform(k, 0, 0, k, dpr()*camera.x, dpr()*camera.y);
     ctx.imageSmoothingEnabled = k < 1;          // при уменьшении — сглаживаем, при увеличении — чёткие пиксели
 
     // Pass 1: земля (вода, суша, сетка, границы регионов); объекты лежат отдельным слоем и рисуются выше
@@ -3900,7 +4245,7 @@
 
     // Pass 3: точки хода выбранной армии вычисляем здесь, а рисуем в самом конце (Pass 6) — поверх объектов
     const sel = game.selected;
-    const moves = (game.mode==='army' && sel && sel.unit && sel.unit.owner===0 && !sel.unit.hasMoved && !game.over && !anim) ? movesFor(sel) : [];
+    const moves = (game.mode==='army' && sel && sel.unit && sel.unit.owner===0 && !sel.unit.hasMoved && !game.over && !interaction.busy) ? movesFor(sel) : [];
 
     paintHoverZone();
     const partial = paintSelection();
@@ -3911,7 +4256,7 @@
     paintFlags();
     paintPending();
     paintSettlementLabels();
-    if(anim) drawRoute(anim.pts);              // стрелка траектории идущей армии
+    if(interaction.anim) drawRoute(interaction.anim.pts);   // стрелка траектории идущей армии
     paintArmies();
     if(moves.length) paintReachFrame([sel, ...moves.map(m => m.hex)]);   // зона хода: всё, что вне радиуса армии, затемняется (армии и флаги тоже)
     paintPartialLabel(partial);
@@ -3924,11 +4269,12 @@
   // ============================================================
   const infoRow = (label, value) => `<div class="infoRow"><span class="k">${label}</span><span>${value}</span></div>`;
 
-  const Panel = {
+  // Панель: фракции, выбранная клетка, действия и подсказки
+  class PanelView {
     // Список фракций: цвет, название, число клеток, запас и доход ресурсов
     players(){
       const list = document.getElementById('playerList');
-      list.innerHTML = game.players.map(player => {
+      list.innerHTML = game.factions.map(player => {
         const income = Economy.incomeOf(player.id);
         const stock = RES_KEYS.map(k => `${RESOURCES[k].icon}${player.res[k]}<small>+${income[k] || 0}</small>`).join(' ');
         const hint = RES_KEYS.map(k => `${RESOURCES[k].name} ${player.res[k]} (+${income[k] || 0})`).join(', ');
@@ -3936,11 +4282,11 @@
         return `<div class="playerRow ${player.alive ? '' : 'dead'}">
           <div class="swatch" style="background:${swatch}"></div>
           <div class="playerName">${player.name}</div>
-          <div class="playerHexes">${game.ownedCount(player.id)} клет.</div>
+          <div class="playerHexes">${game.map.ownedBy(player.id)} клет.</div>
           <div class="playerRes" title="Запас (доход за ход): ${hint}">${stock}</div>
         </div>`;
       }).join('');
-    },
+    }
 
     update(){
       this.players();
@@ -3975,12 +4321,12 @@
       if(recruit) recruit.onclick = () => Actions.recruit(h);
       const reinforce = document.getElementById('reinforceBtn');
       if(reinforce) reinforce.onclick = () => Actions.reinforce(h);
-    },
+    }
 
     // Вкладки: клетка (называется по местности), регион (по типу региона), армия.
     // Недоступная вкладка серая; если открытая стала недоступной — открывается клетка
     tabs(h, terrain){
-      const region = h.region !== undefined ? game.regions[h.region] : null;
+      const region = h.region !== undefined ? game.map.regions[h.region] : null;
       const tabs = [
         { id: 'cell', label: terrain.label, disabled: false },
         { id: 'region', label: region ? REGION_KINDS[region.kind].label : 'Регион', disabled: !region },
@@ -3990,13 +4336,13 @@
       return `<div class="tabs">${tabs.map(tab =>
         `<button class="tab ${game.mode === tab.id ? 'active' : ''}" data-tab="${tab.id}" ${tab.disabled ? 'disabled' : ''}>${tab.label}</button>`
       ).join('')}</div>`;
-    },
+    }
 
     body(h, terrain){
-      if(game.mode === 'region') return this.regionBody(game.regions[h.region]);
+      if(game.mode === 'region') return this.regionBody(game.map.regions[h.region]);
       if(game.mode === 'army') return this.armyBody(h);
       return this.cellBody(h, terrain);
-    },
+    }
 
     regionBody(region){
       const control = region.control(), total = {};
@@ -4004,27 +4350,27 @@
         const res = Economy.yieldOf(cell);
         RES_KEYS.forEach(k => { total[k] = (total[k] || 0) + (res[k] || 0); });
       });
-      const towns = game.settlements.filter(st => st.region === region.id && !st.district);
+      const towns = game.map.settlements.filter(st => st.region === region.id && !st.district);
       const controlText = control.owner === null
         ? 'никто'
-        : `${game.players[control.owner].name}: ${control.held.length} из ${region.cells.length}${control.full ? '' : ' (частично)'}`;
+        : `${game.factions[control.owner].name}: ${control.held.length} из ${region.cells.length}${control.full ? '' : ' (частично)'}`;
       return infoRow('Тип', REGION_KINDS[region.kind].label)
         + infoRow('Название', `«${region.name}»`)
         + infoRow('Клеток', region.cells.length)
         + infoRow('Контроль', controlText)
         + towns.map(st => infoRow('Поселение', `«${st.name}» · ${LEVEL_NAMES.village[st.level - 1]}`)).join('')
         + infoRow('Ресурсы региона', Economy.format(total));
-    },
+    }
 
     armyBody(h){
       const unit = h.unit;
       const state = unit.owner === 0 ? (unit.hasMoved ? 'ход использован' : 'готова к ходу') : 'чужая армия';
-      return infoRow('Владелец', game.players[unit.owner].name)
+      return infoRow('Владелец', game.factions[unit.owner].name)
         + infoRow('Сила', unit.strength)
         + infoRow('Состояние', state)
-        + infoRow('Стоит на', Economy.levelName(h) + (h.owner !== null ? ' · ' + game.players[h.owner].name : ''))
+        + infoRow('Стоит на', Economy.levelName(h) + (h.owner !== null ? ' · ' + game.factions[h.owner].name : ''))
         + infoRow('Оборона клетки', Combat.defenseOf(h));
-    },
+    }
 
     cellBody(h, terrain){
       const work = h.pending ? (['build', 'upgrade'].includes(h.pending.kind) ? 'идёт стройка' : 'идёт снос') : null;
@@ -4036,15 +4382,15 @@
       html += infoRow('Ресурсы', Economy.format(Economy.yieldOf(h)));
       if(work) html += infoRow('Работы', `${work} — завершится в конце хода`);
       if(building) html += infoRow('Здание', building);
-      if(h.ore) html += infoRow('Руда', `${h.ore === 'gold' ? 'Золото' : 'Железо'} — бонус соседним промышленным поселениям`);
+      if(h.object) html += infoRow('Руда', `${h.object.label} — бонус соседним промышленным поселениям`);
       html += infoRow('Оборона', Combat.defenseOf(h));
       html += infoRow('Местность даёт', `оборона +${terrain.defense || 0}, атака +${terrain.attack || 0}`);
-      html += infoRow('Владелец', h.owner !== null ? game.players[h.owner].name : '—');
-      if(h.occ !== undefined) html += infoRow('Оккупация', `${game.players[h.occ].name}: ресурсов нет, захват — на следующем ходу`);
+      html += infoRow('Владелец', h.owner !== null ? game.factions[h.owner].name : '—');
+      if(h.occ !== undefined) html += infoRow('Оккупация', `${game.factions[h.occ].name}: ресурсов нет, захват — на следующем ходу`);
       if(h.unit) html += infoRow('Отряд', `Армия, сила ${h.unit.strength}${h.unit.hasMoved ? ' (ход использован)' : ''}`);
       if(h.capital) html += infoRow('Статус', 'Столица');
       return html;
-    },
+    }
 
     // Кнопки действий: найм, усиление, подсказки и строительство (построить, улучшить, снести, вырубить лес)
     actions(h, terrain){
@@ -4069,11 +4415,12 @@
         ));
       }
       return { html: buttons.join(''), works };
-    },
-  };
+    }
+  }
+  const Panel = new PanelView();
 
   // ============================================================
-  //  9. ЗАПУСК (boot.js)
+  //  11. ЗАПУСК (boot.js)
   // ============================================================
   document.getElementById('endTurnBtn').addEventListener('click', endTurn);
   document.getElementById('themeBtn').textContent = Painter.theme==='dark' ? 'Стиль: тёмный' : 'Стиль: обычный';
@@ -4108,6 +4455,10 @@
     Loader.set(0.98, 'Собираем интерфейс');
     await nextFrame();
     if(first) setupCanvas(); else adoptWorld();
+    game.turns.presenter = ui.presenter();   // менеджер ходов говорит с интерфейсом через него
+    game.on(EVENTS.log, () => ui.renderLog());                    // журнал и экран итога — подписки на события партии
+    game.on(EVENTS.gameOver, ({ won, text }) => ui.overlay(won, text));
+    ui.renderLog();
     document.getElementById('roundLabel').textContent = 'Round 1';
     render();
     Panel.update();
